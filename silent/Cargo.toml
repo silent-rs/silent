@@ -63,5 +63,5 @@ cookie = { version = "0.18.0", features = ["secure", "percent-encode"] }
 pin-project-lite = "0.2.13"
 async-session = "3.0.0"
 tera = "1.19.1"
-http = "0.2.9"
+http = "1.0.0"
 http-body = "1.0.0-rc.2"
