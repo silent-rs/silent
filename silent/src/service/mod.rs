@@ -96,6 +96,8 @@ impl Server {
         root_route.set_configs(configs.clone());
         #[cfg(feature = "session")]
         root_route.check_session();
+        #[cfg(feature = "cookie")]
+        root_route.check_cookie();
         #[cfg(feature = "scheduler")]
         let scheduler = root_route.scheduler.clone();
         #[cfg(feature = "scheduler")]

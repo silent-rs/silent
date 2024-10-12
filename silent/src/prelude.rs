@@ -1,6 +1,6 @@
 pub use crate::configs::Configs;
 #[cfg(feature = "cookie")]
-pub use crate::core::cookie::CookieExt;
+pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "multipart")]
 pub use crate::core::form::{FilePart, FormData};
 pub use crate::core::{
@@ -39,6 +39,6 @@ pub use crate::ws::{Message, WebSocket, WebSocketHandler, WebSocketParts};
 #[cfg(feature = "session")]
 pub use async_session::{Session, SessionStore};
 #[cfg(feature = "cookie")]
-pub use cookie::{time as CookieTime, Cookie};
+pub use cookie::{time as CookieTime, Cookie, CookieJar, Key};
 pub use headers;
 pub use hyper::{header, upgrade, Method, StatusCode};

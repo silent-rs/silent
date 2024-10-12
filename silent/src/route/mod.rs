@@ -1,5 +1,3 @@
-#[cfg(feature = "session")]
-use async_session::Session;
 use async_trait::async_trait;
 use http::StatusCode;
 pub use root::RootRoute;
@@ -14,8 +12,6 @@ use crate::handler::Handler;
 use crate::middleware::MiddleWareHandler;
 #[cfg(feature = "static")]
 use crate::prelude::HandlerGetter;
-#[cfg(feature = "cookie")]
-use crate::CookieExt;
 use crate::{Method, Next, Request, Response, SilentError};
 
 pub(crate) mod handler_append;
@@ -191,16 +187,6 @@ impl Handler for Route {
             Some(handler) => {
                 let mut pre_res = Response::empty();
                 pre_res.configs = configs;
-                #[cfg(feature = "cookie")]
-                {
-                    pre_res.extensions_mut().insert(req.cookies().clone());
-                }
-                #[cfg(feature = "session")]
-                let session = req.extensions().get::<Session>().cloned();
-                #[cfg(feature = "session")]
-                if let Some(session) = session {
-                    pre_res.extensions.insert(session);
-                }
                 let mut active_middlewares = vec![];
                 for middleware in self.middlewares.iter().cloned() {
                     if middleware.match_req(&req).await {

@@ -1,4 +1,6 @@
 mod configs;
+#[cfg(feature = "cookie")]
+mod cookie;
 /// The `silent` library.
 mod core;
 mod error;
@@ -32,7 +34,7 @@ use multer;
 
 pub use crate::configs::Configs;
 #[cfg(feature = "cookie")]
-pub use crate::core::cookie::CookieExt;
+pub use crate::cookie::cookie_ext::CookieExt;
 pub use crate::core::{next::Next, request::Request, response::Response};
 #[cfg(feature = "grpc")]
 pub use crate::grpc::{GrpcHandler, GrpcRegister};

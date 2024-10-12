@@ -1,3 +1,5 @@
+#[cfg(feature = "cookie")]
+use crate::cookie::middleware::CookieMiddleware;
 use crate::middlewares::RequestTimeLogger;
 use crate::route::handler_match::{Match, RouteMatched};
 use crate::route::Route;
@@ -132,6 +134,10 @@ impl RootRoute {
         if !self.session_set {
             self.hook_first(SessionMiddleware::default())
         }
+    }
+    #[cfg(feature = "cookie")]
+    pub fn check_cookie(&mut self) {
+        self.hook_first(CookieMiddleware::new())
     }
 
     #[cfg(feature = "template")]
