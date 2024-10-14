@@ -9,7 +9,7 @@ pub trait SessionExt {
     /// Get `Session` mutable reference.
     fn sessions_mut(&mut self) -> &mut Session;
     /// Get `Session` from session.
-    fn session<K: AsRef<str>, V: DeserializeOwned>(&self, name: K) -> Option<V>;
+    fn session<V: DeserializeOwned>(&self, name: &str) -> Option<V>;
 }
 
 impl SessionExt for Request {
@@ -21,7 +21,7 @@ impl SessionExt for Request {
         self.extensions_mut().get_mut().unwrap()
     }
 
-    fn session<K: AsRef<str>, V: DeserializeOwned>(&self, name: K) -> Option<V> {
+    fn session<V: DeserializeOwned>(&self, name: &str) -> Option<V> {
         self.sessions().get(name.as_ref())
     }
 }
@@ -35,7 +35,7 @@ impl<B: Body> SessionExt for Response<B> {
         self.extensions_mut().get_mut().unwrap()
     }
 
-    fn session<K: AsRef<str>, V: DeserializeOwned>(&self, name: K) -> Option<V> {
+    fn session<V: DeserializeOwned>(&self, name: &str) -> Option<V> {
         self.sessions().get(name.as_ref())
     }
 }

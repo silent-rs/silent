@@ -4,7 +4,7 @@ use crate::middlewares::RequestTimeLogger;
 use crate::route::handler_match::{Match, RouteMatched};
 use crate::route::Route;
 #[cfg(feature = "session")]
-use crate::session::SessionMiddleware;
+use crate::session::middleware::SessionMiddleware;
 #[cfg(feature = "template")]
 use crate::templates::TemplateMiddleware;
 #[cfg(feature = "scheduler")]
