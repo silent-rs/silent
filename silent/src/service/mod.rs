@@ -1,21 +1,20 @@
+use crate::core::listener::ListenersBuilder;
 mod hyper_service;
 mod serve;
 
 use crate::Configs;
-use crate::core::listener::Listener;
+use crate::prelude::Listen;
 use crate::route::RouteService;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::{SCHEDULER, Scheduler, middleware::SchedulerMiddleware};
 use crate::service::serve::Serve;
 use std::net::SocketAddr;
-use tokio::net::{TcpListener, UnixListener};
+use std::path::Path;
 use tokio::signal;
 use tokio::task::JoinSet;
 
 pub struct Server {
-    addr: Option<SocketAddr>,
-    path: Option<String>,
-    listener: Option<Listener>,
+    listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     configs: Option<Configs>,
 }
@@ -29,9 +28,7 @@ impl Default for Server {
 impl Server {
     pub fn new() -> Self {
         Self {
-            addr: None,
-            path: None,
-            listener: None,
+            listeners_builder: ListenersBuilder::new(),
             shutdown_callback: None,
             configs: None,
         }
@@ -51,19 +48,19 @@ impl Server {
 
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
-        self.addr = Some(addr);
+        self.listeners_builder.bind(addr);
         self
     }
 
     #[inline]
-    pub fn bind_unix<P: Into<String>>(mut self, path: P) -> Self {
-        self.path = Some(path.into());
+    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.listeners_builder.bind_unix(path);
         self
     }
 
     #[inline]
-    pub fn listen<T: Into<Listener>>(mut self, listener: T) -> Self {
-        self.listener = Some(listener.into());
+    pub fn listen<T: Listen + Send + Sync + 'static>(mut self, listener: T) -> Self {
+        self.listeners_builder.add_listener(Box::new(listener));
         self
     }
 
@@ -80,36 +77,15 @@ impl Server {
         S: RouteService,
     {
         let Self {
-            listener,
+            listeners_builder,
             configs,
-            addr,
-            path,
             ..
         } = self;
 
-        let listener = match listener {
-            None => match (addr, path.clone()) {
-                (None, None) => Listener::TokioListener(
-                    TcpListener::bind("127.0.0.1:0")
-                        .await
-                        .expect("failed to listen"),
-                ),
-                (Some(addr), _) => Listener::TokioListener(
-                    TcpListener::bind(addr)
-                        .await
-                        .unwrap_or_else(|_| panic!("failed to listen {}", addr)),
-                ),
-                (None, Some(path)) => {
-                    let _ = tokio::fs::remove_file(&path).await;
-                    Listener::TokioUnixListener(
-                        UnixListener::bind(path.clone())
-                            .unwrap_or_else(|_| panic!("failed to listen {}", path)),
-                    )
-                }
-            },
-            Some(listener) => listener,
-        };
-        tracing::info!("listening on: {:?}", listener.local_addr().unwrap());
+        let mut listener = listeners_builder.listen().expect("failed to listen");
+        for addr in listener.local_addrs().iter() {
+            tracing::info!("listening on: {:?}", addr);
+        }
         let mut root_route = service.route();
         root_route.set_configs(configs.clone());
         #[cfg(feature = "session")]
@@ -146,10 +122,10 @@ impl Server {
                     if let Some(ref callback) = self.shutdown_callback { callback() };
                     break;
                 }
-                s = listener.accept() =>{
+                Some(s) = listener.accept() =>{
                     match s{
                         Ok((stream, peer_addr)) => {
-                            tracing::info!("Accepting from: {}", stream.peer_addr().unwrap());
+                            tracing::info!("Accepting from: {}", peer_addr);
                             let routes = root_route.clone();
                             join_set.spawn(async move {
                                 if let Err(err) = Serve::new(routes).call(stream,peer_addr).await {

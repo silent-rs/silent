@@ -13,7 +13,7 @@ async fn main() {
             count: AtomicUsize::new(0),
         }),
     );
-    let listener = TcpListener::bind("127.0.0.1:8000").await.unwrap();
+    let listener: Listener = TcpListener::bind("127.0.0.1:8000").await.unwrap().into();
     Server::new().listen(listener).serve(route).await;
 }
 

@@ -1,5 +1,6 @@
 pub mod adapt;
 
+pub(crate) mod connection;
 #[cfg(feature = "multipart")]
 pub(crate) mod form;
 pub(crate) mod listener;

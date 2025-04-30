@@ -1,5 +1,5 @@
+use crate::core::connection::Connection;
 use crate::core::socket_addr::SocketAddr;
-use crate::core::stream::Stream;
 use crate::route::RootRoute;
 use crate::service::hyper_service::HyperServiceHandler;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -18,9 +18,9 @@ impl Serve {
             builder: Builder::new(TokioExecutor::new()),
         }
     }
-    pub(crate) async fn call(
+    pub(crate) async fn call<S: Connection + Send + Sync + 'static>(
         &self,
-        stream: Stream,
+        stream: S,
         peer_addr: SocketAddr,
     ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         let io = TokioIo::new(stream);
