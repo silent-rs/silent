@@ -13,8 +13,8 @@ use http::{Extensions, HeaderMap, HeaderValue, Method, Uri, Version};
 use http::{Request as BaseRequest, StatusCode};
 use http_body_util::BodyExt;
 use mime::Mime;
-use serde::Deserialize;
 use serde::de::StdError;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::OnceCell;
@@ -293,7 +293,9 @@ impl Request {
     #[cfg(feature = "multipart")]
     #[inline]
     pub async fn form_data(&mut self) -> Result<&FormData> {
-        let content_type = self.content_type().ok_or(SilentError::ContentTypeError)?;
+        let content_type = self
+            .content_type()
+            .ok_or(SilentError::ContentTypeMissingError)?;
         if content_type.subtype() != mime::FORM_DATA {
             return Err(SilentError::ContentTypeError);
         }
@@ -343,17 +345,22 @@ impl Request {
     pub async fn json_parse<T>(&mut self) -> Result<T>
     where
         for<'de> T: Deserialize<'de>,
+        T: Serialize,
     {
         let body = self.take_body();
-        let content_type = self.content_type().ok_or(SilentError::ContentTypeError)?;
-        if content_type.subtype() != mime::JSON {
+        let content_type = self
+            .content_type()
+            .ok_or(SilentError::ContentTypeMissingError)?;
+        if content_type.subtype() != mime::JSON
+            && content_type.subtype() != mime::WWW_FORM_URLENCODED
+        {
             return Err(SilentError::ContentTypeError);
         }
-        match body {
-            ReqBody::Incoming(body) => {
-                let value = self
-                    .json_data
-                    .get_or_try_init(|| async {
+        let value = self
+            .json_data
+            .get_or_try_init(|| async {
+                let value = match body {
+                    ReqBody::Incoming(body) => {
                         let bytes = body
                             .collect()
                             .await
@@ -362,20 +369,28 @@ impl Request {
                         if bytes.is_empty() {
                             return Err(SilentError::JsonEmpty);
                         }
-                        serde_json::from_slice(&bytes).map_err(|e| e.into())
-                    })
-                    .await?;
-                Ok(serde_json::from_value(value.to_owned())?)
-            }
-            ReqBody::Once(bytes) => match content_type.subtype() {
-                mime::WWW_FORM_URLENCODED => {
-                    serde_html_form::from_bytes(&bytes).map_err(SilentError::from)
-                }
-                mime::JSON => serde_json::from_slice(&bytes).map_err(|e| e.into()),
-                _ => Err(SilentError::JsonEmpty),
-            },
-            ReqBody::Empty => Err(SilentError::BodyEmpty),
-        }
+                        match content_type.subtype() {
+                            mime::WWW_FORM_URLENCODED => {
+                                serde_html_form::from_bytes::<T>(&bytes).map_err(SilentError::from)
+                            }
+                            mime::JSON => serde_json::from_slice::<T>(&bytes).map_err(|e| e.into()),
+                            _ => Err(SilentError::JsonEmpty),
+                        }
+                    }
+                    ReqBody::Once(bytes) => match content_type.subtype() {
+                        mime::WWW_FORM_URLENCODED => {
+                            serde_html_form::from_bytes(&bytes).map_err(SilentError::from)
+                        }
+                        mime::JSON => serde_json::from_slice(&bytes).map_err(|e| e.into()),
+                        _ => Err(SilentError::JsonEmpty),
+                    },
+                    ReqBody::Empty => Err(SilentError::BodyEmpty),
+                }?;
+                serde_json::to_value(&value).map_err(|e| e.into())
+            })
+            .await?
+            .clone();
+        serde_json::from_value(value).map_err(Into::into)
     }
 
     /// 转换body参数按Json匹配

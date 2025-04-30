@@ -14,12 +14,13 @@ struct Input {
     email: String,
 }
 
-async fn accept_form(mut req: Request) -> Result<Option<Input>> {
+async fn accept_form(mut req: Request) -> Result<Input> {
     req.json_parse().await
 }
 
-async fn show_form(_req: Request) -> Result<&'static str> {
-    Ok(r#"
+async fn show_form(_req: Request) -> Result<Response> {
+    Ok(Response::html(
+        r#"
         <!doctype html>
         <html>
             <head></head>
@@ -39,5 +40,6 @@ async fn show_form(_req: Request) -> Result<&'static str> {
                 </form>
             </body>
         </html>
-        "#)
+        "#,
+    ))
 }

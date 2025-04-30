@@ -38,9 +38,12 @@ pub enum SilentError {
     /// Json为空 错误
     #[error("json is empty")]
     JsonEmpty,
-    /// Json为空 错误
+    /// Content-Type 错误
     #[error("content-type is error")]
     ContentTypeError,
+    /// Content-Type 缺失错误
+    #[error("content-type is missing")]
+    ContentTypeMissingError,
     /// Params为空 错误
     #[error("params is empty")]
     ParamsEmpty,
