@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -40,7 +40,7 @@ enum Message {
     Reply(String),
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct Msg {
     msg: String,
 }

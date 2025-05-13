@@ -16,7 +16,7 @@ version.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
 default = ["server", "test", ]
-full = ["admin", "server", "multipart", "upgrade", "sse", "security", "static", "session", "cookie", "template", "test", "scheduler", "grpc"]
+full = ["admin", "server", "multipart", "upgrade", "sse", "security", "static", "session", "cookie", "template", "test", "scheduler", "grpc", "tls"]
 admin = ["server", "sse", "template", "session"]
 server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
 upgrade = ["dep:tokio-tungstenite"]
@@ -31,6 +31,7 @@ template = ["dep:tera"]
 test = ["tokio/macros", "tokio/rt"]
 scheduler = ["dep:cron"]
 grpc = ["upgrade", "dep:tonic", "dep:pin-project-lite", "dep:pin-project", "dep:tokio-stream"]
+tls = ["dep:tokio-rustls"]
 
 [dependencies]
 # Basic dependencies
@@ -89,3 +90,6 @@ aes-gcm = { version = "0.10.3", optional = true }
 aes = { version = "0.8", optional = true }
 rsa = { version = "0.9.8", optional = true }
 mime_guess = "2.0.5"
+
+# tls
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"] }

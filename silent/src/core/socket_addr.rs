@@ -1,17 +1,32 @@
 use std::fmt::{Debug, Display, Formatter};
+use std::io::Result;
 use std::str::FromStr;
 
 #[derive(Clone)]
 pub enum SocketAddr {
-    TcpSocketAddr(std::net::SocketAddr),
-    UnixSocketAddr(std::os::unix::net::SocketAddr),
+    Tcp(std::net::SocketAddr),
+    #[cfg(feature = "tls")]
+    TlsTcp(std::net::SocketAddr),
+    Unix(std::os::unix::net::SocketAddr),
+}
+
+impl SocketAddr {
+    #[cfg(feature = "tls")]
+    pub(crate) fn tls(self) -> Result<Self> {
+        match self {
+            SocketAddr::Tcp(addr) => Ok(SocketAddr::TlsTcp(addr)),
+            _ => Ok(self),
+        }
+    }
 }
 
 impl Debug for SocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SocketAddr::TcpSocketAddr(addr) => write!(f, "http://{}", addr),
-            SocketAddr::UnixSocketAddr(addr) => write!(f, "UnixSocketAddr({:?})", addr),
+            SocketAddr::Tcp(addr) => write!(f, "http://{}", addr),
+            #[cfg(feature = "tls")]
+            SocketAddr::TlsTcp(addr) => write!(f, "https://{}", addr),
+            SocketAddr::Unix(addr) => write!(f, "UnixSocketAddr({:?})", addr),
         }
     }
 }
@@ -20,8 +35,10 @@ impl Display for SocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             #[allow(clippy::write_literal)]
-            SocketAddr::TcpSocketAddr(addr) => write!(f, "{}", addr),
-            SocketAddr::UnixSocketAddr(addr) => {
+            SocketAddr::Tcp(addr) => write!(f, "{}", addr),
+            #[cfg(feature = "tls")]
+            SocketAddr::TlsTcp(addr) => write!(f, "{}", addr),
+            SocketAddr::Unix(addr) => {
                 write!(f, "{:?}", addr.as_pathname())
             }
         }
@@ -30,24 +47,24 @@ impl Display for SocketAddr {
 
 impl From<std::net::SocketAddr> for SocketAddr {
     fn from(addr: std::net::SocketAddr) -> Self {
-        SocketAddr::TcpSocketAddr(addr)
+        SocketAddr::Tcp(addr)
     }
 }
 
 impl From<std::os::unix::net::SocketAddr> for SocketAddr {
     fn from(addr: std::os::unix::net::SocketAddr) -> Self {
-        SocketAddr::UnixSocketAddr(addr)
+        SocketAddr::Unix(addr)
     }
 }
 
 impl FromStr for SocketAddr {
     type Err = std::io::Error;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> Result<Self> {
         if let Ok(addr) = s.parse::<std::net::SocketAddr>() {
-            Ok(SocketAddr::TcpSocketAddr(addr))
+            Ok(SocketAddr::Tcp(addr))
         } else if let Ok(addr) = std::os::unix::net::SocketAddr::from_pathname(s) {
-            Ok(SocketAddr::UnixSocketAddr(addr))
+            Ok(SocketAddr::Unix(addr))
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,

@@ -56,7 +56,7 @@ async fn todos_index(mut req: Request) -> Result<Vec<Todo>> {
     Ok(todos)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CreateTodo {
     text: String,
 }
@@ -76,7 +76,7 @@ async fn todos_create(mut req: Request) -> Result<Todo> {
     Ok(todo)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct UpdateTodo {
     text: Option<String>,
     completed: Option<bool>,

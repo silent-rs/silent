@@ -15,7 +15,7 @@ impl Stream {
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         match self {
             Stream::TcpStream(s) => Ok(s.peer_addr()?.into()),
-            Stream::UnixStream(s) => Ok(SocketAddr::UnixSocketAddr(s.peer_addr()?.into())),
+            Stream::UnixStream(s) => Ok(SocketAddr::Unix(s.peer_addr()?.into())),
         }
     }
 }
@@ -59,3 +59,5 @@ impl AsyncWrite for Stream {
         }
     }
 }
+
+impl Unpin for Stream {}

@@ -1,0 +1,13 @@
+[package]
+name = "example-tls"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+silent = { path = "../../silent", features = ["tls"] }
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26.2" }
+rustls = { version = "0.23.26" }

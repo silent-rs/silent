@@ -29,7 +29,7 @@ mod unix {
 
         tokio::spawn(async move {
             let route = Route::new("").get(handler);
-            let listener = UnixListener::bind(listener_path).unwrap();
+            let listener: Listener = UnixListener::bind(listener_path).unwrap().into();
 
             Server::new().listen(listener).serve(route).await;
             // Server::new().bind_unix(listener_path).serve(route).await;
