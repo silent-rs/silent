@@ -1,8 +1,8 @@
 <div align="center">
 <h1>Silent</h1>
 <p>
-<a href="https://github.com/hubertshelley/silent/actions">
-    <img alt="build status" src="https://github.com/hubertshelley/silent/actions/workflows/build.yml/badge.svg" />
+<a href="https://github.com/silent-rs/silent/actions">
+    <img alt="build status" src="https://github.com/silent-rs/silent/actions/workflows/build.yml/badge.svg" />
 </a>
 <br/>
 <a href="https://crates.io/crates/silent"><img alt="crates.io" src="https://img.shields.io/crates/v/silent" /></a>
