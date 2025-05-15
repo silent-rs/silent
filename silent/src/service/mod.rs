@@ -9,6 +9,7 @@ use crate::route::RouteService;
 use crate::scheduler::{SCHEDULER, Scheduler, middleware::SchedulerMiddleware};
 use crate::service::serve::Serve;
 use std::net::SocketAddr;
+#[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use tokio::signal;
 use tokio::task::JoinSet;
@@ -52,6 +53,7 @@ impl Server {
         self
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[inline]
     pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
         self.listeners_builder.bind_unix(path);

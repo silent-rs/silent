@@ -4,6 +4,7 @@ use crate::core::connection::Connection;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
 use std::io::Result;
+#[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::pin::Pin;
 #[cfg(feature = "tls")]
@@ -20,6 +21,7 @@ pub trait Listen: Send + Sync {
 
 pub enum Listener {
     TcpListener(tokio::net::TcpListener),
+    #[cfg(not(target_os = "windows"))]
     UnixListener(tokio::net::UnixListener),
 }
 
@@ -34,6 +36,7 @@ impl From<std::net::TcpListener> for Listener {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl From<std::os::unix::net::UnixListener> for Listener {
     fn from(value: std::os::unix::net::UnixListener) -> Self {
         Listener::UnixListener(
@@ -48,6 +51,7 @@ impl From<tokio::net::TcpListener> for Listener {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl From<tokio::net::UnixListener> for Listener {
     fn from(value: tokio::net::UnixListener) -> Self {
         Listener::UnixListener(value)
@@ -67,6 +71,7 @@ impl Listen for Listener {
                 };
                 Box::pin(accept_future)
             }
+            #[cfg(not(target_os = "windows"))]
             Listener::UnixListener(listener) => {
                 let accept_future = async move {
                     let (stream, addr) = listener.accept().await?;
@@ -83,6 +88,7 @@ impl Listen for Listener {
     fn local_addr(&self) -> Result<SocketAddr> {
         match self {
             Listener::TcpListener(listener) => listener.local_addr().map(SocketAddr::Tcp),
+            #[cfg(not(target_os = "windows"))]
             Listener::UnixListener(listener) => Ok(SocketAddr::Unix(listener.local_addr()?.into())),
         }
     }
@@ -150,6 +156,7 @@ impl ListenersBuilder {
         )));
     }
 
+    #[cfg(not(target_os = "windows"))]
     pub fn bind_unix<P: AsRef<Path>>(&mut self, path: P) {
         self.listeners.push(Box::new(Listener::from(
             std::os::unix::net::UnixListener::bind(path).expect("failed to bind listener"),
