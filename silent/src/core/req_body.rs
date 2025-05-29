@@ -1,4 +1,4 @@
-use std::io::{Error as IoError, ErrorKind};
+use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -41,9 +41,7 @@ impl Body for ReqBody {
         match &mut *self {
             ReqBody::Empty => Poll::Ready(None),
             ReqBody::Once(bytes) => Poll::Ready(Some(Ok(Frame::data(bytes.clone())))),
-            ReqBody::Incoming(body) => Pin::new(body)
-                .poll_frame(cx)
-                .map_err(|e| IoError::new(ErrorKind::Other, e)),
+            ReqBody::Incoming(body) => Pin::new(body).poll_frame(cx).map_err(IoError::other),
         }
     }
 
@@ -70,7 +68,7 @@ impl Stream for ReqBody {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match Body::poll_frame(self, cx) {
             Poll::Ready(Some(Ok(frame))) => Poll::Ready(frame.into_data().map(Ok).ok()),
-            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(IoError::new(ErrorKind::Other, e)))),
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(IoError::other(e)))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }

@@ -10,4 +10,4 @@ publish = false
 silent = { path = "../../silent", features = ["tls"] }
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "0.26.2" }
-rustls = { version = "0.23.26" }
+rustls = { version = "0.23" }

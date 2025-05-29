@@ -3,6 +3,7 @@ use crate::ws::message::Message;
 use crate::ws::upgrade::{Upgraded, WebSocketParts};
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
+use anyhow::anyhow;
 use async_trait::async_trait;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
@@ -56,7 +57,10 @@ impl WebSocket {
     /// Send a message.
     #[allow(dead_code)]
     pub async fn send(&mut self, msg: Message) -> Result<()> {
-        self.upgrade.send(msg.inner).await.map_err(|e| e.into())
+        self.upgrade
+            .send(msg.inner)
+            .await
+            .map_err(|e| anyhow!("send error: {}", e).into())
     }
 
     /// Gracefully close this websocket.
@@ -74,28 +78,28 @@ impl Sink<Message> for WebSocket {
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         Pin::new(&mut self.upgrade)
             .poll_ready(cx)
-            .map_err(|e| e.into())
+            .map_err(|e| anyhow!("poll_ready error: {}", e).into())
     }
 
     #[inline]
     fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<()> {
         Pin::new(&mut self.upgrade)
             .start_send(item.inner)
-            .map_err(|e| e.into())
+            .map_err(|e| anyhow!("start_send error: {}", e).into())
     }
 
     #[inline]
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<()>> {
         Pin::new(&mut self.upgrade)
             .poll_flush(cx)
-            .map_err(|e| e.into())
+            .map_err(|e| anyhow!("poll_flush error: {}", e).into())
     }
 
     #[inline]
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<()>> {
         Pin::new(&mut self.upgrade)
             .poll_close(cx)
-            .map_err(|e| e.into())
+            .map_err(|e| anyhow!("poll_close error: {}", e).into())
     }
 }
 
@@ -200,7 +204,7 @@ where
         let (tx, mut rx) = unbounded_channel();
         debug!("on_connect: {:?}", parts);
         if let Some(on_connect) = on_connect {
-            on_connect(parts.clone(), tx.clone()).await.unwrap();
+            on_connect(parts.clone(), tx.clone()).await?;
         }
         let sender_parts = parts.clone();
         let receiver_parts = parts;
@@ -253,7 +257,7 @@ impl Stream for WebSocket {
             Some(Ok(item)) => Poll::Ready(Some(Ok(Message { inner: item }))),
             Some(Err(e)) => {
                 debug!("websocket poll error: {}", e);
-                Poll::Ready(Some(Err(e.into())))
+                Poll::Ready(Some(Err(anyhow!("websocket poll error: {}", e).into())))
             }
             None => {
                 debug!("websocket closed");

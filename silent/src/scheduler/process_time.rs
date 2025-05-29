@@ -6,7 +6,7 @@ use std::str::FromStr;
 #[derive(Debug, Clone)]
 pub enum ProcessTime {
     Datetime(DateTime<Local>),
-    Crontab(Schedule),
+    Crontab(Box<Schedule>),
 }
 
 impl Serialize for ProcessTime {
@@ -27,7 +27,7 @@ impl TryFrom<String> for ProcessTime {
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match DateTime::<Local>::from_str(&value) {
             Ok(datetime) => Ok(ProcessTime::Datetime(datetime)),
-            Err(_) => Ok(ProcessTime::Crontab(Schedule::from_str(&value)?)),
+            Err(_) => Ok(ProcessTime::Crontab(Box::from(Schedule::from_str(&value)?))),
         }
     }
 }
@@ -38,7 +38,7 @@ impl TryFrom<&str> for ProcessTime {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match DateTime::<Local>::from_str(value) {
             Ok(datetime) => Ok(ProcessTime::Datetime(datetime)),
-            Err(_) => Ok(ProcessTime::Crontab(Schedule::from_str(value)?)),
+            Err(_) => Ok(ProcessTime::Crontab(Box::from(Schedule::from_str(value)?))),
         }
     }
 }
@@ -82,9 +82,11 @@ mod tests {
         assert!(!process_time.is_active());
         let process_time = ProcessTime::try_from(datetime).unwrap();
         assert!(process_time.is_active());
-        let process_time = ProcessTime::Crontab(Schedule::from_str("* * * * * *").unwrap());
+        let process_time =
+            ProcessTime::Crontab(Box::from(Schedule::from_str("* * * * * *").unwrap()));
         assert!(process_time.is_active());
-        let process_time = ProcessTime::Crontab(Schedule::from_str("0 0 0 1 1 ? 2015").unwrap());
+        let process_time =
+            ProcessTime::Crontab(Box::from(Schedule::from_str("0 0 0 1 1 ? 2015").unwrap()));
         assert!(!process_time.is_active());
         assert!(ProcessTime::try_from("2023-01-01T00:00:00Z".to_string()).is_ok());
         assert!(ProcessTime::try_from("2023-01-01 00:00:00").is_err());

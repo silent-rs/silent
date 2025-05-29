@@ -22,6 +22,7 @@ pub trait ResponseAdapt {
     fn tran_from_response(res: Response<Self::Body>) -> Self;
 }
 
+#[allow(clippy::result_large_err)]
 #[cfg(feature = "cookie")]
 fn get_cookie(req: &HyperRequest<ReqBody>) -> Result<CookieJar, SilentError> {
     let mut jar = CookieJar::new();
