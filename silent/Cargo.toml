@@ -52,7 +52,7 @@ serde_html_form = "0.2"
 mime = "0.3"
 futures-util = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-tokio-tungstenite = { version = "0.26", optional = true }
+tokio-tungstenite = { version = "0.27", optional = true }
 headers = "0.4"
 tokio-stream = { version = "0.1", features = ["net"], optional = true }
 pin-project = { version = "1", optional = true }
