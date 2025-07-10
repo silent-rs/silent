@@ -8,3 +8,4 @@ py_env/
 build_rs_cov.profraw
 !.keep
 certs/
+.history/

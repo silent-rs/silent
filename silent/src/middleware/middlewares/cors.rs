@@ -163,7 +163,7 @@ impl MiddleWareHandler for Cors {
             if origin.is_empty() {
                 return Err(SilentError::business_error(
                     http::StatusCode::FORBIDDEN,
-                    format!("Cors: Origin \"{}\" is not allowed", req_origin),
+                    format!("Cors: Origin \"{req_origin}\" is not allowed"),
                 ));
             }
             res.headers_mut().insert(
@@ -171,7 +171,7 @@ impl MiddleWareHandler for Cors {
                 origin.parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow origin: {}", e),
+                        format!("Cors: Failed to parse cors allow origin: {e}"),
                     )
                 })?,
             );
@@ -182,7 +182,7 @@ impl MiddleWareHandler for Cors {
                 methods.get_value().parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow methods: {}", e),
+                        format!("Cors: Failed to parse cors allow methods: {e}"),
                     )
                 })?,
             );
@@ -193,7 +193,7 @@ impl MiddleWareHandler for Cors {
                 headers.get_value().parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow headers: {}", e),
+                        format!("Cors: Failed to parse cors allow headers: {e}"),
                     )
                 })?,
             );
@@ -204,7 +204,7 @@ impl MiddleWareHandler for Cors {
                 credentials.to_string().parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow credentials: {}", e),
+                        format!("Cors: Failed to parse cors allow credentials: {e}"),
                     )
                 })?,
             );
@@ -215,7 +215,7 @@ impl MiddleWareHandler for Cors {
                 max_age.to_string().parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors max age: {}", e),
+                        format!("Cors: Failed to parse cors max age: {e}"),
                     )
                 })?,
             );
@@ -226,7 +226,7 @@ impl MiddleWareHandler for Cors {
                 expose.get_value().parse().map_err(|e| {
                     SilentError::business_error(
                         http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors expose headers: {}", e),
+                        format!("Cors: Failed to parse cors expose headers: {e}"),
                     )
                 })?,
             );

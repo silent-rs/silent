@@ -49,7 +49,7 @@ impl Default for Route {
 impl fmt::Debug for Route {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fn get_route_str(pre_fix: String, route: &Route) -> String {
-            let space_pre_fix = format!("    {}", pre_fix);
+            let space_pre_fix = format!("    {pre_fix}");
             let mut route_strs: Vec<String> = route
                 .children
                 .iter()

@@ -30,10 +30,10 @@ impl fmt::Debug for RootRoute {
         let path = self
             .children
             .iter()
-            .map(|route| format!("{:?}", route))
+            .map(|route| format!("{route:?}"))
             .collect::<Vec<String>>()
             .join("\n");
-        write!(f, "{}", path)
+        write!(f, "{path}")
     }
 }
 

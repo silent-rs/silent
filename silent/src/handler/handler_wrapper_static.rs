@@ -23,7 +23,7 @@ impl HandlerWrapperStatic {
             path = &path[..path.len() - 1];
         }
         if !std::path::Path::new(path).is_dir() {
-            panic!("Path not exists: {}", path);
+            panic!("Path not exists: {path}");
         }
         Self {
             path: path.to_string(),
@@ -100,13 +100,13 @@ mod tests {
     fn create_static(path: &str) {
         if !std::path::Path::new(path).is_dir() {
             std::fs::create_dir(path).unwrap();
-            std::fs::write(format!("./{}/index.html", path), CONTENT).unwrap();
+            std::fs::write(format!("./{path}/index.html"), CONTENT).unwrap();
         }
     }
 
     fn clean_static(path: &str) {
         if std::path::Path::new(path).is_dir() {
-            std::fs::remove_file(format!("./{}/index.html", path)).unwrap();
+            std::fs::remove_file(format!("./{path}/index.html")).unwrap();
             std::fs::remove_dir(path).unwrap();
         }
     }

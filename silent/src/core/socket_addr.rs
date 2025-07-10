@@ -7,6 +7,7 @@ pub enum SocketAddr {
     Tcp(std::net::SocketAddr),
     #[cfg(feature = "tls")]
     TlsTcp(std::net::SocketAddr),
+    #[cfg(not(target_os = "windows"))]
     Unix(std::os::unix::net::SocketAddr),
 }
 
@@ -23,10 +24,11 @@ impl SocketAddr {
 impl Debug for SocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SocketAddr::Tcp(addr) => write!(f, "http://{}", addr),
+            SocketAddr::Tcp(addr) => write!(f, "http://{addr}"),
             #[cfg(feature = "tls")]
-            SocketAddr::TlsTcp(addr) => write!(f, "https://{}", addr),
-            SocketAddr::Unix(addr) => write!(f, "UnixSocketAddr({:?})", addr),
+            SocketAddr::TlsTcp(addr) => write!(f, "https://{addr}"),
+            #[cfg(not(target_os = "windows"))]
+            SocketAddr::Unix(addr) => write!(f, "UnixSocketAddr({addr:?})"),
         }
     }
 }
@@ -35,9 +37,10 @@ impl Display for SocketAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             #[allow(clippy::write_literal)]
-            SocketAddr::Tcp(addr) => write!(f, "{}", addr),
+            SocketAddr::Tcp(addr) => write!(f, "{addr}"),
             #[cfg(feature = "tls")]
-            SocketAddr::TlsTcp(addr) => write!(f, "{}", addr),
+            SocketAddr::TlsTcp(addr) => write!(f, "{addr}"),
+            #[cfg(not(target_os = "windows"))]
             SocketAddr::Unix(addr) => {
                 write!(f, "{:?}", addr.as_pathname())
             }
@@ -51,6 +54,7 @@ impl From<std::net::SocketAddr> for SocketAddr {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl From<std::os::unix::net::SocketAddr> for SocketAddr {
     fn from(addr: std::os::unix::net::SocketAddr) -> Self {
         SocketAddr::Unix(addr)
@@ -60,6 +64,7 @@ impl From<std::os::unix::net::SocketAddr> for SocketAddr {
 impl FromStr for SocketAddr {
     type Err = std::io::Error;
 
+    #[cfg(not(target_os = "windows"))]
     fn from_str(s: &str) -> Result<Self> {
         if let Ok(addr) = s.parse::<std::net::SocketAddr>() {
             Ok(SocketAddr::Tcp(addr))
@@ -72,24 +77,39 @@ impl FromStr for SocketAddr {
             ))
         }
     }
+    #[cfg(target_os = "windows")]
+    fn from_str(s: &str) -> Result<Self> {
+        if let Ok(addr) = s.parse::<std::net::SocketAddr>() {
+            Ok(SocketAddr::Tcp(addr))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid socket address",
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::core::socket_addr::SocketAddr;
-    use std::path::Path;
 
     #[test]
-    fn test_socket_addr() {
+    fn test_tcp_socket_addr() {
         let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 8080));
         let socket_addr = SocketAddr::from(addr);
-        assert_eq!(format!("{}", socket_addr), "127.0.0.1:8080");
+        assert_eq!(format!("{socket_addr}"), "127.0.0.1:8080");
+    }
 
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_unix_socket_addr() {
+        use std::path::Path;
         let _ = std::fs::remove_file("/tmp/sock");
         let addr = std::os::unix::net::SocketAddr::from_pathname("/tmp/sock").unwrap();
         let socket_addr = SocketAddr::from(addr);
         assert_eq!(
-            format!("{}", socket_addr),
+            format!("{socket_addr}"),
             format!("{:?}", Some(Path::new("/tmp/sock")))
         );
     }

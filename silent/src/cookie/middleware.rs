@@ -22,7 +22,7 @@ impl MiddleWareHandler for CookieMiddleware {
                 .map_err(|e| {
                     SilentError::business_error(
                         StatusCode::BAD_REQUEST,
-                        format!("Failed to parse cookie: {}", e),
+                        format!("Failed to parse cookie: {e}"),
                     )
                 })?
                 .split(';')

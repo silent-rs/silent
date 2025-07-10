@@ -51,14 +51,14 @@ impl MiddleWareHandler for TemplateMiddleware {
                     &Context::from_serialize(&template.data).map_err(|e| {
                         SilentError::business_error(
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Failed to render template: {}", e),
+                            format!("Failed to render template: {e}"),
                         )
                     })?,
                 )
                 .map_err(|e| {
                     SilentError::business_error(
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Failed to render template: {}", e),
+                        format!("Failed to render template: {e}"),
                     )
                 })?
                 .into(),

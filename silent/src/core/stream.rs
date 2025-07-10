@@ -4,10 +4,13 @@ use std::io::Error;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio::net::{TcpStream, UnixStream};
+use tokio::net::TcpStream;
+#[cfg(not(target_os = "windows"))]
+use tokio::net::UnixStream;
 
 pub enum Stream {
     TcpStream(TcpStream),
+    #[cfg(not(target_os = "windows"))]
     UnixStream(UnixStream),
 }
 
@@ -15,6 +18,7 @@ impl Stream {
     pub fn peer_addr(&self) -> io::Result<SocketAddr> {
         match self {
             Stream::TcpStream(s) => Ok(s.peer_addr()?.into()),
+            #[cfg(not(target_os = "windows"))]
             Stream::UnixStream(s) => Ok(SocketAddr::Unix(s.peer_addr()?.into())),
         }
     }
@@ -28,6 +32,7 @@ impl AsyncRead for Stream {
     ) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Stream::TcpStream(s) => Pin::new(s).poll_read(cx, buf),
+            #[cfg(not(target_os = "windows"))]
             Stream::UnixStream(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
@@ -41,6 +46,7 @@ impl AsyncWrite for Stream {
     ) -> Poll<Result<usize, Error>> {
         match self.get_mut() {
             Stream::TcpStream(s) => Pin::new(s).poll_write(cx, buf),
+            #[cfg(not(target_os = "windows"))]
             Stream::UnixStream(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
@@ -48,6 +54,7 @@ impl AsyncWrite for Stream {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.get_mut() {
             Stream::TcpStream(s) => Pin::new(s).poll_flush(cx),
+            #[cfg(not(target_os = "windows"))]
             Stream::UnixStream(s) => Pin::new(s).poll_flush(cx),
         }
     }
@@ -55,6 +62,7 @@ impl AsyncWrite for Stream {
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         match self.get_mut() {
             Stream::TcpStream(s) => Pin::new(s).poll_shutdown(cx),
+            #[cfg(not(target_os = "windows"))]
             Stream::UnixStream(s) => Pin::new(s).poll_shutdown(cx),
         }
     }

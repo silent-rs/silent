@@ -62,7 +62,7 @@ impl Response {
             url.parse().map_err(|e| {
                 SilentError::business_error(
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("redirect error: {}", e),
+                    format!("redirect error: {e}"),
                 )
             })?,
         );

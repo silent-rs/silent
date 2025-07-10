@@ -122,7 +122,7 @@ impl FilePart {
     pub fn save(&self, path: String) -> Result<u64, SilentError> {
         std::fs::copy(self.path(), Path::new(&path)).map_err(|e| SilentError::BusinessError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
-            msg: format!("Failed to save file: {}", e),
+            msg: format!("Failed to save file: {e}"),
         })
     }
 
@@ -130,18 +130,18 @@ impl FilePart {
     /// deleted once the FilePart object goes out of scope).
     #[inline]
     pub async fn create(field: &mut Field<'_>) -> Result<FilePart, SilentError> {
-        // Setup a file to capture the contents.
+        // Set up a file to capture the contents.
         let mut path = tokio::task::spawn_blocking(|| {
             Builder::new().prefix("silent_http_multipart").tempdir()
         })
         .await
         .expect("Runtime spawn blocking poll error")?
-        .into_path();
+        .keep();
         let temp_dir = Some(path.clone());
         let name = field.file_name().map(|s| s.to_owned());
         path.push(format!(
             "{}.{}",
-            TextNonce::sized_urlsafe(32).unwrap().into_string(),
+            TextNonce::sized_urlsafe(32)?.into_string(),
             name.as_deref()
                 .and_then(|name| { Path::new(name).extension().and_then(OsStr::to_str) })
                 .unwrap_or("unknown")
