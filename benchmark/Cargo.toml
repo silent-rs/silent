@@ -8,7 +8,7 @@ publish = false
 silent = { path = "../silent" }
 
 [dev-dependencies]
-criterion = "0.6"
+criterion = "0.7"
 
 [[bench]]
 name = "route_benchmark"
