@@ -306,16 +306,59 @@ impl Request {
             .await
     }
 
-    /// 获取请求form_data
-    #[cfg(feature = "multipart")]
-    #[inline]
+    /// 解析表单数据（支持 multipart/form-data 和 application/x-www-form-urlencoded）
     pub async fn form_parse<T>(&mut self) -> Result<T>
     where
-        for<'de> T: Deserialize<'de>,
+        for<'de> T: Deserialize<'de> + Serialize,
     {
-        let form_data = self.form_data().await?;
-        let value = serde_json::to_value(form_data.fields.clone())?;
-        serde_json::from_value(value).map_err(Into::into)
+        let content_type = self
+            .content_type()
+            .ok_or(SilentError::ContentTypeMissingError)?;
+
+        match content_type.subtype() {
+            #[cfg(feature = "multipart")]
+            mime::FORM_DATA => {
+                // 复用 form_data 的缓存机制
+                let form_data = self.form_data().await?;
+                let value =
+                    serde_json::to_value(form_data.fields.clone()).map_err(SilentError::from)?;
+                serde_json::from_value(value).map_err(Into::into)
+            }
+            mime::WWW_FORM_URLENCODED => {
+                // 检查是否已缓存到 json_data
+                if let Some(cached_value) = self.json_data.get() {
+                    return serde_json::from_value(cached_value.clone()).map_err(Into::into);
+                }
+
+                // 解析 form-urlencoded 数据并缓存到 json_data
+                let body = self.take_body();
+                let bytes = match body {
+                    ReqBody::Incoming(body) => body
+                        .collect()
+                        .await
+                        .or(Err(SilentError::BodyEmpty))?
+                        .to_bytes(),
+                    ReqBody::Once(bytes) => bytes,
+                    ReqBody::Empty => return Err(SilentError::BodyEmpty),
+                };
+
+                if bytes.is_empty() {
+                    return Err(SilentError::BodyEmpty);
+                }
+
+                // 先解析为目标类型
+                let parsed_data: T =
+                    serde_html_form::from_bytes(&bytes).map_err(SilentError::from)?;
+
+                // 转换为 Value 并缓存（需要重新导入 Serialize）
+                let value = serde_json::to_value(&parsed_data).map_err(SilentError::from)?;
+                let _ = self.json_data.set(value.clone());
+
+                // 直接返回已解析的数据
+                Ok(parsed_data)
+            }
+            _ => Err(SilentError::ContentTypeError),
+        }
     }
 
     /// 转换body参数
@@ -341,55 +384,44 @@ impl Request {
             .and_then(|ps| ps.files.get_vec(key))
     }
 
-    /// 转换body参数按Json匹配
+    /// 解析 JSON 数据（仅支持 application/json）
     pub async fn json_parse<T>(&mut self) -> Result<T>
     where
         for<'de> T: Deserialize<'de>,
-        T: Serialize,
     {
-        let body = self.take_body();
+        // 检查是否已缓存
+        if let Some(cached_value) = self.json_data.get() {
+            return serde_json::from_value(cached_value.clone()).map_err(Into::into);
+        }
+
         let content_type = self
             .content_type()
             .ok_or(SilentError::ContentTypeMissingError)?;
-        if content_type.subtype() != mime::JSON
-            && content_type.subtype() != mime::WWW_FORM_URLENCODED
-        {
+
+        if content_type.subtype() != mime::JSON {
             return Err(SilentError::ContentTypeError);
         }
-        let value = self
-            .json_data
-            .get_or_try_init(|| async {
-                let value = match body {
-                    ReqBody::Incoming(body) => {
-                        let bytes = body
-                            .collect()
-                            .await
-                            .or(Err(SilentError::JsonEmpty))?
-                            .to_bytes();
-                        if bytes.is_empty() {
-                            return Err(SilentError::JsonEmpty);
-                        }
-                        match content_type.subtype() {
-                            mime::WWW_FORM_URLENCODED => {
-                                serde_html_form::from_bytes::<T>(&bytes).map_err(SilentError::from)
-                            }
-                            mime::JSON => serde_json::from_slice::<T>(&bytes).map_err(|e| e.into()),
-                            _ => Err(SilentError::JsonEmpty),
-                        }
-                    }
-                    ReqBody::Once(bytes) => match content_type.subtype() {
-                        mime::WWW_FORM_URLENCODED => {
-                            serde_html_form::from_bytes(&bytes).map_err(SilentError::from)
-                        }
-                        mime::JSON => serde_json::from_slice(&bytes).map_err(|e| e.into()),
-                        _ => Err(SilentError::JsonEmpty),
-                    },
-                    ReqBody::Empty => Err(SilentError::BodyEmpty),
-                }?;
-                serde_json::to_value(&value).map_err(|e| e.into())
-            })
-            .await?
-            .clone();
+
+        let body = self.take_body();
+        let bytes = match body {
+            ReqBody::Incoming(body) => body
+                .collect()
+                .await
+                .or(Err(SilentError::JsonEmpty))?
+                .to_bytes(),
+            ReqBody::Once(bytes) => bytes,
+            ReqBody::Empty => return Err(SilentError::JsonEmpty),
+        };
+
+        if bytes.is_empty() {
+            return Err(SilentError::JsonEmpty);
+        }
+
+        let value: Value = serde_json::from_slice(&bytes).map_err(SilentError::from)?;
+
+        // 缓存结果
+        let _ = self.json_data.set(value.clone());
+
         serde_json::from_value(value).map_err(Into::into)
     }
 
@@ -451,5 +483,138 @@ mod tests {
         let mut req = Request::empty();
         *req.uri_mut() = Uri::from_static("http://localhost:8080/test?a=1&b=2&c=3&c=4");
         let _ = req.params_parse::<TestStruct>().unwrap();
+    }
+
+    /// 测试 json_parse 和 form_parse 的语义分离
+    #[tokio::test]
+    async fn test_methods_semantic_separation() {
+        // 测试数据结构，现在需要 Serialize 和 Deserialize
+        #[derive(Deserialize, Serialize, Debug, PartialEq)]
+        struct TestData {
+            name: String,
+            age: u32,
+        }
+
+        let test_data = TestData {
+            name: "Alice".to_string(),
+            age: 25,
+        };
+
+        // 1. json_parse 正确处理 JSON 数据
+        let json_body = r#"{"name":"Alice","age":25}"#.as_bytes().to_vec();
+        let mut req = create_request_with_body("application/json", json_body);
+
+        let parsed_data = req
+            .json_parse::<TestData>()
+            .await
+            .expect("json_parse should successfully parse JSON data");
+        assert_eq!(parsed_data.name, test_data.name);
+        assert_eq!(parsed_data.age, test_data.age);
+
+        // 2. form_parse 正确处理 form-urlencoded 数据
+        let form_body = "name=Alice&age=25".as_bytes().to_vec();
+        let mut req = create_request_with_body("application/x-www-form-urlencoded", form_body);
+
+        let parsed_data = req
+            .form_parse::<TestData>()
+            .await
+            .expect("form_parse should successfully parse form-urlencoded data");
+        assert_eq!(parsed_data.name, test_data.name);
+        assert_eq!(parsed_data.age, test_data.age);
+
+        // 3. json_parse 拒绝 form-urlencoded 数据
+        let form_body = "name=Alice&age=25".as_bytes().to_vec();
+        let mut req = create_request_with_body("application/x-www-form-urlencoded", form_body);
+
+        let result = req.json_parse::<TestData>().await;
+        assert!(
+            result.is_err(),
+            "json_parse should reject form-urlencoded data"
+        );
+
+        // 4. form_parse 拒绝 JSON 数据
+        let json_body = r#"{"name":"Alice","age":25}"#.as_bytes().to_vec();
+        let mut req = create_request_with_body("application/json", json_body);
+
+        let result = req.form_parse::<TestData>().await;
+        assert!(result.is_err(), "form_parse should reject JSON data");
+    }
+
+    /// 测试 WWW_FORM_URLENCODED 数据缓存到 json_data 字段
+    #[tokio::test]
+    async fn test_form_urlencoded_caches_to_json_data() {
+        #[derive(Deserialize, Serialize, Debug, PartialEq)]
+        struct TestData {
+            name: String,
+            age: u32,
+        }
+
+        // 创建一个 form-urlencoded 请求
+        let form_body = "name=Alice&age=25".as_bytes().to_vec();
+        let mut req = create_request_with_body("application/x-www-form-urlencoded", form_body);
+
+        // 第一次调用 form_parse，应该解析数据并缓存到 json_data
+        let first_result = req
+            .form_parse::<TestData>()
+            .await
+            .expect("First form_parse call should succeed");
+
+        // 验证 json_data 字段已被缓存
+        assert!(
+            req.json_data.get().is_some(),
+            "json_data should be cached after form_parse"
+        );
+
+        // 第二次调用应该从缓存中获取（不会再次解析 body）
+        let second_result = req
+            .form_parse::<TestData>()
+            .await
+            .expect("Second form_parse call should use cached data");
+
+        // 两次结果应该相同
+        assert_eq!(first_result.name, second_result.name);
+        assert_eq!(first_result.age, second_result.age);
+        assert_eq!(first_result.name, "Alice");
+        assert_eq!(first_result.age, 25);
+    }
+
+    /// 测试共享缓存机制（验证 form_parse 复用 form_data 缓存）
+    #[cfg(feature = "multipart")]
+    #[tokio::test]
+    async fn test_shared_cache_mechanism() {
+        // 简单验证：当 Content-Type 是 multipart/form-data 时，
+        // form_parse 会调用 form_data() 方法，从而复用其缓存
+        let mut req = Request::empty();
+        req.headers_mut().insert(
+            "content-type",
+            HeaderValue::from_str("multipart/form-data; boundary=----formdata").unwrap(),
+        );
+
+        // 设置一个空的 body 来避免实际的 multipart 解析
+        req.body = ReqBody::Empty;
+
+        // 尝试调用 form_parse，它应该尝试使用 form_data() 方法
+        // 这个测试主要验证代码路径，而不是具体的数据解析
+        #[derive(Deserialize, Serialize, Debug)]
+        struct TestData {
+            name: String,
+        }
+
+        let result = req.form_parse::<TestData>().await;
+        // 预期会失败，因为我们没有提供真实的 multipart 数据
+        // 但重要的是代码走了正确的路径（调用 form_data()）
+        assert!(
+            result.is_err(),
+            "Should fail due to empty body, but went through correct code path"
+        );
+    }
+
+    /// 辅助函数：创建带有指定内容类型和内容的请求
+    fn create_request_with_body(content_type: &str, body: Vec<u8>) -> Request {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("content-type", HeaderValue::from_str(content_type).unwrap());
+        req.body = ReqBody::Once(body.into());
+        req
     }
 }

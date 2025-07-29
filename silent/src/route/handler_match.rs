@@ -1,6 +1,8 @@
 use super::{RootRoute, Route};
+use crate::MiddleWareHandler;
 use crate::Request;
 use crate::core::path_param::PathParam;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub(crate) enum RouteMatched {
@@ -10,12 +12,27 @@ pub(crate) enum RouteMatched {
 
 pub(crate) trait Match {
     fn handler_match(&self, req: &mut Request, path: &str) -> RouteMatched;
+
+    /// 新的方法：匹配路由并收集路径上的中间件
+    fn handler_match_collect_middlewares(
+        &self,
+        req: &mut Request,
+        path: &str,
+    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
+        (self.handler_match(req, path), vec![])
+    }
 }
 
 pub(crate) trait RouteMatch: Match {
     fn get_path(&self) -> &str;
     /// 最终匹配
     fn last_matched(&self, req: &mut Request, last_url: &str) -> RouteMatched;
+    /// 最终匹配并收集中间件
+    fn last_matched_collect_middlewares(
+        &self,
+        req: &mut Request,
+        last_url: &str,
+    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>);
     fn path_split(path: &str) -> (&str, &str) {
         let mut iter = path.splitn(2, '/');
         let local_url = iter.next().unwrap_or("");
@@ -141,6 +158,106 @@ impl Match for Route {
             }
         }
     }
+
+    fn handler_match_collect_middlewares(
+        &self,
+        req: &mut Request,
+        path: &str,
+    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
+        let (local_url, last_url) = if self.path.is_empty() {
+            ("", path)
+        } else {
+            Self::path_split(path)
+        };
+
+        if !self.special_match {
+            if self.path == local_url {
+                self.last_matched_collect_middlewares(req, last_url)
+            } else {
+                (RouteMatched::Unmatched, vec![])
+            }
+        } else {
+            match self.get_path().into() {
+                SpecialPath::String(key) => {
+                    let (matched, middleware_layers) =
+                        self.last_matched_collect_middlewares(req, last_url);
+                    match matched {
+                        RouteMatched::Matched(route) => {
+                            req.set_path_params(key, local_url.to_string().into());
+                            (RouteMatched::Matched(route), middleware_layers)
+                        }
+                        RouteMatched::Unmatched => (RouteMatched::Unmatched, vec![]),
+                    }
+                }
+                SpecialPath::Int(key) => match local_url.parse::<i32>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::I64(key) => match local_url.parse::<i64>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::I32(key) => match local_url.parse::<i32>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::U64(key) => match local_url.parse::<u64>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::U32(key) => match local_url.parse::<u32>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::UUid(key) => match local_url.parse::<uuid::Uuid>() {
+                    Ok(value) => {
+                        req.set_path_params(key, value.into());
+                        self.last_matched_collect_middlewares(req, last_url)
+                    }
+                    Err(_) => (RouteMatched::Unmatched, vec![]),
+                },
+                SpecialPath::Path(key) => {
+                    req.set_path_params(key, PathParam::Path(local_url.to_string()));
+                    self.last_matched_collect_middlewares(req, last_url)
+                }
+                SpecialPath::FullPath(key) => {
+                    req.set_path_params(key, PathParam::Path(path.to_string()));
+                    let (matched, middleware_layers) =
+                        self.last_matched_collect_middlewares(req, last_url);
+                    match matched {
+                        RouteMatched::Matched(route) => {
+                            (RouteMatched::Matched(route), middleware_layers)
+                        }
+                        RouteMatched::Unmatched => match self.handler.is_empty() {
+                            true => (RouteMatched::Unmatched, vec![]),
+                            false => {
+                                let mut layers = vec![];
+                                if !self.middlewares.is_empty() {
+                                    layers.push(self.middlewares.clone());
+                                }
+                                (RouteMatched::Matched(self.clone()), layers)
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl RouteMatch for Route {
@@ -161,6 +278,36 @@ impl RouteMatch for Route {
 
         RouteMatched::Unmatched
     }
+
+    fn last_matched_collect_middlewares(
+        &self,
+        req: &mut Request,
+        last_url: &str,
+    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
+        // 如果是最终路由（URL已经完全匹配），返回当前路由和其中间件
+        if last_url.is_empty() && !self.handler.is_empty() {
+            let mut middleware_layers = vec![];
+            if !self.middlewares.is_empty() {
+                middleware_layers.push(self.middlewares.clone());
+            }
+            return (RouteMatched::Matched(self.clone()), middleware_layers);
+        } else {
+            // 继续向子路由匹配
+            for route in &self.children {
+                let (matched, mut middleware_layers) =
+                    route.handler_match_collect_middlewares(req, last_url);
+                if let RouteMatched::Matched(matched_route) = matched {
+                    // 如果当前层有中间件，添加到层级的前面
+                    if !self.middlewares.is_empty() {
+                        middleware_layers.insert(0, self.middlewares.clone());
+                    }
+                    return (RouteMatched::Matched(matched_route), middleware_layers);
+                }
+            }
+        }
+
+        (RouteMatched::Unmatched, vec![])
+    }
 }
 
 impl Match for RootRoute {
@@ -177,6 +324,27 @@ impl Match for RootRoute {
             }
         }
         RouteMatched::Unmatched
+    }
+
+    fn handler_match_collect_middlewares(
+        &self,
+        req: &mut Request,
+        path: &str,
+    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
+        tracing::debug!("path: {}", path);
+        let mut path = path;
+        // 去除路由开始的第一个斜杠
+        if path.starts_with('/') {
+            path = &path[1..];
+        }
+
+        for route in &self.children {
+            let (matched, middleware_layers) = route.handler_match_collect_middlewares(req, path);
+            if let RouteMatched::Matched(route) = matched {
+                return (RouteMatched::Matched(route), middleware_layers);
+            }
+        }
+        (RouteMatched::Unmatched, vec![])
     }
 }
 

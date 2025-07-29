@@ -1,6 +1,5 @@
 #[cfg(feature = "cookie")]
 use crate::cookie::middleware::CookieMiddleware;
-use crate::middlewares::RequestTimeLogger;
 use crate::route::Route;
 use crate::route::handler_match::{Match, RouteMatched};
 #[cfg(feature = "session")]
@@ -49,16 +48,14 @@ impl RootRoute {
     }
 
     pub fn push(&mut self, route: Route) {
-        self.middlewares.extend(route.root_middlewares.clone());
+        // 不再需要扩展中间件，因为我们移除了中间件传播机制
         self.children.push(route);
     }
 
     pub fn hook(&mut self, handler: impl MiddleWareHandler + 'static) {
         let handler = Arc::new(handler);
         self.middlewares.push(handler.clone());
-        self.children
-            .iter_mut()
-            .for_each(|r| r.middleware_hook(handler.clone()));
+        // 不再向子路由传播中间件
     }
     #[allow(dead_code)]
     pub(crate) fn hook_first(&mut self, handler: impl MiddleWareHandler + 'static) {
@@ -71,25 +68,44 @@ impl RootRoute {
     }
 }
 
-struct RootHandler {
+struct LayeredHandler {
     inner: RouteMatched,
-    middlewares: Vec<Arc<dyn MiddleWareHandler>>,
+    middleware_layers: Vec<Vec<Arc<dyn MiddleWareHandler>>>,
 }
 
 #[async_trait]
-impl Handler for RootHandler {
+impl Handler for LayeredHandler {
     async fn call(&self, req: Request) -> Result<Response, SilentError> {
         match self.inner.clone() {
             RouteMatched::Matched(route) => {
-                let next = Next::build(Arc::new(route), self.middlewares.clone());
+                // 将所有层级的中间件扁平化，按顺序执行
+                let mut flattened_middlewares = vec![];
+                for layer in &self.middleware_layers {
+                    for middleware in layer {
+                        // 检查中间件是否匹配当前请求
+                        if middleware.match_req(&req).await {
+                            flattened_middlewares.push(middleware.clone());
+                        }
+                    }
+                }
+
+                let next = Next::build(Arc::new(route), flattened_middlewares);
                 next.call(req).await
             }
             RouteMatched::Unmatched => {
                 let handler = |_req| async move { Err::<(), SilentError>(SilentError::NotFound) };
-                let next = Next::build(
-                    Arc::new(HandlerWrapper::new(handler)),
-                    self.middlewares.clone(),
-                );
+
+                // 对于未匹配的路由，仍然执行根级中间件（如果需要的话）
+                let mut root_middlewares = vec![];
+                if let Some(first_layer) = self.middleware_layers.first() {
+                    for middleware in first_layer {
+                        if middleware.match_req(&req).await {
+                            root_middlewares.push(middleware.clone());
+                        }
+                    }
+                }
+
+                let next = Next::build(Arc::new(HandlerWrapper::new(handler)), root_middlewares);
                 next.call(req).await
             }
         }
@@ -103,19 +119,34 @@ impl Handler for RootRoute {
         let configs = self.configs.clone().unwrap_or_default();
         req.configs = configs.clone();
 
+        let (mut req, path) = req.split_url();
+
+        // 使用新的中间件收集逻辑
+        let (matched_route, middleware_layers) =
+            self.handler_match_collect_middlewares(&mut req, &path);
+
+        // 收集根级中间件
         let mut root_middlewares = vec![];
         for middleware in self.middlewares.iter().cloned() {
             if middleware.match_req(&req).await {
                 root_middlewares.push(middleware);
             }
         }
-        let (mut req, path) = req.split_url();
-        let handler = RootHandler {
-            inner: self.handler_match(&mut req, &path),
-            middlewares: root_middlewares,
+
+        // 将根级中间件添加到第一层
+        let mut all_middleware_layers = vec![];
+        if !root_middlewares.is_empty() {
+            all_middleware_layers.push(root_middlewares);
+        }
+        all_middleware_layers.extend(middleware_layers);
+
+        let handler = LayeredHandler {
+            inner: matched_route,
+            middleware_layers: all_middleware_layers,
         };
-        let next = Next::build(Arc::new(handler), vec![Arc::new(RequestTimeLogger::new())]);
-        next.call(req).await
+
+        // 直接调用 LayeredHandler，不再额外包装
+        handler.call(req).await
     }
 }
 

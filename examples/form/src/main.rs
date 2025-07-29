@@ -15,7 +15,8 @@ struct Input {
 }
 
 async fn accept_form(mut req: Request) -> Result<Input> {
-    req.json_parse().await
+    // 使用 form_parse 来处理表单数据（支持 application/x-www-form-urlencoded 和 multipart/form-data）
+    req.form_parse().await
 }
 
 async fn show_form(_req: Request) -> Result<Response> {

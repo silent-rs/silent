@@ -29,7 +29,6 @@ pub struct Route {
     pub handler: HashMap<Method, Arc<dyn Handler>>,
     pub children: Vec<Route>,
     pub middlewares: Vec<Arc<dyn MiddleWareHandler>>,
-    pub root_middlewares: Vec<Arc<dyn MiddleWareHandler>>,
     special_match: bool,
     create_path: String,
 }
@@ -82,7 +81,6 @@ impl Route {
             handler: HashMap::new(),
             children: Vec::new(),
             middlewares: Vec::new(),
-            root_middlewares: Vec::new(),
             special_match: first_path.starts_with('<') && first_path.ends_with('>'),
             create_path: path.to_string(),
         };
@@ -93,7 +91,7 @@ impl Route {
         }
     }
     fn append_route(mut self, route: Route) -> Self {
-        self.root_middlewares.extend(route.root_middlewares.clone());
+        // 不再需要扩展中间件，因为我们移除了中间件传播机制
         self.children.push(route);
         self
     }
@@ -113,50 +111,19 @@ impl Route {
         }
     }
     pub fn append<R: RouterAdapt>(mut self, route: R) -> Self {
-        let mut route = route.into_router();
-        self.root_middlewares.extend(route.root_middlewares.clone());
-        self.middlewares
-            .iter()
-            .cloned()
-            .for_each(|m| route.middleware_hook(m.clone()));
+        let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
         real_route.children.push(route);
         self
     }
     pub fn extend<R: RouterAdapt>(&mut self, route: R) {
-        let mut route = route.into_router();
-        self.root_middlewares.extend(route.root_middlewares.clone());
-        self.middlewares
-            .iter()
-            .cloned()
-            .for_each(|m| route.middleware_hook(m.clone()));
+        let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
         real_route.children.push(route);
     }
-    pub fn root_hook(mut self, handler: impl MiddleWareHandler + 'static) -> Self {
-        self.root_middlewares.push(Arc::new(handler));
-        self
-    }
-    pub fn root_hook_first(mut self, handler: impl MiddleWareHandler + 'static) -> Self {
-        self.root_middlewares.insert(0, Arc::new(handler));
-        self
-    }
     pub fn hook(mut self, handler: impl MiddleWareHandler + 'static) -> Self {
-        self.middleware_hook(Arc::new(handler));
+        self.middlewares.push(Arc::new(handler));
         self
-    }
-    pub(crate) fn middleware_hook(&mut self, handler: Arc<dyn MiddleWareHandler>) {
-        self.middlewares.push(handler.clone());
-        self.children
-            .iter_mut()
-            .for_each(|r| r.middleware_hook(handler.clone()));
-    }
-    #[allow(dead_code)]
-    pub(crate) fn middleware_hook_first(&mut self, handler: Arc<dyn MiddleWareHandler>) {
-        self.middlewares.insert(0, handler.clone());
-        self.children
-            .iter_mut()
-            .for_each(|r| r.middleware_hook_first(handler.clone()));
     }
 
     #[cfg(feature = "static")]
@@ -218,7 +185,10 @@ mod tests {
         let route = Route::new("api")
             .hook(MiddlewareTest {})
             .append(Route::new("test"));
-        assert_eq!(route.children[0].middlewares.len(), 1)
+        // 在新的架构中，中间件不会自动传播到子路由
+        // 每个路由层级独立管理自己的中间件
+        assert_eq!(route.middlewares.len(), 1); // 父路由有1个中间件
+        assert_eq!(route.children[0].middlewares.len(), 0); // 子路由没有中间件
     }
 
     #[test]
