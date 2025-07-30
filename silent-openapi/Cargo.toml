@@ -1,0 +1,47 @@
+[package]
+name = "silent-openapi"
+version = "0.1.0"
+edition = "2021"
+authors = ["Silent Contributors"]
+description = "OpenAPI 3.0 support for Silent web framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/silent-rs/silent"
+keywords = ["silent", "openapi", "swagger", "web", "api"]
+categories = ["web-programming"]
+
+[dependencies]
+# Silent框架依赖
+silent = { path = "../silent", version = "2.5" }
+
+# OpenAPI相关依赖
+utoipa = { version = "4.2", features = ["chrono", "uuid"] }
+utoipa-swagger-ui = "6.0"
+
+# 基础依赖
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+async-trait = "0.1"
+thiserror = "1.0"
+http = "1.0"
+mime = "0.3"
+regex = "1.0"
+
+# 可选的模式和扩展功能
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.0", optional = true, features = ["v4", "serde"] }
+
+[features]
+default = []
+
+# 扩展功能特性
+uuid = ["dep:uuid", "utoipa/uuid"]
+
+# 开发时工具
+[dev-dependencies]
+tokio-test = "0.4"
+
+
+[[example]]
+name = "user_api"
+path = "examples/user_api.rs"
