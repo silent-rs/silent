@@ -10,10 +10,10 @@
 use serde::{Deserialize, Serialize};
 use silent::prelude::*;
 use silent_openapi::{SwaggerUiMiddleware, ToSchema};
-use utoipa::OpenApi;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use utoipa::OpenApi;
 
 /// 用户数据
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
@@ -92,7 +92,7 @@ async fn get_user(req: Request) -> Result<Response> {
     )
 )]
 async fn create_user(mut req: Request) -> Result<Response> {
-    let user_req: UserRequest = req.form_parse().await?;
+    let user_req: UserRequest = req.json_parse().await?;
     let store = req.get_config::<UserStore>().unwrap();
 
     let mut store_write = store.write().await;
@@ -137,32 +137,38 @@ async fn main() -> Result<()> {
 
     // 创建用户存储并添加一些示例数据
     let mut initial_data = HashMap::new();
-    initial_data.insert(1, User {
-        id: 1,
-        name: "Alice".to_string(),
-        email: "alice@example.com".to_string(),
-        created_at: "2025-01-30T12:00:00Z".to_string(),
-    });
-    initial_data.insert(2, User {
-        id: 2,
-        name: "Bob".to_string(),
-        email: "bob@example.com".to_string(),
-        created_at: "2025-01-30T12:01:00Z".to_string(),
-    });
+    initial_data.insert(
+        1,
+        User {
+            id: 1,
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+            created_at: "2025-01-30T12:00:00Z".to_string(),
+        },
+    );
+    initial_data.insert(
+        2,
+        User {
+            id: 2,
+            name: "Bob".to_string(),
+            email: "bob@example.com".to_string(),
+            created_at: "2025-01-30T12:01:00Z".to_string(),
+        },
+    );
     let store: UserStore = Arc::new(RwLock::new(initial_data));
 
     // 创建Swagger UI中间件
-    let swagger_middleware = SwaggerUiMiddleware::new("/docs", ApiDoc::openapi())
-        .expect("创建Swagger UI中间件失败");
+    let swagger_middleware =
+        SwaggerUiMiddleware::new("/docs", ApiDoc::openapi()).expect("创建Swagger UI中间件失败");
 
     // 构建路由
     let routes = Route::new("")
-        .hook(swagger_middleware)  // 添加Swagger UI中间件
+        .root_hook(swagger_middleware) // 使用 root_hook 添加全局中间件
         .append(
             Route::new("users")
                 .get(list_users)
                 .post(create_user)
-                .append(Route::new("<id:u64>").get(get_user).delete(delete_user))
+                .append(Route::new("<id:u64>").get(get_user).delete(delete_user)),
         );
 
     println!("🚀 用户管理API启动！");

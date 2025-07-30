@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
 
     // 启动服务器
     let addr = "127.0.0.1:8080".parse().expect("Invalid address");
-    Server::new().bind(addr).run(routes);
+    Server::new().bind(addr).serve(routes).await;
 
     Ok(())
 }
