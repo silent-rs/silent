@@ -72,7 +72,6 @@ impl MiddleWareHandler for TemplateMiddleware {
 mod tests {
     use super::*;
     use crate::prelude::{HandlerAppend, Route};
-    use crate::route::RootRoute;
     use crate::{Handler, Request};
     use bytes::Bytes;
     use http_body_util::BodyExt;
@@ -98,7 +97,7 @@ mod tests {
                 Ok(TemplateResponse::from(("index.html".to_string(), temp)))
             })
             .hook(temp_middleware);
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         req.set_remote("127.0.0.1:8080".parse().unwrap());

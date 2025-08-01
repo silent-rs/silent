@@ -58,7 +58,7 @@ where
 }
 #[cfg(test)]
 mod tests {
-    use crate::route::RootRoute;
+    use crate::route::Route;
 
     use super::*;
 
@@ -69,7 +69,7 @@ mod tests {
             .parse::<std::net::SocketAddr>()
             .unwrap()
             .into();
-        let routes = RootRoute::new(); // Assuming RootRoute::new() creates a new instance of RootRoute
+        let routes = Route::new_root(); // 创建新的根路由实例
         let hsh = HyperServiceHandler::new(remote_addr, routes);
         let req = hyper::Request::builder().body(()).unwrap(); // Assuming Request::new() creates a new instance of Request
 

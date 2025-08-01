@@ -56,7 +56,7 @@ async fn test_layered_middleware_execution() {
                 .get(user_handler),
         );
 
-    let mut root_route = RootRoute::new();
+    let mut root_route = Route::new_root();
     root_route.push(app);
 
     // 测试 /api/users - 应该执行两个中间件

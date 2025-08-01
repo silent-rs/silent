@@ -1,4 +1,4 @@
-use super::{RootRoute, Route};
+use super::Route;
 use crate::MiddleWareHandler;
 use crate::Request;
 use crate::core::path_param::PathParam;
@@ -79,7 +79,14 @@ impl From<&str> for SpecialPath {
 
 impl Match for Route {
     fn handler_match(&self, req: &mut Request, path: &str) -> RouteMatched {
+        // 统一的路由匹配逻辑
         let (local_url, last_url) = if self.path.is_empty() {
+            // 空路径的路由（包括根路由）：去除开头的斜杠后直接向子路由匹配
+            tracing::debug!("path: {}", path);
+            let mut path = path;
+            if path.starts_with('/') {
+                path = &path[1..];
+            }
             ("", path)
         } else {
             Self::path_split(path)
@@ -164,7 +171,14 @@ impl Match for Route {
         req: &mut Request,
         path: &str,
     ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
+        // 统一的路由匹配逻辑
         let (local_url, last_url) = if self.path.is_empty() {
+            // 空路径的路由（包括根路由）：去除开头的斜杠后直接向子路由匹配
+            tracing::debug!("path: {}", path);
+            let mut path = path;
+            if path.starts_with('/') {
+                path = &path[1..];
+            }
             ("", path)
         } else {
             Self::path_split(path)
@@ -310,44 +324,6 @@ impl RouteMatch for Route {
     }
 }
 
-impl Match for RootRoute {
-    fn handler_match(&self, req: &mut Request, path: &str) -> RouteMatched {
-        tracing::debug!("path: {}", path);
-        let mut path = path;
-        // 去除路由开始的第一个斜杠
-        if path.starts_with('/') {
-            path = &path[1..];
-        }
-        for route in &self.children {
-            if let RouteMatched::Matched(route) = route.handler_match(req, path) {
-                return RouteMatched::Matched(route);
-            }
-        }
-        RouteMatched::Unmatched
-    }
-
-    fn handler_match_collect_middlewares(
-        &self,
-        req: &mut Request,
-        path: &str,
-    ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
-        tracing::debug!("path: {}", path);
-        let mut path = path;
-        // 去除路由开始的第一个斜杠
-        if path.starts_with('/') {
-            path = &path[1..];
-        }
-
-        for route in &self.children {
-            let (matched, middleware_layers) = route.handler_match_collect_middlewares(req, path);
-            if let RouteMatched::Matched(route) = matched {
-                return (RouteMatched::Matched(route), middleware_layers);
-            }
-        }
-        (RouteMatched::Unmatched, vec![])
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,7 +340,7 @@ mod tests {
         Ok("world")
     }
 
-    fn get_matched(routes: &RootRoute, req: Request) -> bool {
+    fn get_matched(routes: &Route, req: Request) -> bool {
         let (mut req, path) = req.split_url();
         match routes.handler_match(&mut req, path.as_str()) {
             RouteMatched::Matched(_) => true,
@@ -375,7 +351,7 @@ mod tests {
     #[test]
     fn route_match_test() {
         let route = Route::new("hello").get(hello);
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         *req.uri_mut() = "/hello".parse().unwrap();
@@ -385,7 +361,7 @@ mod tests {
     #[test]
     fn multi_route_match_test() {
         let route = Route::new("hello/world").get(hello);
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         *req.uri_mut() = "/hello/world".parse().unwrap();
@@ -397,7 +373,7 @@ mod tests {
         let route = Route::new("")
             .get(hello)
             .append(Route::new("world").get(hello));
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         *req.uri_mut() = "/world".parse().unwrap();
@@ -409,7 +385,7 @@ mod tests {
         let route = Route::new("")
             .get(hello)
             .append(Route::new("<id:i64>").get(hello));
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         *req.uri_mut() = "/12345678909876543".parse().unwrap();
@@ -432,7 +408,7 @@ mod tests {
         let route = Route::new("<path:**>")
             .get(hello)
             .append(Route::new("world").get(hello));
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         *req.uri_mut() = "/hello/world".parse().unwrap();
@@ -455,7 +431,7 @@ mod tests {
         let route = Route::new("<path:**>")
             .get(hello)
             .append(Route::new("world").get(world));
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         req.set_remote("127.0.0.1:8080".parse().unwrap());
@@ -481,7 +457,7 @@ mod tests {
         let route = Route::new("<path:**>")
             .get(hello)
             .append(Route::new("world").get(world));
-        let mut routes = RootRoute::new();
+        let mut routes = Route::new_root();
         routes.push(route);
         let mut req = Request::empty();
         req.set_remote("127.0.0.1:8080".parse().unwrap());
