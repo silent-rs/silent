@@ -266,16 +266,16 @@ impl Route {
         req.configs = configs.clone();
 
         let (mut req, path) = req.split_url();
-        println!("🔍 handle_as_service_entry - 请求路径: '{}'", path);
+
 
         // 使用新的中间件收集逻辑
         let (matched_route, middleware_layers) =
             self.handler_match_collect_middlewares(&mut req, &path);
         println!("🔍 handle_as_service_entry - 路由匹配完成，中间件层数: {}", middleware_layers.len());
-        
+
         match &matched_route {
             RouteMatched::Matched(route) => {
-                println!("🔍 handle_as_service_entry - 路由匹配成功，路径: '{}', 处理器数量: {}, 有configs: {}", 
+                println!("🔍 handle_as_service_entry - 路由匹配成功，路径: '{}', 处理器数量: {}, 有configs: {}",
                         route.path, route.handler.len(), route.configs.is_some());
             }
             RouteMatched::Unmatched => {
@@ -322,7 +322,7 @@ impl Handler for Route {
 
         // 普通路由的直接处理逻辑
         let configs = req.configs();
-        println!("🔍 Route::call - 路径: '{}', 方法: {:?}, 处理器数量: {}", 
+        println!("🔍 Route::call - 路径: '{}', 方法: {:?}, 处理器数量: {}",
                 self.path, req.method(), self.handler.len());
         println!("🔍 Route::call - 处理器键: {:?}", self.handler.keys().collect::<Vec<_>>());
         match self.handler.get(req.method()) {

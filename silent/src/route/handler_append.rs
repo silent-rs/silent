@@ -23,23 +23,17 @@ where
     fn patch(self, handler: F) -> Self;
     fn options(self, handler: F) -> Self;
     fn handler_append(&mut self, method: Method, handler: F) {
-        println!("🔧 handler_append - 添加方法: {:?}", method);
         let handler = Arc::new(HandlerWrapper::new(handler));
         let handler_map = self.get_handler_mut();
         handler_map.insert(method, handler);
-        println!("🔧 handler_append - 添加完成，当前处理器数量: {}", handler_map.len());
     }
 }
 
 impl HandlerGetter for Route {
-    fn get_handler_mut(&mut self) -> &mut HashMap<Method, Arc<dyn Handler>> {
-        println!("🔧 get_handler_mut - 路径: '{}', 创建路径: '{}', 处理器数量: {}", 
-                self.path, self.create_path, self.handler.len());
+        fn get_handler_mut(&mut self) -> &mut HashMap<Method, Arc<dyn Handler>> {
         if self.path == self.create_path {
-            println!("🔧 get_handler_mut - 直接返回当前路由处理器");
             &mut self.handler
         } else {
-            println!("🔧 get_handler_mut - 查找子路由处理器");
             let mut iter = self.create_path.splitn(2, '/');
             let _local_url = iter.next().unwrap_or("");
             let last_url = iter.next().unwrap_or("");
