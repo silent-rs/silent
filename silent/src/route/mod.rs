@@ -30,6 +30,7 @@ impl Handler for LayeredHandler {
     async fn call(&self, req: Request) -> Result<Response, SilentError> {
         match self.inner.clone() {
             RouteMatched::Matched(route) => {
+                println!("🔍 LayeredHandler - 路由匹配成功，路径: '{}', 处理器数量: {}", route.path, route.handler.len());
                 // 将所有层级的中间件扁平化，按顺序执行
                 let mut flattened_middlewares = vec![];
                 for layer in &self.middleware_layers {
@@ -45,6 +46,7 @@ impl Handler for LayeredHandler {
                 next.call(req).await
             }
             RouteMatched::Unmatched => {
+                println!("🔍 LayeredHandler - 路由匹配失败，返回404");
                 let handler = |_req| async move { Err::<(), SilentError>(SilentError::NotFound) };
 
                 // 对于未匹配的路由，仍然执行根级中间件（如果需要的话）
@@ -258,15 +260,28 @@ impl Route {
         &self,
         mut req: Request,
     ) -> crate::error::SilentResult<Response> {
+        println!("🔍 handle_as_service_entry - 开始处理请求");
         tracing::debug!("{:?}", req);
         let configs = self.configs.clone().unwrap_or_default();
         req.configs = configs.clone();
 
         let (mut req, path) = req.split_url();
+        println!("🔍 handle_as_service_entry - 请求路径: '{}'", path);
 
         // 使用新的中间件收集逻辑
         let (matched_route, middleware_layers) =
             self.handler_match_collect_middlewares(&mut req, &path);
+        println!("🔍 handle_as_service_entry - 路由匹配完成，中间件层数: {}", middleware_layers.len());
+        
+        match &matched_route {
+            RouteMatched::Matched(route) => {
+                println!("🔍 handle_as_service_entry - 路由匹配成功，路径: '{}', 处理器数量: {}, 有configs: {}", 
+                        route.path, route.handler.len(), route.configs.is_some());
+            }
+            RouteMatched::Unmatched => {
+                println!("🔍 handle_as_service_entry - 路由匹配失败");
+            }
+        }
 
         // 收集根级中间件
         let mut root_middlewares = vec![];
@@ -297,19 +312,27 @@ impl Route {
 impl Handler for Route {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
         // 统一的路由处理逻辑
+        println!("🔍 Route::call - 开始处理，路径: '{}', 有configs: {}", self.path, self.configs.is_some());
 
         // 如果当前路由有配置，说明是服务入口点，需要处理路径匹配和中间件层级
         if self.configs.is_some() {
+            println!("🔍 Route::call - 进入服务入口处理");
             return self.handle_as_service_entry(req).await;
         }
 
         // 普通路由的直接处理逻辑
         let configs = req.configs();
+        println!("🔍 Route::call - 路径: '{}', 方法: {:?}, 处理器数量: {}", 
+                self.path, req.method(), self.handler.len());
+        println!("🔍 Route::call - 处理器键: {:?}", self.handler.keys().collect::<Vec<_>>());
         match self.handler.get(req.method()) {
-            None => Err(SilentError::business_error(
-                StatusCode::METHOD_NOT_ALLOWED,
-                "method not allowed".to_string(),
-            )),
+            None => {
+                println!("❌ 未找到方法 {:?} 的处理器", req.method());
+                Err(SilentError::business_error(
+                    StatusCode::METHOD_NOT_ALLOWED,
+                    "method not allowed".to_string(),
+                ))
+            },
             Some(handler) => {
                 let mut pre_res = Response::empty();
                 pre_res.configs = configs;

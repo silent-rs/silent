@@ -89,7 +89,12 @@ impl Server {
             tracing::info!("listening on: {:?}", addr);
         }
         let mut root_route = service.route();
-        root_route.set_configs(configs.clone());
+        println!("🔍 Server::serve - 服务路由，路径: '{}', 有configs: {}", root_route.path, root_route.get_configs().is_some());
+        // 只有当configs不是None时才设置，避免覆盖已有的configs
+        if let Some(config) = configs {
+            root_route.set_configs(Some(config));
+        }
+        println!("🔍 Server::serve - 设置configs后，路径: '{}', 有configs: {}", root_route.path, root_route.get_configs().is_some());
         #[cfg(feature = "session")]
         root_route.check_session();
         #[cfg(feature = "cookie")]

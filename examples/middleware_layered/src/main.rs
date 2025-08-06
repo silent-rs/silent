@@ -54,35 +54,43 @@ async fn root_handler(_req: Request) -> silent::Result<String> {
     Ok("Root page".to_string())
 }
 
+
+
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    start_server().await
+}
+
+async fn start_server() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    logger::fmt::init();
     let counter = Arc::new(AtomicUsize::new(0));
 
-    // 创建不同层级的中间件
     let root_middleware = CounterMiddleware::new("ROOT", counter.clone());
     let api_middleware = CounterMiddleware::new("API", counter.clone());
     let v1_middleware = CounterMiddleware::new("V1", counter.clone());
     let users_middleware = CounterMiddleware::new("USERS", counter.clone());
 
-    // 构建路由结构，每一层都有自己的中间件
     let app = Route::new("")
-        .hook(root_middleware) // 根级中间件
+        .hook(root_middleware)
         .get(root_handler)
         .append(
             Route::new("api")
-                .hook(api_middleware) // API级中间件
+                .hook(api_middleware)
                 .append(
                     Route::new("v1")
-                        .hook(v1_middleware) // V1级中间件
+                        .hook(v1_middleware)
                         .get(hello)
                         .post(world)
                         .append(
                             Route::new("users")
-                                .hook(users_middleware) // Users级中间件
+                                .hook(users_middleware)
                                 .get(user_handler),
                         ),
                 ),
         );
+
+    let mut root_route = Route::new_root();
+    root_route.push(app);
 
     println!("🚀 启动层级中间件演示服务器...");
     println!("📋 测试用例:");
@@ -93,10 +101,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("💡 每个路由层级独立管理自己的中间件");
     println!("💡 匹配到路由后，会按层级顺序执行所有相关中间件");
 
-    let mut root_route = Route::new_root();
-    root_route.push(app);
-
-    let addr = "127.0.0.1:3000".parse()?;
+    let addr = "127.0.0.1:30000".parse()?;
     Server::new().bind(addr).serve(root_route).await;
 
     Ok(())

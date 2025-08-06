@@ -1,11 +1,9 @@
 [package]
+edition = "2021"
 name = "middleware_layered"
 version = "0.1.0"
-edition = "2021"
-
-[workspace]
 
 [dependencies]
-silent = { path = "../../silent" }
-tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
+silent = {path = "../../silent"}
+tokio = {version = "1.0", features = ["full"]}

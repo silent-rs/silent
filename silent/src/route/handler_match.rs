@@ -80,17 +80,19 @@ impl From<&str> for SpecialPath {
 impl Match for Route {
     fn handler_match(&self, req: &mut Request, path: &str) -> RouteMatched {
         // 统一的路由匹配逻辑
-        let (local_url, last_url) = if self.path.is_empty() {
-            // 空路径的路由（包括根路由）：去除开头的斜杠后直接向子路由匹配
-            tracing::debug!("path: {}", path);
+        // 空路径的路由（包括根路由）：特殊处理
+        if self.path.is_empty() {
+            println!("🔍 handler_match - 空路径路由，输入路径: '{}'", path);
             let mut path = path;
             if path.starts_with('/') {
                 path = &path[1..];
             }
-            ("", path)
-        } else {
-            Self::path_split(path)
-        };
+            println!("🔍 handler_match - 处理后路径: '{}'", path);
+            return self.last_matched(req, path);
+        }
+        
+        // 普通路由的匹配逻辑
+        let (local_url, last_url) = Self::path_split(path);
         if !self.special_match {
             if self.path == local_url {
                 self.last_matched(req, last_url)
@@ -172,18 +174,28 @@ impl Match for Route {
         path: &str,
     ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
         // 统一的路由匹配逻辑
-        let (local_url, last_url) = if self.path.is_empty() {
-            // 空路径的路由（包括根路由）：去除开头的斜杠后直接向子路由匹配
-            tracing::debug!("path: {}", path);
+        // 空路径的路由（包括根路由）：特殊处理
+        if self.path.is_empty() {
+            println!("🔍 handler_match_collect_middlewares - 空路径路由，输入路径: '{}'", path);
             let mut path = path;
             if path.starts_with('/') {
                 path = &path[1..];
             }
-            ("", path)
-        } else {
-            Self::path_split(path)
-        };
-
+            println!("🔍 handler_match_collect_middlewares - 处理后路径: '{}'", path);
+            // 对于空路径路由，如果输入路径不是空，直接进行子路由匹配
+            if !path.is_empty() {
+                return self.last_matched_collect_middlewares(req, path);
+            }
+            // 如果输入路径是空，检查当前路由是否有处理器
+            return self.last_matched_collect_middlewares(req, path);
+        }
+        
+        // 普通路由的匹配逻辑
+        let (local_url, last_url) = Self::path_split(path);
+        println!("🔍 handler_match_collect_middlewares - 普通路由匹配，当前路径: '{}', 本地URL: '{}', 剩余URL: '{}'", self.path, local_url, last_url);
+        
+        // 普通路由的匹配逻辑
+        let (local_url, last_url) = Self::path_split(path);
         if !self.special_match {
             if self.path == local_url {
                 self.last_matched_collect_middlewares(req, last_url)
@@ -280,16 +292,36 @@ impl RouteMatch for Route {
     }
 
     fn last_matched(&self, req: &mut Request, last_url: &str) -> RouteMatched {
-        if last_url.is_empty() && !self.handler.is_empty() {
-            return RouteMatched::Matched(self.clone());
+        if last_url.is_empty() {
+            println!("🔍 last_matched - 路径匹配完成，当前路由路径: '{}', 处理器数量: {}", self.path, self.handler.len());
+            // 如果当前路由有对应方法的handler，返回匹配
+            if self.handler.contains_key(req.method()) {
+                println!("🔍 last_matched - 找到匹配路由，路径: '{}', 方法: {:?}", self.path, req.method());
+                let mut cloned_route = self.clone();
+                // 确保克隆的路由包含正确的configs信息
+                if cloned_route.configs.is_none() && self.configs.is_some() {
+                    cloned_route.configs = self.configs.clone();
+                    println!("🔍 last_matched - 已复制configs到克隆路由");
+                }
+                println!("🔍 last_matched - 克隆后路由，路径: '{}', 处理器数量: {}, 有configs: {}", 
+                        cloned_route.path, cloned_route.handler.len(), cloned_route.configs.is_some());
+                return RouteMatched::Matched(cloned_route);
+            } else {
+                println!("🔍 last_matched - 路径匹配但方法不匹配，路径: '{}', 方法: {:?}, 可用方法: {:?}", 
+                        self.path, req.method(), self.handler.keys().collect::<Vec<_>>());
+                // 如果路径匹配但没有对应方法的handler，返回未匹配（这样会返回404而不是405）
+                return RouteMatched::Unmatched;
+            }
         } else {
-            for route in &self.children {
+            println!("🔍 last_matched - 检查 {} 个子路由", self.children.len());
+            for (i, route) in self.children.iter().enumerate() {
+                println!("🔍 last_matched - 检查子路由 {}: 路径='{}', 处理器数量={}", i, route.path, route.handler.len());
                 if let RouteMatched::Matched(route) = route.handler_match(req, last_url) {
+                    println!("🔍 last_matched - 子路由 {} 匹配成功", i);
                     return RouteMatched::Matched(route);
                 }
             }
         }
-
         RouteMatched::Unmatched
     }
 
@@ -298,19 +330,113 @@ impl RouteMatch for Route {
         req: &mut Request,
         last_url: &str,
     ) -> (RouteMatched, Vec<Vec<Arc<dyn MiddleWareHandler>>>) {
-        // 如果是最终路由（URL已经完全匹配），返回当前路由和其中间件
-        if last_url.is_empty() && !self.handler.is_empty() {
+        tracing::debug!("last_matched_collect_middlewares: path='{}', last_url='{}', has_handler={}", 
+                       self.path, last_url, !self.handler.is_empty());
+        // 如果是最终路由（URL已经完全匹配），检查是否有对应方法的handler
+        if last_url.is_empty() {
+            // 对于空路径路由，如果有子路由，优先检查子路由
+            if !self.children.is_empty() {
+                println!("🔍 last_matched_collect_middlewares - 空路径路由有子路由，优先检查子路由");
+                for (i, route) in self.children.iter().enumerate() {
+                    println!("🔍 last_matched_collect_middlewares - 检查子路由 {}: 路径='{}', 处理器数量={}", i, route.path, route.handler.len());
+                    let (matched, mut middleware_layers) =
+                        route.handler_match_collect_middlewares(req, last_url);
+                    if let RouteMatched::Matched(matched_route) = matched {
+                        println!("🔍 last_matched_collect_middlewares - 子路由 {} 匹配成功", i);
+                        // 如果当前层有中间件，添加到层级的前面
+                        if !self.middlewares.is_empty() {
+                            middleware_layers.insert(0, self.middlewares.clone());
+                        }
+                        return (RouteMatched::Matched(matched_route), middleware_layers);
+                    }
+                }
+                println!("🔍 last_matched_collect_middlewares - 所有子路由都匹配失败");
+            }
+            
             let mut middleware_layers = vec![];
             if !self.middlewares.is_empty() {
                 middleware_layers.push(self.middlewares.clone());
             }
-            return (RouteMatched::Matched(self.clone()), middleware_layers);
+            
+            // 如果当前路由有对应方法的handler，返回匹配
+            if self.handler.contains_key(req.method()) {
+                println!("🔍 last_matched_collect_middlewares - 路径完全匹配，当前路由有处理器，返回匹配");
+                let mut cloned_route = self.clone();
+                // 确保克隆的路由包含正确的configs信息
+                if cloned_route.configs.is_none() && self.configs.is_some() {
+                    cloned_route.configs = self.configs.clone();
+                }
+                return (RouteMatched::Matched(cloned_route), middleware_layers);
+            } else {
+                println!("🔍 last_matched_collect_middlewares - 路径完全匹配，但当前路由没有处理器，返回未匹配");
+                // 如果路径匹配但没有对应方法的handler，返回未匹配（这样会返回404而不是405）
+                return (RouteMatched::Unmatched, vec![]);
+            }
         } else {
+            // 对于空路径路由，优先匹配子路由，而不是检查当前路由的处理器
+            if self.path.is_empty() {
+                println!("🔍 last_matched_collect_middlewares - 空路径路由，优先匹配子路由，剩余URL: '{}'", last_url);
+                // 继续向子路由匹配
+                for (i, route) in self.children.iter().enumerate() {
+                    println!("🔍 last_matched_collect_middlewares - 检查子路由 {}: 路径='{}', 处理器数量={}", i, route.path, route.handler.len());
+                    let (matched, mut middleware_layers) =
+                        route.handler_match_collect_middlewares(req, last_url);
+                    if let RouteMatched::Matched(matched_route) = matched {
+                        println!("🔍 last_matched_collect_middlewares - 子路由 {} 匹配成功", i);
+                        // 如果当前层有中间件，添加到层级的前面
+                        if !self.middlewares.is_empty() {
+                            middleware_layers.insert(0, self.middlewares.clone());
+                        }
+                        return (RouteMatched::Matched(matched_route), middleware_layers);
+                    }
+                }
+                println!("🔍 last_matched_collect_middlewares - 所有子路由都匹配失败");
+                return (RouteMatched::Unmatched, vec![]);
+            }
+            
+            // 如果剩余URL不是空，优先匹配子路由
+            if !self.children.is_empty() {
+                println!("🔍 last_matched_collect_middlewares - 检查 {} 个子路由，剩余URL: '{}'", self.children.len(), last_url);
+                // 继续向子路由匹配
+                for (i, route) in self.children.iter().enumerate() {
+                    println!("🔍 last_matched_collect_middlewares - 检查子路由 {}: 路径='{}', 处理器数量={}", i, route.path, route.handler.len());
+                    let (matched, mut middleware_layers) =
+                        route.handler_match_collect_middlewares(req, last_url);
+                    if let RouteMatched::Matched(matched_route) = matched {
+                        println!("🔍 last_matched_collect_middlewares - 子路由 {} 匹配成功", i);
+                        // 如果当前层有中间件，添加到层级的前面
+                        if !self.middlewares.is_empty() {
+                            middleware_layers.insert(0, self.middlewares.clone());
+                        }
+                        return (RouteMatched::Matched(matched_route), middleware_layers);
+                    }
+                }
+                println!("🔍 last_matched_collect_middlewares - 所有子路由都匹配失败");
+            }
+            
+            // 如果子路由都匹配失败，再检查当前路由是否有对应方法的handler
+            if self.handler.contains_key(req.method()) {
+                println!("🔍 last_matched_collect_middlewares - 当前路由有对应方法的处理器，返回匹配");
+                let mut middleware_layers = vec![];
+                if !self.middlewares.is_empty() {
+                    middleware_layers.push(self.middlewares.clone());
+                }
+                let mut cloned_route = self.clone();
+                // 确保克隆的路由包含正确的configs信息
+                if cloned_route.configs.is_none() && self.configs.is_some() {
+                    cloned_route.configs = self.configs.clone();
+                }
+                return (RouteMatched::Matched(cloned_route), middleware_layers);
+            }
+            
+            println!("🔍 last_matched_collect_middlewares - 检查 {} 个子路由，剩余URL: '{}'", self.children.len(), last_url);
             // 继续向子路由匹配
-            for route in &self.children {
+            for (i, route) in self.children.iter().enumerate() {
+                println!("🔍 last_matched_collect_middlewares - 检查子路由 {}: 路径='{}', 处理器数量={}", i, route.path, route.handler.len());
                 let (matched, mut middleware_layers) =
                     route.handler_match_collect_middlewares(req, last_url);
                 if let RouteMatched::Matched(matched_route) = matched {
+                    println!("🔍 last_matched_collect_middlewares - 子路由 {} 匹配成功", i);
                     // 如果当前层有中间件，添加到层级的前面
                     if !self.middlewares.is_empty() {
                         middleware_layers.insert(0, self.middlewares.clone());
@@ -318,6 +444,7 @@ impl RouteMatch for Route {
                     return (RouteMatched::Matched(matched_route), middleware_layers);
                 }
             }
+            println!("🔍 last_matched_collect_middlewares - 所有子路由都匹配失败");
         }
 
         (RouteMatched::Unmatched, vec![])
@@ -328,7 +455,7 @@ impl RouteMatch for Route {
 mod tests {
     use super::*;
     use crate::prelude::HandlerAppend;
-    use crate::{Handler, SilentError};
+    use crate::{Handler, SilentError, Method};
     use bytes::Bytes;
     use http_body_util::BodyExt;
 
@@ -476,5 +603,174 @@ mod tests {
                 .unwrap(),
             &Bytes::from("hello")
         );
+    }
+
+    // 边界情况测试
+    #[test]
+    fn empty_path_edge_case_test() {
+        // 测试空路径路由的匹配
+        let route = Route::new("").get(hello);
+        let mut routes = Route::new_root();
+        routes.push(route);
+        
+        // 测试根路径
+        let mut req = Request::empty();
+        *req.uri_mut() = "/".parse().unwrap();
+        assert!(get_matched(&routes, req));
+        
+        // 测试空路径 - 空路径无法解析为URI，应该跳过这个测试
+        // let mut req = Request::empty();
+        // *req.uri_mut() = "".parse().unwrap();
+        // assert!(get_matched(&routes, req));
+    }
+
+    #[test]
+    fn nested_empty_path_test() {
+        // 测试嵌套的空路径路由
+        let route = Route::new("")
+            .get(hello)
+            .append(Route::new("").get(world));
+        let mut routes = Route::new_root();
+        routes.push(route);
+        
+        // 测试根路径应该匹配第一个处理器
+        let mut req = Request::empty();
+        *req.uri_mut() = "/".parse().unwrap();
+        assert!(get_matched(&routes, req));
+    }
+
+    #[test]
+    fn path_conflict_test() {
+        // 测试路径冲突情况
+        let route = Route::new("")
+            .append(Route::new("api").get(hello))
+            .append(Route::new("api/v1").get(world));
+        let mut routes = Route::new_root();
+        routes.push(route);
+        
+        // 测试 /api 应该匹配第一个
+        let mut req = Request::empty();
+        *req.uri_mut() = "/api".parse().unwrap();
+        assert!(get_matched(&routes, req));
+        
+        // 测试 /api/v1 应该匹配第二个
+        let mut req = Request::empty();
+        *req.uri_mut() = "/api/v1".parse().unwrap();
+        assert!(get_matched(&routes, req));
+    }
+
+    #[test]
+    fn trailing_slash_test() {
+        // 测试尾随斜杠的处理
+        let route = Route::new("test").get(hello);
+        let mut routes = Route::new_root();
+        routes.push(route);
+        
+        // 测试 /test 应该匹配
+        let mut req = Request::empty();
+        *req.uri_mut() = "/test".parse().unwrap();
+        assert!(get_matched(&routes, req));
+        
+        // 测试 /test/ 实际上会匹配到 /test 路由（当前实现的行为）
+        // 这是因为 path_split("test/") 返回 ("test", "")，然后匹配成功
+        let mut req = Request::empty();
+        *req.uri_mut() = "/test/".parse().unwrap();
+        assert!(get_matched(&routes, req));
+        
+        // 测试 /test/extra 不应该匹配
+        let mut req = Request::empty();
+        *req.uri_mut() = "/test/extra".parse().unwrap();
+        assert!(!get_matched(&routes, req));
+    }
+
+    #[test]
+    fn special_path_parameter_edge_cases() {
+        // 测试特殊路径参数的边界情况
+        let route = Route::new("")
+            .append(Route::new("user/<id:i64>").get(hello))
+            .append(Route::new("post/<slug>").get(world));
+        let mut routes = Route::new_root();
+        routes.push(route);
+        
+        // 测试有效的数字参数
+        let mut req = Request::empty();
+        *req.uri_mut() = "/user/123".parse().unwrap();
+        let (mut req, path) = req.split_url();
+        let matched = match routes.handler_match(&mut req, path.as_str()) {
+            RouteMatched::Matched(_) => {
+                assert_eq!(req.get_path_params::<i64>("id").unwrap(), 123);
+                true
+            }
+            RouteMatched::Unmatched => false,
+        };
+        assert!(matched);
+        
+        // 测试无效的数字参数应该不匹配
+        let mut req = Request::empty();
+        *req.uri_mut() = "/api/user/abc".parse().unwrap();
+        let (mut req, path) = req.split_url();
+        assert!(!matches!(routes.handler_match(&mut req, path.as_str()), RouteMatched::Matched(_)));
+        
+        // 测试字符串参数
+        let mut req = Request::empty();
+        *req.uri_mut() = "/post/hello-world".parse().unwrap();
+        let (mut req, path) = req.split_url();
+        let matched = match routes.handler_match(&mut req, path.as_str()) {
+            RouteMatched::Matched(_) => {
+                assert_eq!(req.get_path_params::<String>("slug").unwrap(), "hello-world");
+                true
+            }
+            RouteMatched::Unmatched => false,
+        };
+        assert!(matched);
+    }
+
+    #[test]
+    fn root_route_matching_test() {
+        // 测试根路由匹配问题
+        println!("=== 测试根路由匹配 ===");
+        
+        // 测试1: 根路由（没有处理器）
+        let mut root_route = Route::new_root();
+        let mut req = Request::empty();
+        *req.uri_mut() = "/".parse().unwrap();
+        
+        let (mut req, path) = req.split_url();
+        println!("请求路径: '{}'", path);
+        
+        match root_route.handler_match(&mut req, path.as_str()) {
+            RouteMatched::Matched(route) => {
+                println!("✅ 匹配成功，路由路径: '{}'", route.path);
+                println!("路由有处理器: {}", !route.handler.is_empty());
+            }
+            RouteMatched::Unmatched => {
+                println!("❌ 匹配失败");
+            }
+        }
+        
+        // 测试2: 空路径路由（有处理器）
+        let app = Route::new("").get(hello);
+        println!("空路径路由创建完成，路径: '{}', 创建路径: '{}'", app.path, app.create_path);
+        println!("空路径路由有处理器: {}", !app.handler.is_empty());
+        println!("空路径路由有GET处理器: {}", app.handler.contains_key(&Method::GET));
+        
+        let mut root_route = Route::new_root();
+        root_route.push(app);
+        
+        let mut req = Request::empty();
+        *req.uri_mut() = "/".parse().unwrap();
+        
+        let (mut req, path) = req.split_url();
+        println!("请求路径: '{}'", path);
+        
+        match root_route.handler_match(&mut req, path.as_str()) {
+            RouteMatched::Matched(route) => {
+                println!("✅ 匹配成功，路由路径: '{}'", route.path);
+                println!("路由有处理器: {}", !route.handler.is_empty());
+            }
+            RouteMatched::Unmatched => {
+                println!("❌ 匹配失败");
+            }
+        }
     }
 }
