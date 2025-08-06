@@ -17,6 +17,9 @@ impl CookieExt for Request {
     }
 
     fn cookies_mut(&mut self) -> &mut CookieJar {
+        if self.extensions_mut().get::<CookieJar>().is_none() {
+            self.extensions_mut().insert(CookieJar::new());
+        }
         self.extensions_mut().get_mut().unwrap()
     }
 
@@ -31,6 +34,9 @@ impl<B: Body> CookieExt for Response<B> {
     }
 
     fn cookies_mut(&mut self) -> &mut CookieJar {
+        if self.extensions_mut().get::<CookieJar>().is_none() {
+            self.extensions_mut().insert(CookieJar::new());
+        }
         self.extensions_mut().get_mut().unwrap()
     }
 

@@ -12,7 +12,7 @@ struct Exception {
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
     let route = Route::new("")
-        .root_hook(ExceptionHandler::new(|res, _| async move { res }))
+        .hook(ExceptionHandler::new(|res, _| async move { res }))
         .get(|mut req| async move { req.params_parse::<Exception>() })
         .route();
     Server::new().run(route);
