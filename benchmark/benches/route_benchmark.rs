@@ -116,35 +116,16 @@ fn high_load_benchmark(c: &mut Criterion) {
 
 fn deep_nested_route_benchmark(c: &mut Criterion) {
     // 创建10层嵌套的复杂路由结构
-    let route = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings")
-                                .append(
-                                    Route::new("preferences")
-                                        .append(
-                                            Route::new("notifications")
-                                                .append(
-                                                    Route::new("email")
-                                                        .append(
-                                                            Route::new("templates")
-                                                                .append(
-                                                                    Route::new("custom")
-                                                                        .append(
-                                                                            Route::new("advanced")
-                                                                                .get(|_req| async { Ok("deep nested route") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route =
+        Route::new("api/v1").append(Route::new("users").append(Route::new("profiles").append(
+            Route::new("settings").append(Route::new("preferences").append(
+                Route::new("notifications").append(Route::new("email").append(
+                    Route::new("templates").append(Route::new("custom").append(
+                        Route::new("advanced").get(|_req| async { Ok("deep nested route") }),
+                    )),
+                )),
+            )),
+        )));
 
     let mut group = c.benchmark_group("Deep Nested Routes (10 levels)");
 
@@ -161,7 +142,9 @@ fn deep_nested_route_benchmark(c: &mut Criterion) {
     group.bench_function("match middle level route", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications".parse().unwrap();
+            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications"
+                .parse()
+                .unwrap();
             let _ = route.call(req);
         });
     });
@@ -180,35 +163,26 @@ fn deep_nested_route_benchmark(c: &mut Criterion) {
 
 fn complex_deep_route_with_params_benchmark(c: &mut Criterion) {
     // 创建包含路径参数的10层复杂路由
-    let route = Route::new("api/v1")
-        .append(
-            Route::new("users/<user_id:i64>")
-                .append(
-                    Route::new("profiles/<profile_id>")
-                        .append(
-                            Route::new("settings/<setting_type>")
-                                .append(
-                                    Route::new("preferences/<pref_category>")
-                                        .append(
-                                            Route::new("notifications/<notif_type>")
-                                                .append(
-                                                    Route::new("email/<email_id>")
-                                                        .append(
-                                                            Route::new("templates/<template_id>")
-                                                                .append(
-                                                                    Route::new("custom/<custom_id>")
-                                                                        .append(
-                                                                            Route::new("advanced/<advanced_param>")
-                                                                                .get(|_req| async { Ok("deep nested with params") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route = Route::new("api/v1").append(
+        Route::new("users/<user_id:i64>").append(
+            Route::new("profiles/<profile_id>").append(
+                Route::new("settings/<setting_type>").append(
+                    Route::new("preferences/<pref_category>").append(
+                        Route::new("notifications/<notif_type>").append(
+                            Route::new("email/<email_id>").append(
+                                Route::new("templates/<template_id>").append(
+                                    Route::new("custom/<custom_id>").append(
+                                        Route::new("advanced/<advanced_param>")
+                                            .get(|_req| async { Ok("deep nested with params") }),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
 
     let mut group = c.benchmark_group("Deep Nested Routes with Parameters (10 levels)");
 
@@ -225,7 +199,10 @@ fn complex_deep_route_with_params_benchmark(c: &mut Criterion) {
     group.bench_function("match middle level route with params", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/456/profiles/profile_789/settings/notification/preferences/privacy".parse().unwrap();
+            *req.uri_mut() =
+                "/api/v1/users/456/profiles/profile_789/settings/notification/preferences/privacy"
+                    .parse()
+                    .unwrap();
             let _ = route.call(req);
         });
     });
@@ -342,7 +319,10 @@ fn deep_route_mixed_benchmark(c: &mut Criterion) {
     group.bench_function("match middle mixed route", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/456/profiles/settings/setting_789/preferences/notifications/email".parse().unwrap();
+            *req.uri_mut() =
+                "/api/v1/users/456/profiles/settings/setting_789/preferences/notifications/email"
+                    .parse()
+                    .unwrap();
             let _ = route.call(req);
         });
     });
@@ -352,35 +332,16 @@ fn deep_route_mixed_benchmark(c: &mut Criterion) {
 
 fn route_matching_only_benchmark(c: &mut Criterion) {
     // 创建10层嵌套的复杂路由结构，只测试匹配性能，不调用handler
-    let route = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings")
-                                .append(
-                                    Route::new("preferences")
-                                        .append(
-                                            Route::new("notifications")
-                                                .append(
-                                                    Route::new("email")
-                                                        .append(
-                                                            Route::new("templates")
-                                                                .append(
-                                                                    Route::new("custom")
-                                                                        .append(
-                                                                            Route::new("advanced")
-                                                                                .get(|_req| async { Ok("deep nested route") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route =
+        Route::new("api/v1").append(Route::new("users").append(Route::new("profiles").append(
+            Route::new("settings").append(Route::new("preferences").append(
+                Route::new("notifications").append(Route::new("email").append(
+                    Route::new("templates").append(Route::new("custom").append(
+                        Route::new("advanced").get(|_req| async { Ok("deep nested route") }),
+                    )),
+                )),
+            )),
+        )));
 
     let mut group = c.benchmark_group("Route Matching Only (10 levels)");
 
@@ -398,7 +359,9 @@ fn route_matching_only_benchmark(c: &mut Criterion) {
     group.bench_function("match middle level route (no handler call)", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications".parse().unwrap();
+            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications"
+                .parse()
+                .unwrap();
             // 直接调用路由，但不等待结果
             let _ = route.call(req);
         });
@@ -419,35 +382,26 @@ fn route_matching_only_benchmark(c: &mut Criterion) {
 
 fn route_matching_with_params_only_benchmark(c: &mut Criterion) {
     // 创建包含路径参数的10层复杂路由，只测试匹配性能
-    let route = Route::new("api/v1")
-        .append(
-            Route::new("users/<user_id:i64>")
-                .append(
-                    Route::new("profiles/<profile_id>")
-                        .append(
-                            Route::new("settings/<setting_type>")
-                                .append(
-                                    Route::new("preferences/<pref_category>")
-                                        .append(
-                                            Route::new("notifications/<notif_type>")
-                                                .append(
-                                                    Route::new("email/<email_id>")
-                                                        .append(
-                                                            Route::new("templates/<template_id>")
-                                                                .append(
-                                                                    Route::new("custom/<custom_id>")
-                                                                        .append(
-                                                                            Route::new("advanced/<advanced_param>")
-                                                                                .get(|_req| async { Ok("deep nested with params") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route = Route::new("api/v1").append(
+        Route::new("users/<user_id:i64>").append(
+            Route::new("profiles/<profile_id>").append(
+                Route::new("settings/<setting_type>").append(
+                    Route::new("preferences/<pref_category>").append(
+                        Route::new("notifications/<notif_type>").append(
+                            Route::new("email/<email_id>").append(
+                                Route::new("templates/<template_id>").append(
+                                    Route::new("custom/<custom_id>").append(
+                                        Route::new("advanced/<advanced_param>")
+                                            .get(|_req| async { Ok("deep nested with params") }),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    );
 
     let mut group = c.benchmark_group("Route Matching with Parameters Only (10 levels)");
 
@@ -474,80 +428,46 @@ fn route_matching_with_params_only_benchmark(c: &mut Criterion) {
 
 fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
     // 创建不同深度的路由进行性能对比
-    let route_3_levels = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .get(|_req| async { Ok("3 levels") })
-                )
-        );
+    let route_3_levels = Route::new("api/v1").append(
+        Route::new("users").append(Route::new("profiles").get(|_req| async { Ok("3 levels") })),
+    );
 
-    let route_5_levels = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings")
-                                .append(
-                                    Route::new("preferences")
-                                        .get(|_req| async { Ok("5 levels") })
-                                )
-                        )
-                )
-        );
+    let route_5_levels = Route::new("api/v1").append(
+        Route::new("users").append(
+            Route::new("profiles").append(
+                Route::new("settings")
+                    .append(Route::new("preferences").get(|_req| async { Ok("5 levels") })),
+            ),
+        ),
+    );
 
-    let route_7_levels = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings")
-                                .append(
-                                    Route::new("preferences")
-                                        .append(
-                                            Route::new("notifications")
-                                                .append(
-                                                    Route::new("email")
-                                                        .get(|_req| async { Ok("7 levels") })
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route_7_levels = Route::new("api/v1").append(
+        Route::new("users").append(
+            Route::new("profiles").append(
+                Route::new("settings").append(
+                    Route::new("preferences").append(
+                        Route::new("notifications")
+                            .append(Route::new("email").get(|_req| async { Ok("7 levels") })),
+                    ),
+                ),
+            ),
+        ),
+    );
 
-    let route_10_levels = Route::new("api/v1")
-        .append(
-            Route::new("users")
-                .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings")
-                                .append(
-                                    Route::new("preferences")
-                                        .append(
-                                            Route::new("notifications")
-                                                .append(
-                                                    Route::new("email")
-                                                        .append(
-                                                            Route::new("templates")
-                                                                .append(
-                                                                    Route::new("custom")
-                                                                        .append(
-                                                                            Route::new("advanced")
-                                                                                .get(|_req| async { Ok("10 levels") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
-        );
+    let route_10_levels =
+        Route::new("api/v1").append(Route::new("users").append(Route::new("profiles").append(
+            Route::new("settings").append(Route::new("preferences").append(
+                Route::new("notifications").append(
+                    Route::new("email").append(
+                        Route::new("templates").append(
+                            Route::new("custom").append(
+                                Route::new("advanced").get(|_req| async { Ok("10 levels") }),
+                            ),
+                        ),
+                    ),
+                ),
+            )),
+        )));
 
     let mut group = c.benchmark_group("Route Matching Performance Comparison");
 
@@ -564,7 +484,9 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
     group.bench_function("5 levels route match", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences".parse().unwrap();
+            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences"
+                .parse()
+                .unwrap();
             let _ = route_5_levels.call(req);
         });
     });
@@ -573,7 +495,9 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
     group.bench_function("7 levels route match", |b| {
         b.iter(|| {
             let mut req = Request::default();
-            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email".parse().unwrap();
+            *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email"
+                .parse()
+                .unwrap();
             let _ = route_7_levels.call(req);
         });
     });

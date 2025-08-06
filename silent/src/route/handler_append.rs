@@ -30,7 +30,7 @@ where
 }
 
 impl HandlerGetter for Route {
-        fn get_handler_mut(&mut self) -> &mut HashMap<Method, Arc<dyn Handler>> {
+    fn get_handler_mut(&mut self) -> &mut HashMap<Method, Arc<dyn Handler>> {
         if self.path == self.create_path {
             &mut self.handler
         } else {

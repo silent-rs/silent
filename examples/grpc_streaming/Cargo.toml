@@ -23,4 +23,4 @@ tokio-stream.workspace = true
 h2.workspace = true
 
 [build-dependencies]
-tonic-build = { version = "0.14" }
+tonic-build = { version = "0.13" }

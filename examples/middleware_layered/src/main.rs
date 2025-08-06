@@ -54,8 +54,6 @@ async fn root_handler(_req: Request) -> silent::Result<String> {
     Ok("Root page".to_string())
 }
 
-
-
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     start_server().await
@@ -74,19 +72,13 @@ async fn start_server() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .hook(root_middleware)
         .get(root_handler)
         .append(
-            Route::new("api")
-                .hook(api_middleware)
-                .append(
-                    Route::new("v1")
-                        .hook(v1_middleware)
-                        .get(hello)
-                        .post(world)
-                        .append(
-                            Route::new("users")
-                                .hook(users_middleware)
-                                .get(user_handler),
-                        ),
-                ),
+            Route::new("api").hook(api_middleware).append(
+                Route::new("v1")
+                    .hook(v1_middleware)
+                    .get(hello)
+                    .post(world)
+                    .append(Route::new("users").hook(users_middleware).get(user_handler)),
+            ),
         );
 
     let mut root_route = Route::new_root();
