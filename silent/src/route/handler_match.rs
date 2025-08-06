@@ -289,7 +289,7 @@ impl RouteMatch for Route {
                 return RouteMatched::Unmatched;
             }
         } else {
-            for (i, route) in self.children.iter().enumerate() {
+            for route in self.children.iter() {
                 if let RouteMatched::Matched(route) = route.handler_match(req, last_url) {
                     return RouteMatched::Matched(route);
                 }
@@ -307,7 +307,7 @@ impl RouteMatch for Route {
         if last_url.is_empty() {
             // 对于空路径路由，如果有子路由，优先检查子路由
             if !self.children.is_empty() {
-                for (i, route) in self.children.iter().enumerate() {
+                for route in self.children.iter() {
                     let (matched, mut middleware_layers) =
                         route.handler_match_collect_middlewares(req, last_url);
                     if let RouteMatched::Matched(matched_route) = matched {
@@ -341,7 +341,7 @@ impl RouteMatch for Route {
             // 对于空路径路由，优先匹配子路由，而不是检查当前路由的处理器
             if self.path.is_empty() {
                 // 继续向子路由匹配
-                for (i, route) in self.children.iter().enumerate() {
+                for route in self.children.iter() {
                     let (matched, mut middleware_layers) =
                         route.handler_match_collect_middlewares(req, last_url);
                     if let RouteMatched::Matched(matched_route) = matched {
@@ -358,7 +358,7 @@ impl RouteMatch for Route {
             // 如果剩余URL不是空，优先匹配子路由
             if !self.children.is_empty() {
                 // 继续向子路由匹配
-                for (i, route) in self.children.iter().enumerate() {
+                for route in self.children.iter() {
                     let (matched, mut middleware_layers) =
                         route.handler_match_collect_middlewares(req, last_url);
                     if let RouteMatched::Matched(matched_route) = matched {
@@ -386,7 +386,7 @@ impl RouteMatch for Route {
             }
 
             // 继续向子路由匹配
-            for (i, route) in self.children.iter().enumerate() {
+            for route in self.children.iter() {
                 let (matched, mut middleware_layers) =
                     route.handler_match_collect_middlewares(req, last_url);
                 if let RouteMatched::Matched(matched_route) = matched {
@@ -407,7 +407,7 @@ impl RouteMatch for Route {
 mod tests {
     use super::*;
     use crate::prelude::HandlerAppend;
-    use crate::{Handler, SilentError, Method};
+    use crate::{Handler, Method, SilentError};
     use bytes::Bytes;
     use http_body_util::BodyExt;
 
@@ -579,9 +579,7 @@ mod tests {
     #[test]
     fn nested_empty_path_test() {
         // 测试嵌套的空路径路由
-        let route = Route::new("")
-            .get(hello)
-            .append(Route::new("").get(world));
+        let route = Route::new("").get(hello).append(Route::new("").get(world));
         let mut routes = Route::new_root();
         routes.push(route);
 
@@ -661,7 +659,10 @@ mod tests {
         let mut req = Request::empty();
         *req.uri_mut() = "/api/user/abc".parse().unwrap();
         let (mut req, path) = req.split_url();
-        assert!(!matches!(routes.handler_match(&mut req, path.as_str()), RouteMatched::Matched(_)));
+        assert!(!matches!(
+            routes.handler_match(&mut req, path.as_str()),
+            RouteMatched::Matched(_)
+        ));
 
         // 测试字符串参数
         let mut req = Request::empty();
@@ -669,7 +670,10 @@ mod tests {
         let (mut req, path) = req.split_url();
         let matched = match routes.handler_match(&mut req, path.as_str()) {
             RouteMatched::Matched(_) => {
-                assert_eq!(req.get_path_params::<String>("slug").unwrap(), "hello-world");
+                assert_eq!(
+                    req.get_path_params::<String>("slug").unwrap(),
+                    "hello-world"
+                );
                 true
             }
             RouteMatched::Unmatched => false,
