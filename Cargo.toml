@@ -30,7 +30,7 @@ tokio = {version = "1", features = ["full"]}
 tokio-stream = {version = "0.1", features = ["net"]}
 tokio-tungstenite = "0.27"
 tokio_wasi = {version = "1", features = ["full"]}
-tonic = "0.13"
+tonic = "0.14"
 tonic-build = "0.13"
 tower = "0.5"
 tracing-subscriber = "0.3"
