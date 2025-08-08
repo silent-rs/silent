@@ -15,7 +15,7 @@ pub type AcceptFuture<'a> = Pin<
 >;
 
 pub trait Listen: Send + Sync {
-    fn accept(&self) -> AcceptFuture;
+    fn accept(&self) -> AcceptFuture<'_>;
     fn local_addr(&self) -> Result<SocketAddr>;
 }
 
@@ -59,7 +59,7 @@ impl From<tokio::net::UnixListener> for Listener {
 }
 
 impl Listen for Listener {
-    fn accept(&self) -> AcceptFuture {
+    fn accept(&self) -> AcceptFuture<'_> {
         match self {
             Listener::TcpListener(listener) => {
                 let accept_future = async move {
@@ -112,7 +112,7 @@ pub struct TlsListener {
 
 #[cfg(feature = "tls")]
 impl Listen for TlsListener {
-    fn accept(&self) -> AcceptFuture {
+    fn accept(&self) -> AcceptFuture<'_> {
         let accept_future = async move {
             let (stream, addr) = self.listener.accept().await?;
             let tls_stream = self.acceptor.accept(stream).await?;

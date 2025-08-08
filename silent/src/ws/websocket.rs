@@ -231,10 +231,10 @@ where
                         break;
                     }
                     debug!("receive message: {:?}", message);
-                    if let Some(on_receive) = on_receive.clone() {
-                        if on_receive(message, receiver_parts.clone()).await.is_err() {
-                            break;
-                        }
+                    if let Some(on_receive) = on_receive.clone()
+                        && on_receive(message, receiver_parts.clone()).await.is_err()
+                    {
+                        break;
                     }
                 }
             }
