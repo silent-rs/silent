@@ -209,6 +209,19 @@ impl Handler for RouteTree {
             }
         }
 
+        // 修正执行顺序：期望进入顺序为 ROOT -> API -> V1 -> USERS
+        // Next::build 逻辑：
+        // 1) 先 pop 最后一个元素，作为最内层（靠近 endpoint）
+        // 2) 对剩余元素按迭代顺序 fold，最后被 fold 的成为最外层
+        // 因此，只要保证“剩余元素”的反向顺序是 ROOT -> API -> V1，且最后一个被 pop 的是 USERS，
+        // 就能得到期望顺序。
+        // 构造方式：将除最后一个外的中间件逆序，然后把最后一个追加到末尾。
+        if active_middlewares.len() >= 2 {
+            let last = active_middlewares.pop().unwrap();
+            active_middlewares.reverse();
+            active_middlewares.push(last);
+        }
+
         // 以目标结点的 handler 作为终端，构建 Next 链并调用
         let endpoint = Arc::new(target.handler.clone());
         let next = Next::build(endpoint, active_middlewares);
