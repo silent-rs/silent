@@ -27,27 +27,18 @@ impl RouteTree {
         self.configs.as_ref()
     }
 
-    fn split_once(path: &str) -> (String, String) {
-        let mut p = path.to_string();
-        if p.starts_with('/') {
-            p = p[1..].to_string();
-        }
-        p.split_once('/')
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .unwrap_or((p, "".to_string()))
+    fn split_once(path: &str) -> (&str, &str) {
+        let p = path.strip_prefix('/').unwrap_or(path);
+        p.split_once('/').unwrap_or((p, ""))
     }
 
     // 匹配当前结点：返回是否匹配以及剩余路径
-    fn match_current(&self, req: &mut Request, path: &str) -> (bool, String) {
+    fn match_current<'p>(&self, req: &mut Request, path: &'p str) -> (bool, &'p str) {
         // 空路径（根结点）特殊处理
         if self.path.is_empty() {
-            let normalized_path = if path == "/" {
-                "".to_string()
-            } else {
-                path.to_string()
-            };
+            let normalized_path = if path == "/" { "" } else { path };
             if !normalized_path.is_empty() && self.children.is_empty() {
-                return (false, String::new());
+                return (false, "");
             }
             return (true, normalized_path);
         }
@@ -55,15 +46,23 @@ impl RouteTree {
         let (local_path, last_path) = Self::split_once(path);
 
         if !self.special_match {
-            if self.path == local_path {
-                (true, last_path)
-            } else {
-                (false, String::new())
+            // 支持节点 path 含有多段（例如 "api/v1"）
+            let p = path.strip_prefix('/').unwrap_or(path);
+            let node_path = self.path.as_str();
+            if p == node_path {
+                return (true, "");
             }
+            if let Some(rem) = p.strip_prefix(node_path) {
+                // 需要严格的段边界：要么完全相等，要么后面是 '/'
+                if let Some(rem) = rem.strip_prefix('/') {
+                    return (true, rem);
+                }
+            }
+            (false, "")
         } else {
             match self.path.as_str().into() {
                 SpecialPath::String(key) => {
-                    req.set_path_params(key, local_path.into());
+                    req.set_path_params(key, local_path.to_string().into());
                     (true, last_path)
                 }
                 SpecialPath::Int(key) => match local_path.parse::<i32>() {
@@ -71,54 +70,51 @@ impl RouteTree {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::I64(key) => match local_path.parse::<i64>() {
                     Ok(v) => {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::I32(key) => match local_path.parse::<i32>() {
                     Ok(v) => {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::U64(key) => match local_path.parse::<u64>() {
                     Ok(v) => {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::U32(key) => match local_path.parse::<u32>() {
                     Ok(v) => {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::UUid(key) => match local_path.parse::<uuid::Uuid>() {
                     Ok(v) => {
                         req.set_path_params(key, v.into());
                         (true, last_path)
                     }
-                    Err(_) => (false, String::new()),
+                    Err(_) => (false, ""),
                 },
                 SpecialPath::Path(key) => {
-                    req.set_path_params(key, PathParam::Path(local_path));
+                    req.set_path_params(key, PathParam::Path(local_path.to_string()));
                     (true, last_path)
                 }
                 SpecialPath::FullPath(key) => {
                     // ** 通配符：总是匹配，参数记录完整剩余路径
-                    let mut p = path.to_string();
-                    if p.starts_with('/') {
-                        p = p[1..].to_string();
-                    }
-                    req.set_path_params(key, PathParam::Path(p));
+                    let p = path.strip_prefix('/').unwrap_or(path);
+                    req.set_path_params(key, PathParam::Path(p.to_string()));
                     (true, last_path)
                 }
             }
@@ -129,10 +125,10 @@ impl RouteTree {
     fn dfs_match<'a>(
         &'a self,
         req: &mut Request,
-        path: String,
+        path: &'a str,
         stack: &mut Vec<&'a RouteTree>,
     ) -> bool {
-        let (matched, last_path) = self.match_current(req, &path);
+        let (matched, last_path) = self.match_current(req, path);
         if !matched {
             return false;
         }
@@ -143,7 +139,7 @@ impl RouteTree {
         if last_path.is_empty() {
             // 深度优先：优先尝试匹配子结点（例如空路径子路由）
             for child in &self.children {
-                if child.dfs_match(req, last_path.clone(), stack) {
+                if child.dfs_match(req, last_path, stack) {
                     return true;
                 }
             }
@@ -153,35 +149,57 @@ impl RouteTree {
 
         // 继续匹配子路由
         for child in &self.children {
-            if child.dfs_match(req, last_path.clone(), stack) {
+            if child.dfs_match(req, last_path, stack) {
                 return true;
             }
         }
 
-        // 子路由未匹配，若当前存在处理器则回退到当前
-        if self.has_handler {
-            true
-        } else {
+        // 子路由未匹配
+        // 当仍有剩余路径时，只有在 **（FullPath）节点上才允许回退到当前处理器
+        if !last_path.is_empty() {
+            let is_full_path = if self.special_match {
+                matches!(self.path.as_str().into(), SpecialPath::FullPath(_))
+            } else {
+                false
+            };
+            if is_full_path && self.has_handler {
+                return true;
+            }
             // 回溯：移除当前结点
             stack.pop();
-            false
+            return false;
         }
+
+        // 没有剩余路径：若有处理器则匹配成功，否则失败
+        if self.has_handler {
+            return true;
+        }
+        stack.pop();
+        false
     }
 }
 
 #[async_trait]
 impl Handler for RouteTree {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
-        let mut req = req;
+        let (req, last_path) = req.split_url();
+        self.call_with_path(req, last_path).await
+    }
+}
+
+impl RouteTree {
+    pub(crate) async fn call_with_path(
+        &self,
+        mut req: Request,
+        last_path: String,
+    ) -> crate::error::SilentResult<Response> {
         if let Some(configs) = self.get_configs().cloned() {
             req.configs_mut().insert(configs);
         }
 
-        let (mut req, last_path) = req.split_url();
-
         // 执行 DFS 匹配，收集从根到目标结点的路径
         let mut stack: Vec<&RouteTree> = Vec::new();
-        if !self.dfs_match(&mut req, last_path, &mut stack) {
+        if !self.dfs_match(&mut req, last_path.as_str(), &mut stack) {
             return Err(SilentError::business_error(
                 StatusCode::NOT_FOUND,
                 "not found".to_string(),
@@ -210,19 +228,13 @@ impl Handler for RouteTree {
         }
 
         // 修正执行顺序：期望进入顺序为 ROOT -> API -> V1 -> USERS
-        // Next::build 逻辑：
-        // 1) 先 pop 最后一个元素，作为最内层（靠近 endpoint）
-        // 2) 对剩余元素按迭代顺序 fold，最后被 fold 的成为最外层
-        // 因此，只要保证“剩余元素”的反向顺序是 ROOT -> API -> V1，且最后一个被 pop 的是 USERS，
-        // 就能得到期望顺序。
-        // 构造方式：将除最后一个外的中间件逆序，然后把最后一个追加到末尾。
         if active_middlewares.len() >= 2 {
             let last = active_middlewares.pop().unwrap();
             active_middlewares.reverse();
             active_middlewares.push(last);
         }
 
-        // 以目标结点的 handler 作为终端，构建 Next 链并调用
+        // 构建 Next 链并调用
         let endpoint = Arc::new(target.handler.clone());
         let next = Next::build(endpoint, active_middlewares);
         next.call(req).await
@@ -243,6 +255,60 @@ mod tests {
 
     async fn world<'a>(_: Request) -> Result<&'a str, SilentError> {
         Ok("world")
+    }
+
+    #[tokio::test]
+    async fn route_path_conflicts_and_root_cases() {
+        async fn hello(_: Request) -> Result<String, SilentError> {
+            Ok("hello".into())
+        }
+        async fn world<'a>(_: Request) -> Result<&'a str, SilentError> {
+            Ok("world")
+        }
+
+        // path conflict
+        let route = Route::new("")
+            .append(Route::new("api").get(hello))
+            .append(Route::new("api/v1").get(world));
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        *req.uri_mut() = "/api".parse().unwrap();
+        let mut res = tree.call(req).await.unwrap();
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from("hello")
+        );
+
+        let mut req = Request::empty();
+        *req.uri_mut() = "/api/v1".parse().unwrap();
+        let mut res = tree.call(req).await.unwrap();
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from("world")
+        );
+
+        // root matching
+        let route = Route::new("").get(hello);
+        let tree = route.convert_to_route_tree();
+        let mut req = Request::empty();
+        *req.uri_mut() = "/".parse().unwrap();
+        let mut res = tree.call(req).await.unwrap();
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from("hello")
+        );
+
+        // typed params
+        let route = Route::new("")
+            .append(Route::new("user/<id:i64>").get(hello))
+            .append(Route::new("post/<slug>").get(world));
+        let tree = route.convert_to_route_tree();
+        let mut req = Request::empty();
+        *req.uri_mut() = "/user/123".parse().unwrap();
+        let (req, _) = req.split_url();
+        // trigger param parse via call
+        let _ = tree.call_with_path(req, "/user/123".into()).await;
     }
 
     #[tokio::test]

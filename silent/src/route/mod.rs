@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use http::StatusCode;
 // RootRoute 已被 Route 替代，不再导出
 pub use route_service::RouteService;
 use std::collections::HashMap;
@@ -12,8 +11,7 @@ use crate::handler::static_handler;
 use crate::middleware::MiddleWareHandler;
 #[cfg(feature = "static")]
 use crate::prelude::HandlerGetter;
-use crate::route::handler_match::{LastPath, Match, RouteMatched};
-use crate::{Method, Next, Request, Response, SilentError};
+use crate::{Method, Request, Response};
 
 pub(crate) mod handler_append;
 mod handler_match;
@@ -212,164 +210,19 @@ impl Route {
 }
 
 // 路由执行实现
-impl Route {
-    async fn handle(
-        &self,
-        mut req: Request,
-        last_path: LastPath,
-    ) -> crate::error::SilentResult<Response> {
-        let (matched_route, last_path) = self.route_match(&mut req, last_path);
-        match matched_route {
-            RouteMatched::Matched(route) => {
-                if last_path.is_empty() {
-                    match self.handler.clone().get(req.method()) {
-                        None => Err(SilentError::business_error(
-                            StatusCode::METHOD_NOT_ALLOWED,
-                            "method not allowed".to_string(),
-                        )),
-                        Some(handler) => {
-                            let mut pre_res = Response::empty();
-                            pre_res.configs = req.configs();
-                            let mut active_middlewares = vec![];
-                            for middleware in self.middlewares.iter().cloned() {
-                                if middleware.match_req(&req).await {
-                                    active_middlewares.push(middleware);
-                                }
-                            }
-                            let next = Next::build(handler.clone(), active_middlewares);
-                            pre_res.copy_from_response(next.call(req).await?);
-                            Ok(pre_res)
-                        }
-                    }
-                } else if route.children.is_empty() {
-                    Err(SilentError::business_error(
-                        StatusCode::NOT_FOUND,
-                        "not found".to_string(),
-                    ))
-                } else {
-                    // 直接集成 last_matched 的递归逻辑到 handle 方法中
-                    let mut middlewares = vec![];
-                    let matched_route = self
-                        .handle_recursive(&route, &mut req, last_path.clone(), &mut middlewares)
-                        .await;
-
-                    match matched_route {
-                        Some(matched_route) => {
-                            // 调用匹配到的路由的处理器
-                            match matched_route.handler.clone().get(req.method()) {
-                                None => Err(SilentError::business_error(
-                                    StatusCode::METHOD_NOT_ALLOWED,
-                                    "method not allowed".to_string(),
-                                )),
-                                Some(handler) => {
-                                    let mut pre_res = Response::empty();
-                                    pre_res.configs = req.configs();
-
-                                    let next = Next::build(handler.clone(), middlewares);
-                                    pre_res.copy_from_response(next.call(req).await?);
-                                    Ok(pre_res)
-                                }
-                            }
-                        }
-                        None => Err(SilentError::business_error(
-                            StatusCode::NOT_FOUND,
-                            "route not found",
-                        )),
-                    }
-                }
-            }
-            RouteMatched::Unmatched => Err(SilentError::business_error(
-                StatusCode::NOT_FOUND,
-                "not found".to_string(),
-            )),
-        }
-    }
-
-    // 递归处理路由匹配，同时收集中间件
-    async fn handle_recursive(
-        &self,
-        current_route: &Route,
-        req: &mut Request,
-        path: String,
-        middlewares: &mut Vec<Arc<dyn MiddleWareHandler>>,
-    ) -> Option<Route> {
-        // 模拟 route_match 调用
-        let (matched, last_path) = current_route.route_match(req, path);
-
-        match matched {
-            crate::route::handler_match::RouteMatched::Matched(route) => {
-                if last_path.is_empty() {
-                    // 路径匹配完成，返回当前路由
-
-                    // 先收集当前路由的中间件（在递归之前）
-                    for middleware in route.middlewares.iter().cloned() {
-                        if middleware.match_req(req).await {
-                            middlewares.push(middleware);
-                        }
-                    }
-                    Some(route)
-                } else {
-                    // 需要继续匹配子路由
-                    if route.children.is_empty() {
-                        // 没有子路由，检查是否可以返回父路由
-                        if last_path.is_empty() || last_path == "/" {
-                            Some(route)
-                        } else {
-                            None
-                        }
-                    } else {
-                        // 递归匹配子路由
-                        let mut found_route = None;
-                        for child in &route.children {
-                            if let Some(matched_child) = Box::pin(self.handle_recursive(
-                                child,
-                                req,
-                                last_path.clone(),
-                                middlewares,
-                            ))
-                            .await
-                            {
-                                found_route = Some(matched_child);
-                                break;
-                            }
-                        }
-
-                        if found_route.is_some() {
-                            // 先收集当前路由的中间件（在递归之前）
-                            for middleware in route.middlewares.iter().cloned() {
-                                if middleware.match_req(req).await {
-                                    middlewares.push(middleware);
-                                }
-                            }
-                            found_route
-                        } else if !route.handler.is_empty() {
-                            // 没有子路由匹配，但有父路由处理器，返回父路由
-                            Some(route)
-                        } else {
-                            None
-                        }
-                    }
-                }
-            }
-            crate::route::handler_match::RouteMatched::Unmatched => None,
-        }
-    }
-}
 
 #[async_trait]
 impl Handler for Route {
     async fn call(&self, mut req: Request) -> crate::error::SilentResult<Response> {
-        // 统一的路由处理逻辑
-
-        // 如果当前路由有配置，说明是服务入口点，需要处理路径匹配和中间件层级
         if self.configs.is_some() {
             req.configs_mut()
                 .insert(self.get_configs().unwrap().clone());
         }
-
         let (req, last_path) = req.split_url();
-
-        self.handle(req, last_path).await
+        // Route 结构已不再在服务路径上使用，保持向后兼容：
+        // 直接把自身转换为 RouteTree 并调用，避免重复维护两套匹配逻辑
+        let tree = self.clone().convert_to_route_tree();
+        tree.call_with_path(req, last_path).await
     }
 }
 
