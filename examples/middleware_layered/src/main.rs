@@ -29,7 +29,11 @@ impl MiddleWareHandler for CounterMiddleware {
         );
 
         let response = next.call(req).await?;
-        println!("🔧 {} middleware finished", self.name);
+        println!(
+            "🔧 {} middleware finished (count: {})",
+            self.name,
+            count + 1
+        );
         Ok(response)
     }
 }
@@ -61,27 +65,29 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 async fn start_server() -> std::result::Result<(), Box<dyn std::error::Error>> {
     logger::fmt::init();
-    let counter = Arc::new(AtomicUsize::new(0));
 
-    let root_middleware = CounterMiddleware::new("ROOT", counter.clone());
-    let api_middleware = CounterMiddleware::new("API", counter.clone());
-    let v1_middleware = CounterMiddleware::new("V1", counter.clone());
-    let users_middleware = CounterMiddleware::new("USERS", counter.clone());
+    // 使用共享的计数器来避免计数混乱
+    let root_counter = Arc::new(AtomicUsize::new(0));
+    let api_counter = Arc::new(AtomicUsize::new(0));
+    let v1_counter = Arc::new(AtomicUsize::new(0));
+    let users_counter = Arc::new(AtomicUsize::new(0));
 
-    let app = Route::new("")
-        .hook(root_middleware)
-        .get(root_handler)
-        .append(
-            Route::new("api").hook(api_middleware).append(
-                Route::new("v1")
-                    .hook(v1_middleware)
-                    .get(hello)
-                    .post(world)
-                    .append(Route::new("users").hook(users_middleware).get(user_handler)),
-            ),
-        );
+    let root_middleware = CounterMiddleware::new("ROOT", root_counter);
+    let api_middleware = CounterMiddleware::new("API", api_counter);
+    let v1_middleware = CounterMiddleware::new("V1", v1_counter);
+    let users_middleware = CounterMiddleware::new("USERS", users_counter);
 
-    let mut root_route = Route::new_root();
+    let app = Route::new("").get(root_handler).append(
+        Route::new("api").hook(api_middleware).append(
+            Route::new("v1")
+                .hook(v1_middleware)
+                .get(hello)
+                .post(world)
+                .append(Route::new("users").hook(users_middleware).get(user_handler)),
+        ),
+    );
+
+    let mut root_route = Route::new_root().hook(root_middleware);
     root_route.push(app);
 
     println!("🚀 启动层级中间件演示服务器...");

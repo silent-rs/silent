@@ -3,11 +3,13 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 /// The `Next` struct is used to chain multiple middlewares and endpoints together.
+#[derive(Clone)]
 pub struct Next {
     inner: NextInstance,
     next: Option<Arc<Next>>,
 }
 
+#[derive(Clone)]
 pub(crate) enum NextInstance {
     Middleware(Arc<dyn MiddleWareHandler>),
     EndPoint(Arc<dyn Handler>),

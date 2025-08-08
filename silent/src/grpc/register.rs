@@ -36,6 +36,6 @@ where
     }
 
     fn register(self, route: &mut Route) {
-        route.extend(self.service());
+        route.push(self.service());
     }
 }
