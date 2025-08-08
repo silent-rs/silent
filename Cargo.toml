@@ -10,7 +10,7 @@ homepage = "https://github.com/silent-rs/silent"
 license = "Apache-2.0"
 readme = "./readme.md"
 repository = "https://github.com/silent-rs/silent"
-version = "2.6.0"
+version = "2.7.0"
 
 [workspace.dependencies]
 async-trait = "0.1.88"
