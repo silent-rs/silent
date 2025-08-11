@@ -104,7 +104,7 @@ impl Route {
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
         T: Into<Response> + Send + 'static,
     {
-        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        let adapted = handler_from_extractor::<Args, F, Fut, T>(f);
         self.handler_append(Method::GET, adapted);
         self
     }
@@ -117,7 +117,7 @@ impl Route {
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
         T: Into<Response> + Send + 'static,
     {
-        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        let adapted = handler_from_extractor::<Args, F, Fut, T>(f);
         self.handler_append(Method::POST, adapted);
         self
     }

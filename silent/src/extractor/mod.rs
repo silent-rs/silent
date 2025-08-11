@@ -1,7 +1,11 @@
 use async_trait::async_trait;
 
-use crate::{Request, Response, SilentError, core::path_param::PathParam};
+use crate::{
+    Method as HttpMethod, Request, Response, SilentError, core::path_param::PathParam,
+    headers::HeaderMapExt,
+};
 use futures_util::future::BoxFuture;
+use http::{Uri as HttpUri, Version as HttpVersion};
 use std::sync::Arc;
 
 /// 统一的请求萃取器 trait
@@ -246,5 +250,128 @@ fn path_param_to_string(param: &PathParam) -> String {
         PathParam::UInt32(v) => v.to_string(),
         PathParam::UInt64(v) => v.to_string(),
         PathParam::Uuid(u) => u.to_string(),
+    }
+}
+
+#[allow(dead_code)]
+pub struct Configs<T>(pub T);
+
+#[async_trait]
+impl<T> FromRequest for Configs<T>
+where
+    T: Send + Sync + Clone + 'static,
+{
+    type Rejection = SilentError;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        let cfg = req.get_config::<T>()?.clone();
+        Ok(Configs(cfg))
+    }
+}
+
+/// 从 Extensions 中提取扩展
+pub struct Extension<T>(pub T);
+
+#[async_trait]
+impl<T> FromRequest for Extension<T>
+where
+    T: Clone + Send + Sync + 'static,
+{
+    type Rejection = SilentError;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        let ext = req
+            .extensions()
+            .get::<T>()
+            .cloned()
+            .ok_or(SilentError::ParamsNotFound)?;
+        Ok(Extension(ext))
+    }
+}
+
+/// 头部类型化提取（等价 axum 的 TypedHeader）
+pub struct TypedHeader<H>(pub H);
+
+#[async_trait]
+impl<H> FromRequest for TypedHeader<H>
+where
+    H: headers::Header + Send + 'static,
+{
+    type Rejection = SilentError;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        let h = req
+            .headers()
+            .typed_get::<H>()
+            .ok_or(SilentError::ParamsNotFound)?;
+        Ok(TypedHeader(h))
+    }
+}
+
+#[allow(dead_code)]
+pub struct Method(pub HttpMethod);
+pub struct Uri(pub HttpUri);
+pub struct Version(pub HttpVersion);
+pub struct RemoteAddr(pub crate::core::socket_addr::SocketAddr);
+
+#[async_trait]
+impl FromRequest for Method {
+    type Rejection = SilentError;
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        Ok(Method(req.method().clone()))
+    }
+}
+
+#[async_trait]
+impl FromRequest for Uri {
+    type Rejection = SilentError;
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        Ok(Uri(req.uri().clone()))
+    }
+}
+
+#[async_trait]
+impl FromRequest for Version {
+    type Rejection = SilentError;
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        Ok(Version(req.version()))
+    }
+}
+
+#[async_trait]
+impl FromRequest for RemoteAddr {
+    type Rejection = SilentError;
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        Ok(RemoteAddr(req.remote()))
+    }
+}
+
+#[async_trait]
+impl<T> FromRequest for Option<T>
+where
+    T: FromRequest + Send + 'static,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        match T::from_request(req).await {
+            Ok(v) => Ok(Some(v)),
+            Err(_e) => Ok(None),
+        }
+    }
+}
+
+#[async_trait]
+impl<T> FromRequest for Result<T, Response>
+where
+    T: FromRequest + Send + 'static,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        match T::from_request(req).await {
+            Ok(v) => Ok(Ok(v)),
+            Err(e) => Ok(Err(e.into())),
+        }
     }
 }

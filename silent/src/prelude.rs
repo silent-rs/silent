@@ -17,7 +17,10 @@ pub use crate::core::{
 };
 pub use crate::error::{SilentError, SilentResult as Result};
 pub use crate::extractor::handler_from_extractor;
-pub use crate::extractor::{Form, FromRequest, Json, Path, Query, RequestExt};
+pub use crate::extractor::{
+    Extension, Form, FromRequest, Json, Path, Query, RemoteAddr, RequestExt, TypedHeader, Uri,
+    Version,
+};
 #[cfg(feature = "grpc")]
 pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::handler::Handler;
