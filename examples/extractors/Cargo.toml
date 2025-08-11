@@ -1,0 +1,9 @@
+[package]
+name = "example-extractors"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+silent = { path = "../../silent" }

@@ -1,4 +1,5 @@
 use super::Route;
+use crate::extractor::handler_from_extractor;
 use crate::{Handler, HandlerWrapper, Method, Request, Response, Result};
 use std::collections::HashMap;
 use std::future::Future;
@@ -89,6 +90,87 @@ where
 
     fn options(mut self, handler: F) -> Self {
         self.handler_append(Method::OPTIONS, handler);
+        self
+    }
+}
+
+// 扩展：支持基于萃取器签名的处理函数
+impl Route {
+    pub fn get_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::GET, adapted);
+        self
+    }
+
+    pub fn post_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::POST, adapted);
+        self
+    }
+
+    pub fn put_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::PUT, adapted);
+        self
+    }
+
+    pub fn delete_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::DELETE, adapted);
+        self
+    }
+
+    pub fn patch_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::PATCH, adapted);
+        self
+    }
+
+    pub fn options_ex<Args, F, Fut, T>(mut self, f: F) -> Self
+    where
+        Args: crate::extractor::FromRequest + Send + 'static,
+        <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: core::future::Future<Output = Result<T>> + Send + 'static,
+        T: Into<Response> + Send + 'static,
+    {
+        let adapted = handler_from_extractor::<Args, _, _, T>(f);
+        self.handler_append(Method::OPTIONS, adapted);
         self
     }
 }
