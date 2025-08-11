@@ -137,8 +137,11 @@ impl RouteTree {
         stack.push(self);
 
         if last_path.is_empty() {
-            // 深度优先：优先尝试匹配子结点（例如空路径子路由）
+            // URL 已完全匹配：仅尝试 path 为空字符串的子结点
             for child in &self.children {
+                if !child.path.is_empty() {
+                    continue;
+                }
                 if child.dfs_match(req, last_path, stack) {
                     return true;
                 }
