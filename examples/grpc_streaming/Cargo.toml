@@ -1,26 +1,27 @@
 [package]
-name = "example-grpc-streaming"
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
 homepage.workspace = true
 license.workspace = true
+name = "example-grpc-streaming"
+publish = false
 readme.workspace = true
 repository.workspace = true
 version.workspace = true
-publish = false
 
 [[bin]]
 name = "example-grpc-client"
 path = "src/client.rs"
 
 [dependencies]
-tonic.workspace = true
-prost.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-silent = { path = "../../silent", features = ["grpc"] }
 async-trait.workspace = true
-tokio-stream.workspace = true
 h2.workspace = true
+prost.workspace = true
+silent = {path = "../../silent", features = ["grpc"]}
+tokio = {workspace = true, features = ["macros", "rt-multi-thread"]}
+tokio-stream.workspace = true
+tonic-prost.workspace = true
+tonic.workspace = true
 
 [build-dependencies]
-tonic-build = { version = "0.14" }
+tonic-prost-build.workspace = true
