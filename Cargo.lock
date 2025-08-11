@@ -948,7 +948,7 @@ dependencies = [
 
 [[package]]
 name = "example-grpc"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "async-trait",
  "prost",
@@ -961,7 +961,7 @@ dependencies = [
 
 [[package]]
 name = "example-grpc-h2c"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "async-trait",
  "http",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "example-grpc-streaming"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "async-trait",
  "h2",
@@ -1124,14 +1124,14 @@ dependencies = [
 
 [[package]]
 name = "examples-plugins"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "silent",
 ]
 
 [[package]]
 name = "examples_plugin_test"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "dlopen2",
  "silent",
@@ -2852,7 +2852,7 @@ dependencies = [
 
 [[package]]
 name = "silent"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "wasm"
-version = "2.7.0"
+version = "2.7.1"
 dependencies = [
  "silent",
  "tokio_wasi",
