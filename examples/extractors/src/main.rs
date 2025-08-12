@@ -23,12 +23,8 @@ async fn create_user(Json(input): Json<CreateUser>) -> Result<String> {
 
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
-    let route = Route::new("").append(
-        Route::new("api/users")
-            .post_ex::<Json<CreateUser>, _, _, _>(create_user)
-            .append(
-                Route::new("<id:int>").get_ex::<(Path<i64>, Query<Page>), _, _, _>(user_detail),
-            ),
-    );
+    let route = Route::new("api/users")
+        .append(Route::new("<id:int>").get(handler_from_extractor(user_detail)))
+        .post(handler_from_extractor(create_user));
     Server::new().run(route);
 }
