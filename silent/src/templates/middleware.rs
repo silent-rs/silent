@@ -71,7 +71,7 @@ impl MiddleWareHandler for TemplateMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::{HandlerAppend, Route};
+    use crate::prelude::Route;
     use crate::{Handler, Request};
     use bytes::Bytes;
     use http_body_util::BodyExt;
@@ -90,7 +90,7 @@ mod tests {
             template: Arc::new(tera),
         };
         let route = Route::default()
-            .get(|_req| async {
+            .get(|_req: Request| async {
                 let temp = Temp {
                     name: "templates".to_string(),
                 };

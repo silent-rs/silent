@@ -19,7 +19,7 @@ mod unix {
     use http_body_util::BodyExt;
     use hyper_util::rt::TokioIo;
     use silent::prelude::*;
-    use silent::prelude::{HandlerAppend, Level, Route, Server, logger};
+    use silent::prelude::{Level, Route, Server, logger};
     use std::time::Duration;
     use tokio::net::{UnixListener, UnixStream};
 

@@ -5,15 +5,15 @@ fn main() {
     let mut configs = Configs::default();
     configs.insert(1i32);
     let route = Route::new("")
-        .get(|req| async move {
+        .get(|req: Request| async move {
             let num = req.get_config::<i32>()?;
             Ok(*num)
         })
-        .append(Route::new("check").get(|req| async move {
+        .append(Route::new("check").get(|req: Request| async move {
             let num: &i64 = req.get_config()?;
             Ok(*num)
         }))
-        .append(Route::new("uncheck").get(|req| async move {
+        .append(Route::new("uncheck").get(|req: Request| async move {
             let num: &i32 = req.get_config_uncheck();
             Ok(*num)
         }));

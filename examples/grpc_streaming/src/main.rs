@@ -2,11 +2,11 @@ use std::{error::Error, io::ErrorKind, pin::Pin, time::Duration};
 
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request as TonicRequest, Response, Status, Streaming};
 
 use pb::{EchoRequest, EchoResponse};
-use silent::GrpcRegister;
-use silent::prelude::{HandlerAppend, Level, Route, RouteService, Server, info, logger};
+use silent::prelude::{Level, Route, RouteService, Server, info, logger};
+use silent::{GrpcRegister, Request};
 
 mod client;
 
@@ -42,7 +42,7 @@ pub struct EchoServer {}
 
 #[tonic::async_trait]
 impl pb::echo_server::Echo for EchoServer {
-    async fn unary_echo(&self, _: Request<EchoRequest>) -> EchoResult<EchoResponse> {
+    async fn unary_echo(&self, _: TonicRequest<EchoRequest>) -> EchoResult<EchoResponse> {
         Err(Status::unimplemented("not implemented"))
     }
 
@@ -50,7 +50,7 @@ impl pb::echo_server::Echo for EchoServer {
 
     async fn server_streaming_echo(
         &self,
-        req: Request<EchoRequest>,
+        req: TonicRequest<EchoRequest>,
     ) -> EchoResult<Self::ServerStreamingEchoStream> {
         info!("EchoServer::server_streaming_echo");
         info!("\tclient connected from: {:?}", req.remote_addr());
@@ -87,7 +87,7 @@ impl pb::echo_server::Echo for EchoServer {
 
     async fn client_streaming_echo(
         &self,
-        _: Request<Streaming<EchoRequest>>,
+        _: TonicRequest<Streaming<EchoRequest>>,
     ) -> EchoResult<EchoResponse> {
         Err(Status::unimplemented("not implemented"))
     }
@@ -96,7 +96,7 @@ impl pb::echo_server::Echo for EchoServer {
 
     async fn bidirectional_streaming_echo(
         &self,
-        req: Request<Streaming<EchoRequest>>,
+        req: TonicRequest<Streaming<EchoRequest>>,
     ) -> EchoResult<Self::BidirectionalStreamingEchoStream> {
         info!("EchoServer::bidirectional_streaming_echo");
 
@@ -147,7 +147,7 @@ impl pb::echo_server::Echo for EchoServer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     logger::fmt().with_max_level(Level::INFO).init();
     let server = EchoServer {};
-    let route = Route::new("").get(|_req| async { Ok("hello world") });
+    let route = Route::new("").get(|_req: Request| async { Ok("hello world") });
     let mut root = route.route();
     root.push(pb::echo_server::EchoServer::new(server).service());
     Server::new()

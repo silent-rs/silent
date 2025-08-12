@@ -1,13 +1,14 @@
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use silent::prelude::{HandlerAppend, Level, Listener, Route, Server, logger};
+use silent::Request;
+use silent::prelude::{Level, Listener, Route, Server, logger};
 use std::sync::Arc;
 use tokio_rustls::{TlsAcceptor, rustls};
 
 #[tokio::main]
 async fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
-    let route = Route::new("").get(|_req| async { Ok("hello world") });
+    let route = Route::new("").get(|_req: Request| async { Ok("hello world") });
     println!(
         "current dir: {}",
         std::env::current_dir().unwrap().display()

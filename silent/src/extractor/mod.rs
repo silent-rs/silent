@@ -214,6 +214,7 @@ where
 }
 
 /// 将使用萃取器参数的处理函数适配为接收 `Request` 的处理函数
+/// 仅萃取器参数的处理函数：`F: Fn(Args) -> Fut`
 pub fn handler_from_extractor<Args, F, Fut, T>(
     f: F,
 ) -> impl Fn(crate::Request) -> BoxFuture<'static, crate::Result<Response>> + Send + Sync + 'static
@@ -231,6 +232,32 @@ where
             match <Args as FromRequest>::from_request(&mut req).await {
                 Ok(args) => {
                     let res = f(args).await?;
+                    Ok(res.into())
+                }
+                Err(rej) => Ok(rej.into()),
+            }
+        })
+    }
+}
+
+/// 同时接收 Request 与萃取器参数：`F: Fn(Request, Args) -> Fut`
+pub fn handler_from_extractor_with_request<Args, F, Fut, T>(
+    f: F,
+) -> impl Fn(crate::Request) -> BoxFuture<'static, crate::Result<Response>> + Send + Sync + 'static
+where
+    Args: FromRequest + Send + 'static,
+    <Args as FromRequest>::Rejection: Into<Response> + Send + 'static,
+    F: Fn(crate::Request, Args) -> Fut + Send + Sync + 'static,
+    Fut: core::future::Future<Output = crate::Result<T>> + Send + 'static,
+    T: Into<Response> + Send + 'static,
+{
+    let f = Arc::new(f);
+    move |mut req: Request| {
+        let f = f.clone();
+        Box::pin(async move {
+            match <Args as FromRequest>::from_request(&mut req).await {
+                Ok(args) => {
+                    let res = f(req, args).await?;
                     Ok(res.into())
                 }
                 Err(rej) => Ok(rej.into()),

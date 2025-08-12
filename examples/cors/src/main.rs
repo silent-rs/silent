@@ -11,7 +11,7 @@ fn main() {
                 .headers(CorsType::Any)
                 .credentials(true),
         )
-        .get(|mut req| async move {
+        .get(|mut req: Request| async move {
             let ok = req.params().get("ok").is_some();
             if ok {
                 Err(SilentError::business_error(
@@ -22,10 +22,10 @@ fn main() {
                 Ok("hello world")
             }
         })
-        .post(|_req| async { Ok("hello world") })
-        .put(|_req| async { Ok("hello world") })
-        .patch(|_req| async { Ok("hello world") })
-        .options(|_req| async { Ok("hello world") })
-        .delete(|_req| async { Ok("hello world") });
+        .post(|_req: Request| async { Ok("hello world") })
+        .put(|_req: Request| async { Ok("hello world") })
+        .patch(|_req: Request| async { Ok("hello world") })
+        .options(|_req: Request| async { Ok("hello world") })
+        .delete(|_req: Request| async { Ok("hello world") });
     Server::new().run(route);
 }

@@ -1,10 +1,10 @@
 use async_trait::async_trait;
-use tonic::{Request, Response, Status};
+use tonic::{Request as TonicRequest, Response, Status};
 
 use hello_world::greeter_server::{Greeter, GreeterServer};
 use hello_world::{HelloReply, HelloRequest};
-use silent::GrpcRegister;
-use silent::prelude::{HandlerAppend, Level, Route, Server, info, logger};
+use silent::prelude::{Level, Route, Server, info, logger};
+use silent::{GrpcRegister, Request};
 
 mod client;
 
@@ -19,7 +19,7 @@ pub struct MyGreeter {}
 impl Greeter for MyGreeter {
     async fn say_hello(
         &self,
-        request: Request<HelloRequest>, // Accept request of type HelloRequest
+        request: TonicRequest<HelloRequest>, // Accept request of type HelloRequest
     ) -> Result<Response<HelloReply>, Status> {
         // Return an instance of type HelloReply
         info!("Got a request: {:?}", request);
@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     .add_service(greeter_server)
     //     .into_router();
     let route = Route::new("")
-        .get(|_req| async { Ok("hello world") })
+        .get(|_req: Request| async { Ok("hello world") })
         .append(greeter_server.service());
     info!("route: \n{:?}", route);
     Server::new()
