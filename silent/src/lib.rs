@@ -4,7 +4,7 @@ mod cookie;
 /// The `silent` library.
 mod core;
 mod error;
-mod extractor;
+pub mod extractor;
 #[cfg(feature = "grpc")]
 mod grpc;
 mod handler;
