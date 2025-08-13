@@ -50,5 +50,7 @@ pub use handler::Handler;
 pub use handler::HandlerWrapper;
 pub use headers;
 pub use hyper::{Method, StatusCode, header};
+#[cfg(feature = "security")]
+pub use middleware::middlewares::{Jwt, OptionalJwt};
 #[cfg(feature = "scheduler")]
 pub use scheduler::{ProcessTime, SCHEDULER, Scheduler, SchedulerExt, Task};
