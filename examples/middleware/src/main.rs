@@ -9,7 +9,7 @@ fn main() {
     };
     let route = Route::new("")
         .hook(middle_ware)
-        .get(|_req| async { Ok("Hello World") });
+        .get(|_req: Request| async { Ok("Hello World") });
     Server::new().run(route);
 }
 

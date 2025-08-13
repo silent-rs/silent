@@ -11,6 +11,6 @@ pub(crate) mod request;
 pub(crate) mod res_body;
 pub(crate) mod response;
 #[allow(dead_code)]
-mod serde;
+pub(crate) mod serde;
 pub(crate) mod socket_addr;
 pub(crate) mod stream;

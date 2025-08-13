@@ -9,7 +9,7 @@ struct Temp {
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
     let mut route = Route::new("")
-        .get(|_req| async {
+        .get(|_req: Request| async {
             let temp = Temp {
                 name: "templates".to_string(),
             };

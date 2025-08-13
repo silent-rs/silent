@@ -247,7 +247,6 @@ impl RouteTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prelude::HandlerAppend;
     use crate::route::Route;
     use bytes::Bytes;
     use http_body_util::BodyExt;

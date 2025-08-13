@@ -13,7 +13,7 @@ fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
     let route = Route::new("")
         .hook(ExceptionHandler::new(|res, _| async move { res }))
-        .get(|mut req| async move { req.params_parse::<Exception>() })
+        .get(|mut req: Request| async move { req.params_parse::<Exception>() })
         .route();
     Server::new().run(route);
 }
