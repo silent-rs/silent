@@ -42,10 +42,6 @@ pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
-pub use extractor::{
-    Form as ExtractForm, FromRequest, Json as ExtractJson, Path as ExtractPath,
-    Query as ExtractQuery,
-};
 pub use handler::Handler;
 pub use handler::HandlerWrapper;
 pub use headers;

@@ -39,9 +39,9 @@ where
         let cookie = cookies.get("silent-web-session");
         let session_store = self.session_store.read().await;
         let mut session_key_exists = false;
-        let mut cookie_value = if cookie.is_some() {
+        let mut cookie_value = if let Some(cookie) = cookie {
             session_key_exists = true;
-            cookie.unwrap().value().to_string()
+            cookie.value().to_string()
         } else {
             session_store.store_session(Session::new()).await?.unwrap()
         };
