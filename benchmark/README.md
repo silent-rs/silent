@@ -124,6 +124,66 @@ Silent 框架的路由匹配性能表现优秀：
 
 总体而言，Silent 的路由匹配功能在保持功能完整性的同时，提供了优秀的性能表现，适合构建复杂的Web应用。
 
+## 如何运行基准服务（A/B/C 场景）
+
+本仓库提供可运行的基准服务入口（`benchmark/src/main.rs`），通过环境变量选择场景。服务默认监听 `127.0.0.1:8080`，可通过 `PORT` 覆盖：
+
+```bash
+# 场景 A：GET / 返回固定 12B 文本
+SCENARIO=A PORT=8080 cargo run -p benchmark --release
+
+# 场景 B：解析 3 个路径参数 + 5 个查询参数 + 返回 JSON
+SCENARIO=B PORT=8080 cargo run -p benchmark --release
+
+# 场景 C：1KiB 静态文件（含 ETag/If-None-Match），GET /static
+SCENARIO=C PORT=8080 cargo run -p benchmark --release
+```
+
+如需修改端口，使用 `PORT=<port>` 环境变量（例如 `PORT=18080`）。
+
+### 压测示例（bombardier）
+
+```bash
+# A 场景
+bombardier -c 256 -d 30s http://127.0.0.1:8080/
+
+# B 场景（示例参数）
+bombardier -c 256 -d 30s 'http://127.0.0.1:8080/b/abc/123/xyz?q1=a&q2=b&q3=42&q4=true&q5=z'
+
+# C 场景：首次命中 200，随后带 If-None-Match 复用 304
+curl -i http://127.0.0.1:8080/static
+ETAG=$(curl -sI http://127.0.0.1:8080/static | awk -F': ' '/^etag:/{print $2}' | tr -d '\r')
+bombardier -c 256 -d 30s -H "If-None-Match: $ETAG" http://127.0.0.1:8080/static
+
+或使用脚本（需安装 bombardier 与 curl）：
+
+```bash
+chmod +x benchmark/scripts/run_bombardier.sh
+# 运行前请在另一个终端启动服务：
+#   SCENARIO=A PORT=8080 cargo run -p benchmark --release
+
+# A 场景
+SCENARIO=A PORT=8080 benchmark/scripts/run_bombardier.sh
+
+# B 场景
+SCENARIO=B PORT=8080 benchmark/scripts/run_bombardier.sh
+
+# C 场景（脚本会自动获取 ETag 并使用 If-None-Match）
+SCENARIO=C PORT=8080 benchmark/scripts/run_bombardier.sh
+```
+```
+
+### 与 Axum/Actix 的对比
+
+- 对标框架：Axum、Actix。
+- 要点：
+  - 固定相同硬件、相同 Rust 版本、相同编译参数（`--release`）。
+  - 固定监听端口与路由语义（返回体大小、HTTP 头一致）。
+  - 记录 p50/p90/p99、RPS、CPU 利用率，并保存 flamegraph（`pprof-rs`）。
+  - 结果需重复 3 次，方差在可接受范围内。
+
+> 备注：后续 PR5 将把上述流程纳入 CI，自动产出对比结果与火焰图工件。
+
 ## 测试代码
 
 详细的测试代码请参考 `benches/route_benchmark.rs` 文件，包含了各种复杂场景的基准测试。
