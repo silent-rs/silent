@@ -7,7 +7,7 @@ fn simple_route_benchmark(c: &mut Criterion) {
     c.bench_function("simple route match", |b| {
         b.iter(|| {
             let req = Request::default();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 }
@@ -21,7 +21,7 @@ fn nested_route_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/posts".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 }
@@ -34,7 +34,7 @@ fn middleware_route_benchmark(c: &mut Criterion) {
     c.bench_function("route with middleware", |b| {
         b.iter(|| {
             let req = Request::default();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 }
@@ -58,7 +58,7 @@ fn complex_route_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
     group.bench_function("POST /api/v1/posts", |b| {
@@ -66,14 +66,14 @@ fn complex_route_benchmark(c: &mut Criterion) {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/posts".parse().unwrap();
             *req.method_mut() = Method::POST;
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
     group.bench_function("GET /api/v1/posts/comments", |b| {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/posts/comments".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
     group.finish();
@@ -88,7 +88,7 @@ fn multiple_middleware_benchmark(c: &mut Criterion) {
     c.bench_function("route with multiple middleware", |b| {
         b.iter(|| {
             let req = Request::default();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 }
@@ -107,7 +107,7 @@ fn high_load_benchmark(c: &mut Criterion) {
             for i in 0..1000 {
                 let mut req = Request::default();
                 *req.uri_mut() = format!("/api/v1/users?page={}", i).parse().unwrap();
-                let _ = route.call(req);
+                std::mem::drop(route.call(req));
             }
         });
     });
@@ -144,7 +144,7 @@ fn deep_nested_route_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/advanced".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -155,7 +155,7 @@ fn deep_nested_route_benchmark(c: &mut Criterion) {
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications"
                 .parse()
                 .unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -164,7 +164,7 @@ fn deep_nested_route_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/nonexistent".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -200,7 +200,7 @@ fn complex_deep_route_with_params_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/123/profiles/profile_456/settings/email/preferences/security/notifications/push/email/email_789/templates/template_101/custom/custom_202/advanced/advanced_303".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -212,7 +212,7 @@ fn complex_deep_route_with_params_benchmark(c: &mut Criterion) {
                 "/api/v1/users/456/profiles/profile_789/settings/notification/preferences/privacy"
                     .parse()
                     .unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -268,7 +268,7 @@ fn deep_route_with_middleware_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/advanced".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -320,7 +320,7 @@ fn deep_route_mixed_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/123/profiles/settings/setting_456/preferences/notifications/push/email/templates/789/custom/advanced/advanced_param".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -332,7 +332,7 @@ fn deep_route_mixed_benchmark(c: &mut Criterion) {
                 "/api/v1/users/456/profiles/settings/setting_789/preferences/notifications/email"
                     .parse()
                     .unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -370,7 +370,7 @@ fn route_matching_only_benchmark(c: &mut Criterion) {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/advanced".parse().unwrap();
             // 直接调用路由，但不等待结果
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -382,7 +382,7 @@ fn route_matching_only_benchmark(c: &mut Criterion) {
                 .parse()
                 .unwrap();
             // 直接调用路由，但不等待结果
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -392,7 +392,7 @@ fn route_matching_only_benchmark(c: &mut Criterion) {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/nonexistent".parse().unwrap();
             // 直接调用路由，但不等待结果
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -428,7 +428,7 @@ fn route_matching_with_params_only_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/123/profiles/profile_456/settings/email/preferences/security/notifications/push/email/email_789/templates/template_101/custom/custom_202/advanced/advanced_303".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -437,7 +437,7 @@ fn route_matching_with_params_only_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/456/profiles/profile_789/settings/notification/preferences/privacy".parse().unwrap();
-            let _ = route.call(req);
+            std::mem::drop(route.call(req));
         });
     });
 
@@ -491,7 +491,7 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles".parse().unwrap();
-            let _ = route_3_levels.call(req);
+            std::mem::drop(route_3_levels.call(req));
         });
     });
 
@@ -502,7 +502,7 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences"
                 .parse()
                 .unwrap();
-            let _ = route_5_levels.call(req);
+            std::mem::drop(route_5_levels.call(req));
         });
     });
 
@@ -513,7 +513,7 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email"
                 .parse()
                 .unwrap();
-            let _ = route_7_levels.call(req);
+            std::mem::drop(route_7_levels.call(req));
         });
     });
 
@@ -522,7 +522,7 @@ fn route_matching_performance_comparison_benchmark(c: &mut Criterion) {
         b.iter(|| {
             let mut req = Request::default();
             *req.uri_mut() = "/api/v1/users/profiles/settings/preferences/notifications/email/templates/custom/advanced".parse().unwrap();
-            let _ = route_10_levels.call(req);
+            std::mem::drop(route_10_levels.call(req));
         });
     });
 
