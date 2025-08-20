@@ -190,6 +190,14 @@ impl Handler for RouteTree {
     }
 }
 
+// 优化：为Arc<RouteTree>实现Handler trait，避免不必要的克隆
+#[async_trait]
+impl Handler for Arc<RouteTree> {
+    async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
+        (**self).call(req).await
+    }
+}
+
 impl RouteTree {
     pub(crate) async fn call_with_path(
         &self,
@@ -220,8 +228,12 @@ impl RouteTree {
             }
         };
 
-        // 过滤可用中间件（按层级顺序）
-        let mut active_middlewares: Vec<Arc<dyn MiddleWareHandler>> = Vec::new();
+        // 优化：预分配容量并保持原有的正确执行顺序逻辑
+        let total_middlewares = stack.iter().map(|node| node.middlewares.len()).sum();
+        let mut active_middlewares: Vec<Arc<dyn MiddleWareHandler>> =
+            Vec::with_capacity(total_middlewares);
+
+        // 按层级顺序收集中间件（保持原有逻辑）
         for node in &stack {
             for mw in node.middlewares.iter().cloned() {
                 if mw.match_req(&req).await {

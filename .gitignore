@@ -9,6 +9,7 @@ build_rs_cov.profraw
 certs/
 .history/
 CLAUDE.md
+AGENTS.md
 
 # ignore Cargo.lock at repo root
 /Cargo.lock

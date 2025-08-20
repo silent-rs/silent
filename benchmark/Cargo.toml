@@ -1,16 +1,19 @@
 [package]
-name = "benchmark"
-version = "0.1.0"
 edition.workspace = true
+name = "benchmark"
 publish = false
+version = "0.1.0"
 
 [dependencies]
-silent = { path = "../silent" }
+serde = {version = "1", features = ["derive"]}
+serde_json = "1"
+silent = {path = "../silent"}
+tokio = {version = "1", features = ["full"]}
 
 [dev-dependencies]
 criterion = "0.7"
 
 [[bench]]
+harness = false
 name = "route_benchmark"
 path = "benches/route_benchmark.rs"
-harness = false
