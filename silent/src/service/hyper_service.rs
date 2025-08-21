@@ -24,15 +24,12 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
             routes,
         }
     }
-    /// Handle [`Request`] and returns [`Response`].
+    /// Handle [`Request`] and returns [`Response`] (优化：减少克隆操作)
     #[inline]
     pub fn handle(&self, mut req: Request) -> impl Future<Output = Response> + use<H> {
-        let Self {
-            remote_addr,
-            routes,
-        } = self.clone();
+        let remote_addr = self.remote_addr.clone();
+        let routes = self.routes.clone();
         req.set_remote(remote_addr);
-        let routes = routes.clone();
         async move { routes.call(req).await.unwrap_or_else(Into::into) }
     }
 }

@@ -1,6 +1,7 @@
 use crate::{Handler, MiddleWareHandler, Next, Request, Response, Result, SilentError};
 use async_trait::async_trait;
-use http::{Method, header};
+use http::{HeaderMap, Method, header};
+use std::sync::OnceLock;
 
 #[derive(Debug)]
 pub enum CorsType {
@@ -97,7 +98,7 @@ impl From<&str> for CorsType {
 ///                .methods("POST")
 ///                .headers("authorization,accept")
 ///                .credentials(true);
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Cors {
     origin: Option<CorsOriginType>,
     methods: Option<CorsType>,
@@ -105,6 +106,22 @@ pub struct Cors {
     credentials: Option<bool>,
     max_age: Option<u32>,
     expose: Option<CorsType>,
+    // 优化：延迟初始化的响应头缓存
+    cached_headers: OnceLock<HeaderMap>,
+}
+
+impl Default for Cors {
+    fn default() -> Self {
+        Self {
+            origin: None,
+            methods: None,
+            headers: None,
+            credentials: None,
+            max_age: None,
+            expose: None,
+            cached_headers: OnceLock::new(),
+        }
+    }
 }
 
 impl Cors {
@@ -147,6 +164,41 @@ impl Cors {
         self.expose = Some(expose.into());
         self
     }
+
+    // 优化：获取或构建静态响应头缓存
+    fn get_cached_headers(&self) -> &HeaderMap {
+        self.cached_headers.get_or_init(|| {
+            let mut headers = HeaderMap::new();
+
+            if let Some(ref methods) = self.methods
+                && let Ok(value) = methods.get_value().parse()
+            {
+                headers.insert("Access-Control-Allow-Methods", value);
+            }
+            if let Some(ref cors_headers) = self.headers
+                && let Ok(value) = cors_headers.get_value().parse()
+            {
+                headers.insert("Access-Control-Allow-Headers", value);
+            }
+            if let Some(ref credentials) = self.credentials
+                && let Ok(value) = credentials.to_string().parse()
+            {
+                headers.insert("Access-Control-Allow-Credentials", value);
+            }
+            if let Some(ref max_age) = self.max_age
+                && let Ok(value) = max_age.to_string().parse()
+            {
+                headers.insert("Access-Control-Max-Age", value);
+            }
+            if let Some(ref expose) = self.expose
+                && let Ok(value) = expose.get_value().parse()
+            {
+                headers.insert("Access-Control-Expose-Headers", value);
+            }
+
+            headers
+        })
+    }
 }
 
 #[async_trait]
@@ -157,7 +209,15 @@ impl MiddleWareHandler for Cors {
             .get("origin")
             .map_or("", |v| v.to_str().unwrap_or(""))
             .to_string();
+
+        // 优化：复用预构建的响应头模板
         let mut res = Response::empty();
+
+        // 复制缓存的静态头部 (优化：避免重复构建)
+        let cached_headers = self.get_cached_headers();
+        res.headers_mut().extend(cached_headers.clone());
+
+        // 只处理动态的 Origin 头部
         if let Some(ref origin) = self.origin {
             let origin = origin.get_value(&req_origin);
             if origin.is_empty() {
@@ -176,61 +236,7 @@ impl MiddleWareHandler for Cors {
                 })?,
             );
         }
-        if let Some(ref methods) = self.methods {
-            res.headers_mut().insert(
-                "Access-Control-Allow-Methods",
-                methods.get_value().parse().map_err(|e| {
-                    SilentError::business_error(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow methods: {e}"),
-                    )
-                })?,
-            );
-        }
-        if let Some(ref headers) = self.headers {
-            res.headers_mut().insert(
-                "Access-Control-Allow-Headers",
-                headers.get_value().parse().map_err(|e| {
-                    SilentError::business_error(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow headers: {e}"),
-                    )
-                })?,
-            );
-        }
-        if let Some(ref credentials) = self.credentials {
-            res.headers_mut().insert(
-                "Access-Control-Allow-Credentials",
-                credentials.to_string().parse().map_err(|e| {
-                    SilentError::business_error(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors allow credentials: {e}"),
-                    )
-                })?,
-            );
-        }
-        if let Some(ref max_age) = self.max_age {
-            res.headers_mut().insert(
-                "Access-Control-Max-Age",
-                max_age.to_string().parse().map_err(|e| {
-                    SilentError::business_error(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors max age: {e}"),
-                    )
-                })?,
-            );
-        }
-        if let Some(ref expose) = self.expose {
-            res.headers_mut().insert(
-                "Access-Control-Expose-Headers",
-                expose.get_value().parse().map_err(|e| {
-                    SilentError::business_error(
-                        http::StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("Cors: Failed to parse cors expose headers: {e}"),
-                    )
-                })?,
-            );
-        }
+
         if req.method() == Method::OPTIONS {
             return Ok(res);
         }
