@@ -17,7 +17,6 @@ use serde::Deserialize;
 use serde::de::StdError;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 use tokio::sync::OnceCell;
 use url::form_urlencoded;
 
@@ -31,7 +30,7 @@ pub struct Request {
     // req: BaseRequest<ReqBody>,
     parts: Parts,
     path_params: HashMap<String, PathParam>,
-    params: OnceLock<HashMap<String, String>>,
+    params: HashMap<String, String>,
     body: ReqBody,
     #[cfg(feature = "multipart")]
     form_data: OnceCell<FormData>,
@@ -115,7 +114,7 @@ impl Request {
             //     .unwrap(),
             parts,
             path_params: HashMap::new(),
-            params: OnceLock::new(),
+            params: HashMap::new(),
             body: ReqBody::Empty,
             #[cfg(feature = "multipart")]
             form_data: OnceCell::new(),
@@ -250,21 +249,19 @@ impl Request {
         }
     }
 
-    /// 获取query参数 (优化：使用缓存避免重复解析)
-    pub fn params(&self) -> &HashMap<String, String> {
-        self.params.get_or_init(|| {
-            if let Some(query) = self.uri().query() {
-                form_urlencoded::parse(query.as_bytes())
-                    .into_owned()
-                    .collect::<HashMap<String, String>>()
-            } else {
-                HashMap::new()
-            }
-        })
+    /// 获取query参数
+    pub fn params(&mut self) -> &HashMap<String, String> {
+        if let Some(query) = self.uri().query() {
+            let params = form_urlencoded::parse(query.as_bytes())
+                .into_owned()
+                .collect::<HashMap<String, String>>();
+            self.params = params;
+        };
+        &self.params
     }
 
     /// 转换query参数
-    pub fn params_parse<T>(&self) -> Result<T>
+    pub fn params_parse<T>(&mut self) -> Result<T>
     where
         for<'de> T: Deserialize<'de>,
     {
