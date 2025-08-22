@@ -76,7 +76,9 @@ impl From<OpenApiError> for silent::Response {
         let (status, message) = match &error {
             OpenApiError::ResourceNotFound { .. } => (StatusCode::NOT_FOUND, error.to_string()),
             OpenApiError::PathMismatch { .. } => (StatusCode::NOT_FOUND, error.to_string()),
-            OpenApiError::Configuration { .. } => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+            OpenApiError::Configuration { .. } => {
+                (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
+            }
             _ => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
         };
 

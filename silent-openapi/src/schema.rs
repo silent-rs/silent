@@ -4,7 +4,7 @@
 
 use crate::{OpenApiError, Result};
 use serde_json::Value;
-use utoipa::openapi::{OpenApi, OpenApiBuilder, InfoBuilder, PathItem, PathsBuilder};
+use utoipa::openapi::{InfoBuilder, OpenApi, OpenApiBuilder, PathItem, PathsBuilder};
 
 /// OpenAPI文档构建器
 ///
@@ -32,12 +32,7 @@ impl OpenApiDoc {
     /// ```
     pub fn new(title: &str, version: &str) -> Self {
         let openapi = OpenApiBuilder::new()
-            .info(
-                InfoBuilder::new()
-                    .title(title)
-                    .version(version)
-                    .build()
-            )
+            .info(InfoBuilder::new().title(title).version(version).build())
             .build();
 
         Self { openapi }
@@ -120,20 +115,17 @@ impl OpenApiDoc {
 
     /// 序列化为JSON字符串
     pub fn to_json(&self) -> Result<String> {
-        serde_json::to_string(&self.openapi)
-            .map_err(OpenApiError::Json)
+        serde_json::to_string(&self.openapi).map_err(OpenApiError::Json)
     }
 
     /// 序列化为格式化的JSON字符串
     pub fn to_pretty_json(&self) -> Result<String> {
-        serde_json::to_string_pretty(&self.openapi)
-            .map_err(OpenApiError::Json)
+        serde_json::to_string_pretty(&self.openapi).map_err(OpenApiError::Json)
     }
 
     /// 序列化为JSON Value
     pub fn to_json_value(&self) -> Result<Value> {
-        serde_json::to_value(&self.openapi)
-            .map_err(OpenApiError::Json)
+        serde_json::to_value(&self.openapi).map_err(OpenApiError::Json)
     }
 }
 
@@ -208,22 +200,18 @@ impl PathInfo {
 pub fn create_success_response(description: &str) -> utoipa::openapi::Response {
     use utoipa::openapi::ResponseBuilder;
 
-    ResponseBuilder::new()
-        .description(description)
-        .build()
+    ResponseBuilder::new().description(description).build()
 }
 
 /// 创建JSON响应
 pub fn create_json_response(
     description: &str,
-    _schema_ref: Option<&str>
+    _schema_ref: Option<&str>,
 ) -> utoipa::openapi::Response {
     use utoipa::openapi::ResponseBuilder;
 
     // 简化实现，暂时不处理schema引用
-    ResponseBuilder::new()
-        .description(description)
-        .build()
+    ResponseBuilder::new().description(description).build()
 }
 
 #[cfg(test)]

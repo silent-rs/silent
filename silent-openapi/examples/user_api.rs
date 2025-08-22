@@ -163,7 +163,7 @@ async fn main() -> Result<()> {
 
     // 构建路由
     let routes = Route::new("")
-        .root_hook(swagger_middleware) // 使用 root_hook 添加全局中间件
+        .hook(swagger_middleware) // 使用 root_hook 添加全局中间件
         .append(
             Route::new("users")
                 .get(list_users)

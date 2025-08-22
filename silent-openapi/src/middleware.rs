@@ -48,8 +48,7 @@ impl SwaggerUiMiddleware {
     /// ```
     pub fn new(ui_path: &str, openapi: OpenApi) -> Result<Self> {
         let api_doc_path = format!("{}/openapi.json", ui_path.trim_end_matches('/'));
-        let openapi_json = serde_json::to_string_pretty(&openapi)
-            .map_err(OpenApiError::Json)?;
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
 
         Ok(Self {
             ui_path: ui_path.to_string(),
@@ -62,10 +61,9 @@ impl SwaggerUiMiddleware {
     pub fn with_custom_api_doc_path(
         ui_path: &str,
         api_doc_path: &str,
-        openapi: OpenApi
+        openapi: OpenApi,
     ) -> Result<Self> {
-        let openapi_json = serde_json::to_string_pretty(&openapi)
-            .map_err(OpenApiError::Json)?;
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
 
         Ok(Self {
             ui_path: ui_path.to_string(),
@@ -98,11 +96,11 @@ impl SwaggerUiMiddleware {
         response.set_status(StatusCode::OK);
         response.set_header(
             http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("application/json; charset=utf-8")
+            http::HeaderValue::from_static("application/json; charset=utf-8"),
         );
         response.set_header(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-            http::HeaderValue::from_static("*")
+            http::HeaderValue::from_static("*"),
         );
         response.set_body(self.openapi_json.clone().into());
         Ok(response)
@@ -115,14 +113,16 @@ impl SwaggerUiMiddleware {
         response.set_status(StatusCode::MOVED_PERMANENTLY);
         response.set_header(
             http::header::LOCATION,
-            http::HeaderValue::from_str(&redirect_url).unwrap_or_else(|_| http::HeaderValue::from_static("/"))
+            http::HeaderValue::from_str(&redirect_url)
+                .unwrap_or_else(|_| http::HeaderValue::from_static("/")),
         );
         Ok(response)
     }
 
     /// 处理UI资源请求
     async fn handle_ui_resource(&self, path: &str) -> Result<Response> {
-        let relative_path = path.strip_prefix(&format!("{}/", self.ui_path))
+        let relative_path = path
+            .strip_prefix(&format!("{}/", self.ui_path))
             .unwrap_or("");
 
         if relative_path.is_empty() || relative_path == "index.html" {
@@ -232,11 +232,11 @@ impl SwaggerUiMiddleware {
         response.set_status(StatusCode::OK);
         response.set_header(
             http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8")
+            http::HeaderValue::from_static("text/html; charset=utf-8"),
         );
         response.set_header(
             http::header::CACHE_CONTROL,
-            http::HeaderValue::from_static("no-cache, no-store, must-revalidate")
+            http::HeaderValue::from_static("no-cache, no-store, must-revalidate"),
         );
         response.set_body(html.into());
         Ok(response)
@@ -296,7 +296,7 @@ impl MiddleWareHandler for SwaggerUiMiddleware {
 pub fn add_swagger_ui(
     route: silent::prelude::Route,
     ui_path: &str,
-    openapi: OpenApi
+    openapi: OpenApi,
 ) -> silent::prelude::Route {
     match SwaggerUiMiddleware::new(ui_path, openapi) {
         Ok(middleware) => route.hook(middleware),

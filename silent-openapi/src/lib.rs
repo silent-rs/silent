@@ -78,7 +78,11 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 ///     "基于Silent框架的用户管理系统"
 /// );
 /// ```
-pub fn create_openapi_doc(title: &str, version: &str, description: &str) -> utoipa::openapi::OpenApi {
+pub fn create_openapi_doc(
+    title: &str,
+    version: &str,
+    description: &str,
+) -> utoipa::openapi::OpenApi {
     use utoipa::openapi::*;
 
     OpenApiBuilder::new()
@@ -87,7 +91,7 @@ pub fn create_openapi_doc(title: &str, version: &str, description: &str) -> utoi
                 .title(title)
                 .version(version)
                 .description(Some(description))
-                .build()
+                .build(),
         )
         .build()
 }

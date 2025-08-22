@@ -10,10 +10,7 @@ struct User {
 }
 
 #[derive(OpenApi)]
-#[openapi(
-    info(title = "Test API", version = "1.0.0"),
-    components(schemas(User))
-)]
+#[openapi(info(title = "Test API", version = "1.0.0"), components(schemas(User)))]
 struct ApiDoc;
 
 async fn get_hello(_req: Request) -> Result<Response> {
@@ -33,16 +30,13 @@ async fn get_user(req: Request) -> Result<Response> {
 async fn main() -> Result<()> {
     logger::fmt().init();
 
-    let swagger = SwaggerUiMiddleware::new("/docs", ApiDoc::openapi())
-        .expect("Failed to create Swagger UI");
+    let swagger =
+        SwaggerUiMiddleware::new("/docs", ApiDoc::openapi()).expect("Failed to create Swagger UI");
 
     let routes = Route::new("")
         .hook(swagger)
         .get(get_hello)
-        .append(
-            Route::new("users")
-                .append(Route::new("<id:u64>").get(get_user))
-        );
+        .append(Route::new("users").append(Route::new("<id:u64>").get(get_user)));
 
     println!("🚀 Server starting!");
     println!("📖 API docs: http://localhost:8080/docs");

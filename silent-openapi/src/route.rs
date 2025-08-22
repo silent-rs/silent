@@ -4,7 +4,7 @@
 
 use crate::{schema::PathInfo, OpenApiDoc};
 use silent::prelude::Route;
-use utoipa::openapi::{PathItem, path::Operation, ResponseBuilder};
+use utoipa::openapi::{path::Operation, PathItem, ResponseBuilder};
 
 /// 文档化的路由信息
 #[derive(Debug, Clone)]
@@ -98,7 +98,7 @@ pub trait RouteDocumentation {
         &self,
         title: &str,
         version: &str,
-        description: Option<&str>
+        description: Option<&str>,
     ) -> OpenApiDoc {
         let mut doc = OpenApiDoc::new(title, version);
 
@@ -128,7 +128,11 @@ fn collect_paths_recursive(route: &Route, current_path: &str, paths: &mut Vec<(S
     } else if route.path.is_empty() {
         current_path.to_string()
     } else {
-        format!("{}/{}", current_path.trim_end_matches('/'), route.path.trim_start_matches('/'))
+        format!(
+            "{}/{}",
+            current_path.trim_end_matches('/'),
+            route.path.trim_start_matches('/')
+        )
     };
 
     // 为当前路径的每个HTTP方法创建操作
@@ -246,14 +250,30 @@ fn create_or_update_path_item(
 
     // 根据HTTP方法设置操作（简化实现）
     match method {
-        &http::Method::GET => builder = builder.operation(utoipa::openapi::PathItemType::Get, operation),
-        &http::Method::POST => builder = builder.operation(utoipa::openapi::PathItemType::Post, operation),
-        &http::Method::PUT => builder = builder.operation(utoipa::openapi::PathItemType::Put, operation),
-        &http::Method::DELETE => builder = builder.operation(utoipa::openapi::PathItemType::Delete, operation),
-        &http::Method::PATCH => builder = builder.operation(utoipa::openapi::PathItemType::Patch, operation),
-        &http::Method::HEAD => builder = builder.operation(utoipa::openapi::PathItemType::Head, operation),
-        &http::Method::OPTIONS => builder = builder.operation(utoipa::openapi::PathItemType::Options, operation),
-        &http::Method::TRACE => builder = builder.operation(utoipa::openapi::PathItemType::Trace, operation),
+        &http::Method::GET => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Get, operation)
+        }
+        &http::Method::POST => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Post, operation)
+        }
+        &http::Method::PUT => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Put, operation)
+        }
+        &http::Method::DELETE => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Delete, operation)
+        }
+        &http::Method::PATCH => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Patch, operation)
+        }
+        &http::Method::HEAD => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Head, operation)
+        }
+        &http::Method::OPTIONS => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Options, operation)
+        }
+        &http::Method::TRACE => {
+            builder = builder.operation(utoipa::openapi::PathItemType::Trace, operation)
+        }
         _ => {} // 其他方法暂不支持
     }
 
@@ -288,10 +308,7 @@ mod tests {
             "/api/v1/users/{user_id}/items/{item_id}"
         );
 
-        assert_eq!(
-            convert_path_format("/simple/path"),
-            "/simple/path"
-        );
+        assert_eq!(convert_path_format("/simple/path"), "/simple/path");
     }
 
     #[test]
@@ -314,7 +331,10 @@ mod tests {
 
         assert_eq!(operation.operation_id, Some("get_user".to_string()));
         assert_eq!(operation.summary, Some("获取用户".to_string()));
-        assert_eq!(operation.description, Some("根据ID获取用户信息".to_string()));
+        assert_eq!(
+            operation.description,
+            Some("根据ID获取用户信息".to_string())
+        );
         assert_eq!(operation.tags, Some(vec!["users".to_string()]));
     }
 }

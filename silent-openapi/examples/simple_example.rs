@@ -77,12 +77,11 @@ async fn main() -> Result<()> {
 
     // 构建路由
     let routes = Route::new("")
-        .hook(swagger_middleware)  // 添加Swagger UI中间件
-        .get(hello)               // 根路径
-        .append(Route::new("health").get(health_check))  // 健康检查
+        .hook(swagger_middleware) // 添加Swagger UI中间件
+        .get(hello) // 根路径
+        .append(Route::new("health").get(health_check)) // 健康检查
         .append(
-            Route::new("users")
-                .append(Route::new("<id:u64>").get(get_user))  // 用户详情
+            Route::new("users").append(Route::new("<id:u64>").get(get_user)), // 用户详情
         );
 
     println!("📖 API文档地址:");

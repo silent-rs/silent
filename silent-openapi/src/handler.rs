@@ -46,8 +46,7 @@ impl SwaggerUiHandler {
     /// ```
     pub fn new(ui_path: &str, openapi: OpenApi) -> Result<Self> {
         let api_doc_path = format!("{}/openapi.json", ui_path.trim_end_matches('/'));
-        let openapi_json = serde_json::to_string_pretty(&openapi)
-            .map_err(OpenApiError::Json)?;
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
 
         Ok(Self {
             ui_path: ui_path.to_string(),
@@ -66,10 +65,9 @@ impl SwaggerUiHandler {
     pub fn with_custom_api_doc_path(
         ui_path: &str,
         api_doc_path: &str,
-        openapi: OpenApi
+        openapi: OpenApi,
     ) -> Result<Self> {
-        let openapi_json = serde_json::to_string_pretty(&openapi)
-            .map_err(OpenApiError::Json)?;
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
 
         Ok(Self {
             ui_path: ui_path.to_string(),
@@ -95,7 +93,7 @@ impl SwaggerUiHandler {
         response.set_status(StatusCode::OK);
         response.set_header(
             http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("application/json; charset=utf-8")
+            http::HeaderValue::from_static("application/json; charset=utf-8"),
         );
         response.set_body(self.openapi_json.clone().into());
         Ok(response)
@@ -108,7 +106,8 @@ impl SwaggerUiHandler {
         response.set_status(StatusCode::MOVED_PERMANENTLY);
         response.set_header(
             http::header::LOCATION,
-            http::HeaderValue::from_str(&redirect_url).unwrap_or_else(|_| http::HeaderValue::from_static("/"))
+            http::HeaderValue::from_str(&redirect_url)
+                .unwrap_or_else(|_| http::HeaderValue::from_static("/")),
         );
         Ok(response)
     }
@@ -116,7 +115,8 @@ impl SwaggerUiHandler {
     /// 处理Swagger UI资源请求
     async fn handle_ui_resource(&self, path: &str) -> Result<Response> {
         // 移除基础路径前缀，获取相对路径
-        let relative_path = path.strip_prefix(&format!("{}/", self.ui_path))
+        let relative_path = path
+            .strip_prefix(&format!("{}/", self.ui_path))
             .unwrap_or("");
 
         // 处理根路径请求（显示Swagger UI主页）
@@ -186,7 +186,7 @@ impl SwaggerUiHandler {
         response.set_status(StatusCode::OK);
         response.set_header(
             http::header::CONTENT_TYPE,
-            http::HeaderValue::from_static("text/html; charset=utf-8")
+            http::HeaderValue::from_static("text/html; charset=utf-8"),
         );
         response.set_body(html.into());
         Ok(response)
