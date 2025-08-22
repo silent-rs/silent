@@ -2,7 +2,7 @@
 //!
 //! 提供Swagger UI的处理器实现，可以直接作为Silent路由使用。
 
-use crate::{OpenApiError, Result};
+use crate::{OpenApiError, Result, SwaggerUiOptions};
 use async_trait::async_trait;
 use silent::{Handler, Request, Response, StatusCode};
 use utoipa::openapi::OpenApi;
@@ -22,6 +22,8 @@ pub struct SwaggerUiHandler {
     api_doc_path: String,
     /// OpenAPI 规范的JSON字符串
     openapi_json: String,
+    /// UI 配置
+    options: SwaggerUiOptions,
 }
 
 impl SwaggerUiHandler {
@@ -52,6 +54,7 @@ impl SwaggerUiHandler {
             ui_path: ui_path.to_string(),
             api_doc_path,
             openapi_json,
+            options: SwaggerUiOptions::default(),
         })
     }
 
@@ -73,6 +76,24 @@ impl SwaggerUiHandler {
             ui_path: ui_path.to_string(),
             api_doc_path: api_doc_path.to_string(),
             openapi_json,
+            options: SwaggerUiOptions::default(),
+        })
+    }
+
+    /// 使用自定义选项创建处理器
+    pub fn with_options(
+        ui_path: &str,
+        openapi: OpenApi,
+        options: SwaggerUiOptions,
+    ) -> Result<Self> {
+        let api_doc_path = format!("{}/openapi.json", ui_path.trim_end_matches('/'));
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
+
+        Ok(Self {
+            ui_path: ui_path.to_string(),
+            api_doc_path,
+            openapi_json,
+            options,
         })
     }
 
@@ -173,13 +194,19 @@ impl SwaggerUiHandler {
                 plugins: [
                     SwaggerUIBundle.plugins.DownloadUrl
                 ],
-                layout: "StandaloneLayout"
+                layout: "StandaloneLayout",
+                tryItOutEnabled: {}
             }})
         }}
     </script>
 </body>
 </html>"#,
-            self.api_doc_path
+            self.api_doc_path,
+            if self.options.try_it_out_enabled {
+                "true"
+            } else {
+                "false"
+            }
         );
 
         let mut response = Response::empty();
@@ -279,3 +306,5 @@ mod tests {
         assert!(response.headers().get(http::header::CONTENT_TYPE).is_some());
     }
 }
+
+// 选项类型在 crate 根导出

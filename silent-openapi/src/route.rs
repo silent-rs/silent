@@ -217,20 +217,66 @@ fn create_operation_from_path_info(path_info: &PathInfo) -> Operation {
 
 /// 创建默认的Operation
 fn create_default_operation(method: &http::Method, path: &str) -> Operation {
-    use utoipa::openapi::path::OperationBuilder;
+    use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
+    use utoipa::openapi::Required;
 
     let summary = format!("{} {}", method, path);
     let description = format!("Handler for {} {}", method, path);
+
+    // 自动生成 operationId（method_去除非字母数字并用下划线连接）
+    let sanitized_path: String = path
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' => c,
+            _ => '_',
+        })
+        .collect();
+    let operation_id = format!("{}_{}", method.as_str().to_lowercase(), sanitized_path)
+        .trim_matches('_')
+        .to_string();
+
+    // 默认 tag：取首个非空路径段
+    let default_tag = path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .next()
+        .map(|s| s.to_string());
 
     let default_response = ResponseBuilder::new()
         .description("Successful response")
         .build();
 
-    OperationBuilder::new()
+    // 从路径中提取形如 {id} 的 path params，提供基础参数声明（string，后续可增强类型推断）
+    let mut builder = OperationBuilder::new()
         .summary(Some(summary))
         .description(Some(description))
-        .response("200", default_response)
-        .build()
+        .operation_id(Some(operation_id))
+        .response("200", default_response);
+
+    if let Some(tag) = default_tag {
+        builder = builder.tags(Some(vec![tag]));
+    }
+
+    let mut idx = 0usize;
+    while let Some(start) = path[idx..].find('{') {
+        let abs_start = idx + start;
+        if let Some(end_rel) = path[abs_start..].find('}') {
+            let abs_end = abs_start + end_rel;
+            let name = &path[abs_start + 1..abs_end];
+            // 简化为 string 类型的必填 path 参数
+            let param = ParameterBuilder::new()
+                .name(name)
+                .parameter_in(utoipa::openapi::path::ParameterIn::Path)
+                .required(Required::True)
+                .build();
+            builder = builder.parameter(param);
+            idx = abs_end + 1;
+        } else {
+            break;
+        }
+    }
+
+    builder.build()
 }
 
 /// 创建或更新PathItem
@@ -281,15 +327,37 @@ fn create_or_update_path_item(
 }
 
 /// 合并两个PathItem
-fn merge_path_items(_item1: &PathItem, _item2: &PathItem) -> PathItem {
+fn merge_path_items(item1: &PathItem, item2: &PathItem) -> PathItem {
+    use std::collections::BTreeSet;
     use utoipa::openapi::path::PathItemBuilder;
 
-    let builder = PathItemBuilder::new();
+    let mut builder = PathItemBuilder::new();
+    let mut existing: BTreeSet<utoipa::openapi::PathItemType> = BTreeSet::new();
 
-    // 简化实现，只返回一个基础的PathItem
-    // TODO: 实现完整的PathItem合并逻辑
+    for (ty, op) in item1.operations.iter() {
+        builder = builder.operation(ty.clone(), op.clone());
+        existing.insert(ty.clone());
+    }
+
+    for (ty, op) in item2.operations.iter() {
+        if !existing.contains(ty) {
+            builder = builder.operation(ty.clone(), op.clone());
+        }
+    }
 
     builder.build()
+}
+
+/// Route 的便捷 OpenAPI 构建扩展
+pub trait RouteOpenApiExt {
+    fn to_openapi(&self, title: &str, version: &str) -> utoipa::openapi::OpenApi;
+}
+
+impl RouteOpenApiExt for Route {
+    fn to_openapi(&self, title: &str, version: &str) -> utoipa::openapi::OpenApi {
+        self.generate_openapi_doc(title, version, None)
+            .into_openapi()
+    }
 }
 
 #[cfg(test)]

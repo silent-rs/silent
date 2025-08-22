@@ -38,6 +38,11 @@ impl OpenApiDoc {
         Self { openapi }
     }
 
+    /// 由现有的 OpenApi 对象创建文档包装
+    pub fn from_openapi(openapi: OpenApi) -> Self {
+        Self { openapi }
+    }
+
     /// 设置API描述
     pub fn description<S: Into<String>>(mut self, description: S) -> Self {
         if let Some(ref mut info) = self.openapi.info.description {
@@ -100,6 +105,44 @@ impl OpenApiDoc {
             paths_builder = paths_builder.path(&path, path_item);
         }
         self.openapi.paths = paths_builder.build();
+        self
+    }
+
+    /// 添加 Bearer/JWT 安全定义
+    pub fn add_bearer_auth(mut self, scheme_name: &str, description: Option<&str>) -> Self {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+        use utoipa::openapi::ComponentsBuilder;
+
+        let mut http = HttpBuilder::new()
+            .scheme(HttpAuthScheme::Bearer)
+            .bearer_format("JWT");
+        if let Some(_desc) = description {
+            // 某些版本的 utoipa 暂不支持在 HttpBuilder 直接设置 description，这里跳过
+        }
+        let scheme = SecurityScheme::Http(http.build());
+
+        let mut components = self
+            .openapi
+            .components
+            .unwrap_or_else(|| ComponentsBuilder::new().build());
+        components
+            .security_schemes
+            .insert(scheme_name.to_string(), scheme);
+        self.openapi.components = Some(components);
+        self
+    }
+
+    /// 设置全局 security 要求
+    pub fn set_global_security(mut self, scheme_name: &str, scopes: &[&str]) -> Self {
+        use utoipa::openapi::security::SecurityRequirement;
+
+        let scopes_vec: Vec<String> = scopes.iter().map(|s| s.to_string()).collect();
+        let requirement = SecurityRequirement::new(scheme_name.to_string(), scopes_vec);
+
+        match self.openapi.security {
+            Some(ref mut list) => list.push(requirement),
+            None => self.openapi.security = Some(vec![requirement]),
+        }
         self
     }
 

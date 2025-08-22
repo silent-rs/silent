@@ -2,7 +2,7 @@
 //!
 //! 提供中间件形式的Swagger UI支持，可以更灵活地集成到现有路由中。
 
-use crate::{OpenApiError, Result};
+use crate::{OpenApiError, Result, SwaggerUiOptions};
 use async_trait::async_trait;
 use silent::{MiddleWareHandler, Next, Request, Response, StatusCode};
 use utoipa::openapi::OpenApi;
@@ -19,6 +19,8 @@ pub struct SwaggerUiMiddleware {
     api_doc_path: String,
     /// OpenAPI 规范的JSON字符串
     openapi_json: String,
+    /// UI 配置
+    options: SwaggerUiOptions,
 }
 
 impl SwaggerUiMiddleware {
@@ -54,6 +56,7 @@ impl SwaggerUiMiddleware {
             ui_path: ui_path.to_string(),
             api_doc_path,
             openapi_json,
+            options: SwaggerUiOptions::default(),
         })
     }
 
@@ -69,6 +72,24 @@ impl SwaggerUiMiddleware {
             ui_path: ui_path.to_string(),
             api_doc_path: api_doc_path.to_string(),
             openapi_json,
+            options: SwaggerUiOptions::default(),
+        })
+    }
+
+    /// 使用自定义选项创建中间件
+    pub fn with_options(
+        ui_path: &str,
+        openapi: OpenApi,
+        options: SwaggerUiOptions,
+    ) -> Result<Self> {
+        let api_doc_path = format!("{}/openapi.json", ui_path.trim_end_matches('/'));
+        let openapi_json = serde_json::to_string_pretty(&openapi).map_err(OpenApiError::Json)?;
+
+        Ok(Self {
+            ui_path: ui_path.to_string(),
+            api_doc_path,
+            openapi_json,
+            options,
         })
     }
 
@@ -216,7 +237,7 @@ impl SwaggerUiMiddleware {
                 filter: true,
                 showExtensions: true,
                 showCommonExtensions: true,
-                tryItOutEnabled: true
+                tryItOutEnabled: {}
             }});
 
             // 添加自定义样式
@@ -225,7 +246,12 @@ impl SwaggerUiMiddleware {
     </script>
 </body>
 </html>"#,
-            self.api_doc_path
+            self.api_doc_path,
+            if self.options.try_it_out_enabled {
+                "true"
+            } else {
+                "false"
+            }
         );
 
         let mut response = Response::empty();
@@ -352,3 +378,5 @@ mod tests {
         assert!(content_type.is_some());
     }
 }
+
+// 选项类型在 crate 根导出

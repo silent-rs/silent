@@ -47,7 +47,7 @@ pub mod schema;
 pub use error::{OpenApiError, Result};
 pub use handler::SwaggerUiHandler;
 pub use middleware::SwaggerUiMiddleware;
-pub use route::{DocumentedRoute, RouteDocumentation};
+pub use route::{DocumentedRoute, RouteDocumentation, RouteOpenApiExt};
 pub use schema::OpenApiDoc;
 
 // 重新导出utoipa的核心类型，方便用户使用
@@ -58,6 +58,20 @@ pub use utoipa::{
 
 /// Silent OpenAPI的版本信息
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Swagger UI 配置选项
+#[derive(Clone)]
+pub struct SwaggerUiOptions {
+    pub try_it_out_enabled: bool,
+}
+
+impl Default for SwaggerUiOptions {
+    fn default() -> Self {
+        Self {
+            try_it_out_enabled: true,
+        }
+    }
+}
 
 /// 创建一个基础的OpenAPI文档结构
 ///

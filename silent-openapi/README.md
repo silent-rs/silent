@@ -197,6 +197,31 @@ async fn get_user(req: Request) -> Result<Response> {
     )
 )]
 struct ApiDoc;
+
+### 路由自动生成 OpenAPI + 安全定义 + Try it out 开关
+
+无需手写 `#[derive(OpenApi)]`，可以直接从路由生成基础文档，并补充安全定义：
+
+```rust
+use silent_openapi::{RouteOpenApiExt, OpenApiDoc, SwaggerUiMiddleware, SwaggerUiOptions};
+
+// 1) 先构建业务路由
+let routes = Route::new("")
+    .append(Route::new("users").get(list_users))
+    .append(Route::new("users").append(Route::new("<id:u64>").get(get_user)));
+
+// 2) 基于路由生成 OpenAPI 并添加 Bearer(JWT) 安全定义 + 全局 security
+let openapi = routes.to_openapi("User API", "1.0.0");
+let openapi = OpenApiDoc::from_openapi(openapi)
+    .add_bearer_auth("bearerAuth", Some("JWT Bearer token"))
+    .set_global_security("bearerAuth", &[])
+    .into_openapi();
+
+// 3) 自定义 UI 选项（如关闭 Try it out）并挂载到 /docs
+let options = SwaggerUiOptions { try_it_out_enabled: false };
+let swagger = SwaggerUiMiddleware::with_options("/docs", openapi, options)?;
+let app = Route::new("").hook(swagger).append(routes);
+```
 ```
 
 ## 🎨 配置选项
@@ -233,6 +258,14 @@ cargo run --example basic_openapi
 # 用户 API 示例
 cargo run --example user_api
 ```
+
+## 🔒 生产环境建议
+
+- 关闭交互尝试：将 `try_it_out_enabled` 设为 `false`，避免未授权的在线调用。
+- 保护文档入口：将 `/docs` 放在受保护的子路由或网关后，或在上游加鉴权（如 Basic/JWT）。
+- 安全定义：在 OpenAPI 中声明 `bearerAuth` 并设置全局 `security`，与实际网关/服务策略一致。
+- CORS 与缓存：为 `/openapi.json` 设置合理的 `Cache-Control`，并按需配置 CORS；避免缓存过期导致前端文档不一致。
+- 环境隔离：为 dev/stage/prod 设置不同的 `servers`，并确保敏感接口在非生产环境才开放 `Try it out`。
 
 ## 🛠️ 支持的特性
 
