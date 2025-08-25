@@ -9,4 +9,4 @@ serde = {version = "1.0", features = ["derive"]}
 silent = {path = "../../silent"}
 silent-openapi = {path = "../../silent-openapi"}
 tokio = {version = "1.0", features = ["full"]}
-utoipa = "4.2"
+utoipa = "5"

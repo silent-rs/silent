@@ -54,8 +54,8 @@ pub use schema::OpenApiDoc;
 
 // 重新导出utoipa的核心类型，方便用户使用
 pub use utoipa::{
-    openapi::{self, OpenApi},
     IntoParams, IntoResponses, ToResponse, ToSchema,
+    openapi::{self, OpenApi},
 };
 
 /// Silent OpenAPI的版本信息

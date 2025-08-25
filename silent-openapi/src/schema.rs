@@ -110,8 +110,8 @@ impl OpenApiDoc {
 
     /// 添加 Bearer/JWT 安全定义
     pub fn add_bearer_auth(mut self, scheme_name: &str, description: Option<&str>) -> Self {
-        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
         use utoipa::openapi::ComponentsBuilder;
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 
         let http = HttpBuilder::new()
             .scheme(HttpAuthScheme::Bearer)

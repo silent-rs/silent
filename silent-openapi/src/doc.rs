@@ -54,7 +54,7 @@ where
 }
 
 impl RouteDocMarkExt for Route {
-    fn doc(mut self, method: Method, summary: &str, description: &str) -> Self {
+    fn doc(self, method: Method, summary: &str, description: &str) -> Self {
         if let Some(handler) = self.handler.get(&method).cloned() {
             let ptr = Arc::as_ptr(&handler) as *const () as usize;
             register_doc_by_ptr(ptr, Some(summary), Some(description));

@@ -1,15 +1,19 @@
 [package]
-name = "silent-openapi-macros"
-version = "0.1.0"
-edition = "2021"
+authors.workspace = true
 description = "Proc-macros for silent-openapi"
-license = "MIT OR Apache-2.0"
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "silent-openapi-macros"
+readme.workspace = true
+repository.workspace = true
+version.workspace = true
 
 [lib]
 proc-macro = true
 
 [dependencies]
+convert_case = "0.8"
 proc-macro2 = "1"
 quote = "1"
-syn = { version = "2", features = ["full"] }
-convert_case = "0.6"
+syn = {version = "2", features = ["full"]}

@@ -1,11 +1,11 @@
 use convert_case::Casing;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::punctuated::Punctuated;
 use syn::Token;
+use syn::punctuated::Punctuated;
 use syn::{
-    parse::Parse, parse::ParseStream, parse_macro_input, Expr, ExprLit, FnArg, ItemFn, Lit, Meta,
-    Result as SynResult,
+    Expr, ExprLit, FnArg, ItemFn, Lit, Meta, Result as SynResult, parse::Parse, parse::ParseStream,
+    parse_macro_input,
 };
 
 #[proc_macro_attribute]
@@ -180,7 +180,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    let gen = quote! {
+    let code = quote! {
         // 原函数体改名为实现函数
         #(#attrs)*
         #impl_sig #block
@@ -193,5 +193,5 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         #impls
     };
 
-    gen.into()
+    code.into()
 }

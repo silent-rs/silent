@@ -2,10 +2,10 @@
 //!
 //! 提供路由文档自动收集功能和路由扩展trait。
 
-use crate::doc::{lookup_doc_by_handler_ptr, DocMeta};
-use crate::{schema::PathInfo, OpenApiDoc};
+use crate::doc::{DocMeta, lookup_doc_by_handler_ptr};
+use crate::{OpenApiDoc, schema::PathInfo};
 use silent::prelude::Route;
-use utoipa::openapi::{path::Operation, PathItem, ResponseBuilder};
+use utoipa::openapi::{PathItem, ResponseBuilder, path::Operation};
 
 /// 文档化的路由信息
 #[derive(Debug, Clone)]
@@ -226,8 +226,8 @@ fn create_operation_from_path_info(path_info: &PathInfo) -> Operation {
 
 /// 创建默认的Operation
 fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocMeta>) -> Operation {
-    use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
     use utoipa::openapi::Required;
+    use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
 
     let default_summary = format!("{} {}", method, path);
     let default_description = format!("Handler for {} {}", method, path);
@@ -278,9 +278,6 @@ fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocM
 
     // 先尝试解析 Silent 风格 <name:type>
     {
-        use utoipa::openapi::schema::{
-            KnownFormat, ObjectBuilder, Schema, SchemaFormat, SchemaType,
-        };
         let mut i = 0usize;
         let mut found_any = false;
         while let Some(start) = path[i..].find('<') {
@@ -290,44 +287,13 @@ fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocM
                 let inner = &path[abs_start + 1..abs_end];
                 let mut it = inner.splitn(2, ':');
                 let name = it.next().unwrap_or("");
-                let ty = it.next().unwrap_or("");
 
                 if !name.is_empty() {
-                    // 推断 schema 类型
-                    let (stype, sformat) = match ty.to_lowercase().as_str() {
-                        "i32" | "int" => (
-                            SchemaType::Integer,
-                            Some(SchemaFormat::KnownFormat(KnownFormat::Int32)),
-                        ),
-                        "i64" => (
-                            SchemaType::Integer,
-                            Some(SchemaFormat::KnownFormat(KnownFormat::Int64)),
-                        ),
-                        // utoipa 默认启用的 KnownFormat 不一定包含无符号，近似为对应位宽的有符号
-                        "u32" => (
-                            SchemaType::Integer,
-                            Some(SchemaFormat::KnownFormat(KnownFormat::Int32)),
-                        ),
-                        "u64" => (
-                            SchemaType::Integer,
-                            Some(SchemaFormat::KnownFormat(KnownFormat::Int64)),
-                        ),
-                        "uuid" => (
-                            SchemaType::String,
-                            Some(SchemaFormat::KnownFormat(KnownFormat::Uuid)),
-                        ),
-                        _ => (SchemaType::String, None),
-                    };
-                    let mut obj = ObjectBuilder::new().schema_type(stype);
-                    if let Some(fmt) = sformat {
-                        obj = obj.format(Some(fmt));
-                    }
-                    let schema = utoipa::openapi::RefOr::T(Schema::Object(obj.build()));
                     let param = ParameterBuilder::new()
                         .name(name)
                         .parameter_in(utoipa::openapi::path::ParameterIn::Path)
                         .required(Required::True)
-                        .schema(Some(schema))
+                        .schema::<utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>>(None)
                         .build();
                     builder = builder.parameter(param);
                     found_any = true;
@@ -346,15 +312,11 @@ fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocM
                 if let Some(end_rel) = path[abs_start..].find('}') {
                     let abs_end = abs_start + end_rel;
                     let name = &path[abs_start + 1..abs_end];
-                    let schema = {
-                        let obj = ObjectBuilder::new().schema_type(SchemaType::String).build();
-                        utoipa::openapi::RefOr::T(Schema::Object(obj))
-                    };
                     let param = ParameterBuilder::new()
                         .name(name)
                         .parameter_in(utoipa::openapi::path::ParameterIn::Path)
                         .required(Required::True)
-                        .schema(Some(schema))
+                        .schema::<utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>>(None)
                         .build();
                     builder = builder.parameter(param);
                     idx = abs_end + 1;
@@ -370,71 +332,37 @@ fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocM
 
 /// 创建或更新PathItem
 fn create_or_update_path_item(
-    existing: Option<&PathItem>,
+    _existing: Option<&PathItem>,
     method: &http::Method,
     operation: Operation,
 ) -> PathItem {
-    use utoipa::openapi::path::PathItemBuilder;
-
-    let mut builder = if let Some(_existing) = existing {
-        // 从现有PathItem创建builder（这里简化处理）
-        PathItemBuilder::new()
-    } else {
-        PathItemBuilder::new()
-    };
-
-    // 根据HTTP方法设置操作（简化实现）
-    match method {
-        &http::Method::GET => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Get, operation)
-        }
-        &http::Method::POST => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Post, operation)
-        }
-        &http::Method::PUT => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Put, operation)
-        }
-        &http::Method::DELETE => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Delete, operation)
-        }
-        &http::Method::PATCH => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Patch, operation)
-        }
-        &http::Method::HEAD => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Head, operation)
-        }
-        &http::Method::OPTIONS => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Options, operation)
-        }
-        &http::Method::TRACE => {
-            builder = builder.operation(utoipa::openapi::PathItemType::Trace, operation)
-        }
-        _ => {} // 其他方法暂不支持
+    let mut item = PathItem::default();
+    match *method {
+        http::Method::GET => item.get = Some(operation),
+        http::Method::POST => item.post = Some(operation),
+        http::Method::PUT => item.put = Some(operation),
+        http::Method::DELETE => item.delete = Some(operation),
+        http::Method::PATCH => item.patch = Some(operation),
+        http::Method::HEAD => item.head = Some(operation),
+        http::Method::OPTIONS => item.options = Some(operation),
+        http::Method::TRACE => item.trace = Some(operation),
+        _ => {}
     }
-
-    builder.build()
+    item
 }
 
 /// 合并两个PathItem
 fn merge_path_items(item1: &PathItem, item2: &PathItem) -> PathItem {
-    use std::collections::BTreeSet;
-    use utoipa::openapi::path::PathItemBuilder;
-
-    let mut builder = PathItemBuilder::new();
-    let mut existing: BTreeSet<utoipa::openapi::PathItemType> = BTreeSet::new();
-
-    for (ty, op) in item1.operations.iter() {
-        builder = builder.operation(ty.clone(), op.clone());
-        existing.insert(ty.clone());
-    }
-
-    for (ty, op) in item2.operations.iter() {
-        if !existing.contains(ty) {
-            builder = builder.operation(ty.clone(), op.clone());
-        }
-    }
-
-    builder.build()
+    let mut out = PathItem::default();
+    out.get = item1.get.clone().or(item2.get.clone());
+    out.post = item1.post.clone().or(item2.post.clone());
+    out.put = item1.put.clone().or(item2.put.clone());
+    out.delete = item1.delete.clone().or(item2.delete.clone());
+    out.patch = item1.patch.clone().or(item2.patch.clone());
+    out.head = item1.head.clone().or(item2.head.clone());
+    out.options = item1.options.clone().or(item2.options.clone());
+    out.trace = item1.trace.clone().or(item2.trace.clone());
+    out
 }
 
 /// Route 的便捷 OpenAPI 构建扩展
