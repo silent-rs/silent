@@ -80,17 +80,8 @@ async fn main() -> Result<()> {
     let swagger = SwaggerUiHandler::with_options("/docs", openapi, options)
         .expect("Failed to create Swagger UI");
 
-    // 在 docs 节点下按顺序挂载：exact openapi.json > wildcard，避免被通配优先命中
-    let docs_routes = Route::new("docs")
-        .insert_handler(Method::GET, std::sync::Arc::new(swagger.clone()))
-        .insert_handler(Method::HEAD, std::sync::Arc::new(swagger.clone()))
-        .append(
-            Route::new("<path:**>")
-                .insert_handler(Method::GET, std::sync::Arc::new(swagger.clone()))
-                .insert_handler(Method::HEAD, std::sync::Arc::new(swagger)),
-        );
-
-    let routes = Route::new("").append(docs_routes).append(routes);
+    // 直接将 SwaggerUiHandler 转为可挂载的路由树并追加
+    let routes = Route::new("").append(swagger.into_route()).append(routes);
 
     println!("🚀 Server starting!");
     println!("📖 API docs: http://localhost:8080/docs");

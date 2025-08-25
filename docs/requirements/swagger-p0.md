@@ -10,7 +10,8 @@
 - 易用性 API：
   - `Route` → `OpenApi` 便捷方法（如 `Route::to_openapi(title, version)`）。
   - 默认 `operationId`/`tags`/`summary` 生成，并从路径 `{param}` 推断基础 path 参数。
-- UI 配置：提供开关以禁用 Try it out（不涉及静态资源本地化）。
+ - UI 配置：提供开关以禁用 Try it out（不涉及静态资源本地化）。
+ - Swagger UI 挂载：`SwaggerUiHandler::into_route()` 与 `RouterAdapt`，可直接 `Route::append(handler)`。
 
 ## 详细需求
 1) PathItem 合并
