@@ -228,6 +228,37 @@ impl SwaggerUiHandler {
         response.set_body("Asset not found".into());
         Ok(response)
     }
+
+    /// 将处理器转换为可直接挂载的 Route 树
+    ///
+    /// 自动在 `<ui_path>` 下注册以下路由（GET/HEAD）：
+    /// - `<ui_path>`
+    /// - `<ui_path>/openapi.json`
+    /// - `<ui_path>/<path:**>`
+    pub fn into_route(self) -> silent::prelude::Route {
+        use silent::prelude::{HandlerGetter, Method, Route};
+        use std::sync::Arc;
+
+        let mount = self.ui_path.trim_start_matches('/');
+
+        let base = Route::new(mount)
+            .insert_handler(Method::GET, Arc::new(self.clone()))
+            .insert_handler(Method::HEAD, Arc::new(self.clone()))
+            .append(
+                Route::new("<path:**>")
+                    .insert_handler(Method::GET, Arc::new(self.clone()))
+                    .insert_handler(Method::HEAD, Arc::new(self)),
+            );
+
+        Route::new("").append(base)
+    }
+}
+
+// 允许在 Route::append 直接使用处理器
+impl silent::prelude::RouterAdapt for SwaggerUiHandler {
+    fn into_router(self) -> silent::prelude::Route {
+        self.into_route()
+    }
 }
 
 #[async_trait]
