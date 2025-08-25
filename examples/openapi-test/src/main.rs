@@ -1,9 +1,7 @@
 use serde::{Deserialize, Serialize};
 use silent::header;
 use silent::prelude::*;
-use silent_openapi::{
-    OpenApiDoc, RouteOpenApiExt, SwaggerUiMiddleware, SwaggerUiOptions, ToSchema,
-};
+use silent_openapi::{OpenApiDoc, RouteOpenApiExt, SwaggerUiHandler, SwaggerUiOptions, ToSchema};
 
 #[derive(Serialize, Deserialize, ToSchema)]
 struct User {
@@ -79,11 +77,20 @@ async fn main() -> Result<()> {
     let options = SwaggerUiOptions {
         try_it_out_enabled: true,
     };
-    let swagger = SwaggerUiMiddleware::with_options("/docs", openapi, options)
+    let swagger = SwaggerUiHandler::with_options("/docs", openapi, options)
         .expect("Failed to create Swagger UI");
 
-    // 挂载 Swagger UI 处理器到 /docs 和 /docs/<path:**>
-    let routes = Route::new("").hook(swagger).append(routes);
+    // 在 docs 节点下按顺序挂载：exact openapi.json > wildcard，避免被通配优先命中
+    let docs_routes = Route::new("docs")
+        .insert_handler(Method::GET, std::sync::Arc::new(swagger.clone()))
+        .insert_handler(Method::HEAD, std::sync::Arc::new(swagger.clone()))
+        .append(
+            Route::new("<path:**>")
+                .insert_handler(Method::GET, std::sync::Arc::new(swagger.clone()))
+                .insert_handler(Method::HEAD, std::sync::Arc::new(swagger)),
+        );
+
+    let routes = Route::new("").append(docs_routes).append(routes);
 
     println!("🚀 Server starting!");
     println!("📖 API docs: http://localhost:8080/docs");
