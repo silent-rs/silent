@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
+use silent::extractor::Path;
 use silent::header;
 use silent::prelude::*;
-use silent_openapi::{OpenApiDoc, RouteOpenApiExt, SwaggerUiHandler, SwaggerUiOptions, ToSchema};
+use silent_openapi::{
+    endpoint, OpenApiDoc, RouteOpenApiExt, SwaggerUiHandler, SwaggerUiOptions, ToSchema,
+};
 
 #[derive(Serialize, Deserialize, ToSchema)]
 struct User {
@@ -16,21 +19,21 @@ struct ErrorResponse {
 }
 
 // 本示例将使用路由自动生成 OpenAPI，再补充安全定义
-
-async fn get_hello(_req: Request) -> Result<Response> {
-    Ok(Response::text("Hello, OpenAPI!"))
+#[endpoint(summary = "获取问候", description = "返回 \"Hello, OpenAPI!\"")]
+async fn get_hello(_req: Request) -> Result<String> {
+    Ok("Hello, OpenAPI!".into())
 }
 
-async fn get_user(req: Request) -> Result<Response> {
-    let id: u64 = req.get_path_params("id").unwrap_or(1);
-    let user = User {
+#[endpoint(summary = "获取用户", description = "根据路径参数 id 返回用户信息")]
+async fn get_user(Path(id): Path<u64>) -> Result<User> {
+    Ok(User {
         id,
         name: format!("User {}", id),
-    };
-    Ok(Response::json(&user))
+    })
 }
 
 // 受保护端点：无 Authorization 返回 401，带特殊 token 返回 403，其它通过
+#[endpoint(summary = "受保护示例", description = "演示 401/403 与成功的不同响应")]
 async fn get_protected(req: Request) -> Result<Response> {
     let auth = req
         .headers()

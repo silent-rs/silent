@@ -2,6 +2,7 @@
 //!
 //! 提供路由文档自动收集功能和路由扩展trait。
 
+use crate::doc::{lookup_doc_by_handler_ptr, DocMeta};
 use crate::{schema::PathInfo, OpenApiDoc};
 use silent::prelude::Route;
 use utoipa::openapi::{path::Operation, PathItem, ResponseBuilder};
@@ -136,9 +137,11 @@ fn collect_paths_recursive(route: &Route, current_path: &str, paths: &mut Vec<(S
     };
 
     // 为当前路径的每个HTTP方法创建操作
-    for (method, _handler) in &route.handler {
+    for (method, handler) in &route.handler {
         let openapi_path = convert_path_format(&full_path);
-        let operation = create_default_operation(method, &full_path);
+        let ptr = std::sync::Arc::as_ptr(handler) as *const () as usize;
+        let doc = lookup_doc_by_handler_ptr(ptr);
+        let operation = create_operation_with_doc(method, &full_path, doc);
         let path_item = create_or_update_path_item(None, method, operation);
 
         // 查找是否已存在相同路径
@@ -222,12 +225,22 @@ fn create_operation_from_path_info(path_info: &PathInfo) -> Operation {
 }
 
 /// 创建默认的Operation
-fn create_default_operation(method: &http::Method, path: &str) -> Operation {
+fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocMeta>) -> Operation {
     use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
     use utoipa::openapi::Required;
 
-    let summary = format!("{} {}", method, path);
-    let description = format!("Handler for {} {}", method, path);
+    let default_summary = format!("{} {}", method, path);
+    let default_description = format!("Handler for {} {}", method, path);
+    let (summary, description) = match doc {
+        Some(DocMeta {
+            summary,
+            description,
+        }) => (
+            summary.unwrap_or(default_summary),
+            description.unwrap_or(default_description),
+        ),
+        None => (default_summary, default_description),
+    };
 
     // 自动生成 operationId（method_去除非字母数字并用下划线连接）
     let sanitized_path: String = path

@@ -33,6 +33,18 @@
    - `SwaggerUiMiddleware::with_options` / `SwaggerUiHandler::with_options`：支持 `tryItOutEnabled` 开关。
    - 默认开启；生产可由业务禁用（本次不做自动环境判断）。
 
+5) 接口注释→OpenAPI 说明（新增）
+   - 目标：尽可能将处理函数的注释作为 OpenAPI 的 `summary/description`。
+   - 属性宏：提供 `#[endpoint(summary = "...", description = "...")]`；若省略，则从 `///` 文档注释提取首行作为 `summary`，其余作为 `description`。
+   - 使用方式：
+     - 标注函数：
+       - `#[endpoint(...)] async fn hello(req: Request) -> Result<Response> { ... }`
+     - 挂载路由：
+       - `Route::new("").insert_handler(Method::GET, hello())`
+   - 兼容方案：保留 `.doc(Method::..., ...)` 手动标注；未标注则回退：
+       - `summary`: `"<METHOD> <path>"`；
+       - `description`: `"Handler for <METHOD> <path>"`。
+
 ## 验收标准
 - `cargo check -p silent-openapi --examples` 通过。
 - 同一路径下 `GET/POST/...` 方法在 OpenAPI 文档中同时存在且不覆盖。

@@ -37,6 +37,8 @@
 //! }
 //! ```
 
+pub mod doc;
+pub use silent_openapi_macros::endpoint;
 pub mod error;
 pub mod handler;
 pub mod middleware;
