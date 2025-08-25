@@ -112,7 +112,8 @@ impl RouteTree {
                     (true, last_path)
                 }
                 SpecialPath::FullPath(key) => {
-                    // ** 通配符：总是匹配，参数记录完整剩余路径
+                    // ** 通配符：记录完整剩余路径，且允许继续尝试子结点匹配。
+                    // 若后续子结点无法匹配，dfs_match 中会在有处理器时回退到当前结点。
                     let p = path.strip_prefix('/').unwrap_or(path);
                     req.set_path_params(key, PathParam::Path(p.to_string()));
                     (true, last_path)
@@ -137,17 +138,19 @@ impl RouteTree {
         stack.push(self);
 
         if last_path.is_empty() {
-            // URL 已完全匹配：仅尝试 path 为空字符串的子结点
+            // URL 已完全匹配：仍尝试所有子结点，让特殊路径（如 <path:**>）有机会匹配空余路径
             for child in &self.children {
-                if !child.path.is_empty() {
-                    continue;
-                }
                 if child.dfs_match(req, last_path, stack) {
                     return true;
                 }
             }
-            // 无子结点匹配，则当前为终点
-            return true;
+            // 无子结点匹配：仅当当前结点存在处理器时才认为匹配成功
+            if self.has_handler {
+                return true;
+            } else {
+                stack.pop();
+                return false;
+            }
         }
 
         // 继续匹配子路由

@@ -12,7 +12,7 @@ CLAUDE.md
 AGENTS.md
 
 # ignore Cargo.lock at repo root
-/Cargo.lock
+Cargo.lock
 out/
 .cargo-home
 .pre-commit-cache

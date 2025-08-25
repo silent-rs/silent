@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-which = "6"
+which = "8"
 serde_json = "1"
 chrono = { version = "0.4" }
 
