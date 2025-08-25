@@ -113,7 +113,7 @@ impl OpenApiDoc {
         use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
         use utoipa::openapi::ComponentsBuilder;
 
-        let mut http = HttpBuilder::new()
+        let http = HttpBuilder::new()
             .scheme(HttpAuthScheme::Bearer)
             .bearer_format("JWT");
         if let Some(_desc) = description {

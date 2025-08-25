@@ -161,8 +161,14 @@ fn collect_paths_recursive(route: &Route, current_path: &str, paths: &mut Vec<(S
 /// Silent: `/users/<id:i64>/posts/<post_id:String>`
 /// OpenAPI: `/users/{id}/posts/{post_id}`
 fn convert_path_format(silent_path: &str) -> String {
-    // 简化实现：使用字符串替换而不是regex
-    let mut result = silent_path.to_string();
+    // 归一化：空路径映射为 "/"；其他路径确保以 '/' 开头，避免 Swagger 生成非法路径键
+    let mut result = if silent_path.is_empty() {
+        "/".to_string()
+    } else if silent_path.starts_with('/') {
+        silent_path.to_string()
+    } else {
+        format!("/{}", silent_path)
+    };
 
     // 查找所有的 <name:type> 模式并替换为 {name}
     while let Some(start) = result.find('<') {
@@ -246,7 +252,7 @@ fn create_default_operation(method: &http::Method, path: &str) -> Operation {
         .description("Successful response")
         .build();
 
-    // 从路径中提取形如 {id} 的 path params，提供基础参数声明（string，后续可增强类型推断）
+    // 从路径中提取 Silent 风格参数 <name:type> 或 OpenAPI 风格 {name}，提供基础参数声明
     let mut builder = OperationBuilder::new()
         .summary(Some(summary))
         .description(Some(description))
@@ -257,22 +263,92 @@ fn create_default_operation(method: &http::Method, path: &str) -> Operation {
         builder = builder.tags(Some(vec![tag]));
     }
 
-    let mut idx = 0usize;
-    while let Some(start) = path[idx..].find('{') {
-        let abs_start = idx + start;
-        if let Some(end_rel) = path[abs_start..].find('}') {
-            let abs_end = abs_start + end_rel;
-            let name = &path[abs_start + 1..abs_end];
-            // 简化为 string 类型的必填 path 参数
-            let param = ParameterBuilder::new()
-                .name(name)
-                .parameter_in(utoipa::openapi::path::ParameterIn::Path)
-                .required(Required::True)
-                .build();
-            builder = builder.parameter(param);
-            idx = abs_end + 1;
-        } else {
-            break;
+    // 先尝试解析 Silent 风格 <name:type>
+    {
+        use utoipa::openapi::schema::{
+            KnownFormat, ObjectBuilder, Schema, SchemaFormat, SchemaType,
+        };
+        let mut i = 0usize;
+        let mut found_any = false;
+        while let Some(start) = path[i..].find('<') {
+            let abs_start = i + start;
+            if let Some(end_rel) = path[abs_start..].find('>') {
+                let abs_end = abs_start + end_rel;
+                let inner = &path[abs_start + 1..abs_end];
+                let mut it = inner.splitn(2, ':');
+                let name = it.next().unwrap_or("");
+                let ty = it.next().unwrap_or("");
+
+                if !name.is_empty() {
+                    // 推断 schema 类型
+                    let (stype, sformat) = match ty.to_lowercase().as_str() {
+                        "i32" | "int" => (
+                            SchemaType::Integer,
+                            Some(SchemaFormat::KnownFormat(KnownFormat::Int32)),
+                        ),
+                        "i64" => (
+                            SchemaType::Integer,
+                            Some(SchemaFormat::KnownFormat(KnownFormat::Int64)),
+                        ),
+                        // utoipa 默认启用的 KnownFormat 不一定包含无符号，近似为对应位宽的有符号
+                        "u32" => (
+                            SchemaType::Integer,
+                            Some(SchemaFormat::KnownFormat(KnownFormat::Int32)),
+                        ),
+                        "u64" => (
+                            SchemaType::Integer,
+                            Some(SchemaFormat::KnownFormat(KnownFormat::Int64)),
+                        ),
+                        "uuid" => (
+                            SchemaType::String,
+                            Some(SchemaFormat::KnownFormat(KnownFormat::Uuid)),
+                        ),
+                        _ => (SchemaType::String, None),
+                    };
+                    let mut obj = ObjectBuilder::new().schema_type(stype);
+                    if let Some(fmt) = sformat {
+                        obj = obj.format(Some(fmt));
+                    }
+                    let schema = utoipa::openapi::RefOr::T(Schema::Object(obj.build()));
+                    let param = ParameterBuilder::new()
+                        .name(name)
+                        .parameter_in(utoipa::openapi::path::ParameterIn::Path)
+                        .required(Required::True)
+                        .schema(Some(schema))
+                        .build();
+                    builder = builder.parameter(param);
+                    found_any = true;
+                }
+                i = abs_end + 1;
+            } else {
+                break;
+            }
+        }
+
+        // 如未找到 Silent 风格参数，则尝试解析 {name}
+        if !found_any {
+            let mut idx = 0usize;
+            while let Some(start) = path[idx..].find('{') {
+                let abs_start = idx + start;
+                if let Some(end_rel) = path[abs_start..].find('}') {
+                    let abs_end = abs_start + end_rel;
+                    let name = &path[abs_start + 1..abs_end];
+                    let schema = {
+                        let obj = ObjectBuilder::new().schema_type(SchemaType::String).build();
+                        utoipa::openapi::RefOr::T(Schema::Object(obj))
+                    };
+                    let param = ParameterBuilder::new()
+                        .name(name)
+                        .parameter_in(utoipa::openapi::path::ParameterIn::Path)
+                        .required(Required::True)
+                        .schema(Some(schema))
+                        .build();
+                    builder = builder.parameter(param);
+                    idx = abs_end + 1;
+                } else {
+                    break;
+                }
+            }
         }
     }
 
