@@ -321,4 +321,25 @@ mod tests {
         assert!(json.contains("Test API"));
         assert!(json.contains("1.0.0"));
     }
+
+    #[test]
+    fn test_add_server_and_security() {
+        let doc = OpenApiDoc::new("T", "1")
+            .add_server("https://api.example.com", Some("prod"))
+            .add_bearer_auth("bearerAuth", Some("jwt"))
+            .set_global_security("bearerAuth", &[]);
+        let json_value = doc.to_json_value().unwrap();
+        // 服务器与安全定义存在
+        assert!(json_value["servers"].is_array());
+        assert!(json_value["components"]["securitySchemes"]["bearerAuth"].is_object());
+        assert!(json_value["security"].is_array());
+    }
+
+    #[test]
+    fn test_add_paths_multiple_and_pretty_json() {
+        let pi = PathItem::default();
+        let doc = OpenApiDoc::new("T", "1").add_paths(vec![("/ping".into(), pi)]);
+        let pretty = doc.to_pretty_json().unwrap();
+        assert!(pretty.contains("/ping"));
+    }
 }

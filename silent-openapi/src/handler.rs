@@ -368,6 +368,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_handle_ui_resource_index_html() {
+        let handler = SwaggerUiHandler::new("/docs", TestApiDoc::openapi()).unwrap();
+        let resp = handler
+            .handle_ui_resource("/docs/index.html")
+            .await
+            .unwrap();
+        let ct = resp.headers().get(http::header::CONTENT_TYPE).unwrap();
+        assert!(ct.to_str().unwrap_or("").contains("text/html"));
+    }
+
+    #[tokio::test]
     async fn test_head_fallback_via_route() {
         // 使用 into_route 挂载后，通过 Route 执行 HEAD，验证可达（GET 回退 HEAD）。
         let handler = SwaggerUiHandler::new("/docs", TestApiDoc::openapi()).unwrap();

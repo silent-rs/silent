@@ -414,6 +414,31 @@ mod tests {
                 .unwrap_or(false)
         );
     }
+
+    #[tokio::test]
+    async fn test_non_match_request_path() {
+        let mw = SwaggerUiMiddleware::new("/docs", TestApiDoc::openapi()).unwrap();
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/other");
+        assert!(!mw.match_req(&req).await);
+    }
+
+    #[tokio::test]
+    async fn test_asset_404_branch() {
+        let mw = SwaggerUiMiddleware::new("/docs", TestApiDoc::openapi()).unwrap();
+        let resp = mw.handle_swagger_request("/docs/app.css").await.unwrap();
+        // 不应是重定向
+        assert!(resp.headers().get(http::header::LOCATION).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_index_html_headers() {
+        let mw = SwaggerUiMiddleware::new("/docs", TestApiDoc::openapi()).unwrap();
+        let resp = mw.handle_swagger_request("/docs/index.html").await.unwrap();
+        let ct = resp.headers().get(http::header::CONTENT_TYPE).unwrap();
+        assert!(ct.to_str().unwrap_or("").contains("text/html"));
+        assert!(resp.headers().get(http::header::CACHE_CONTROL).is_some());
+    }
 }
 
 // 选项类型在 crate 根导出

@@ -5,7 +5,6 @@ use syn::Token;
 use syn::punctuated::Punctuated;
 use syn::{
     Expr, ExprLit, FnArg, ItemFn, Lit, Meta, Result as SynResult, parse::Parse, parse::ParseStream,
-    parse_macro_input,
 };
 
 fn endpoint_impl(

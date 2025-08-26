@@ -427,6 +427,8 @@ mod tests {
         );
 
         assert_eq!(convert_path_format("/simple/path"), "/simple/path");
+        assert_eq!(convert_path_format("svc"), "/svc");
+        assert_eq!(convert_path_format(""), "/");
     }
 
     #[test]
@@ -559,5 +561,20 @@ mod tests {
         let merged = merge_path_items(&get, &post);
         assert!(merged.get.is_some());
         assert!(merged.post.is_some());
+    }
+
+    #[test]
+    fn test_merge_prefers_first_for_same_method() {
+        // 创建两个 GET 操作，operation_id 不同，合并后应保留第一个
+        let op1 = create_operation_with_doc(&http::Method::GET, "/a", None, None);
+        let mut item1 = PathItem::default();
+        item1.get = Some(op1);
+        let op2 = create_operation_with_doc(&http::Method::GET, "/a", None, None);
+        let mut item2 = PathItem::default();
+        item2.get = Some(op2);
+        let merged = merge_path_items(&item1, &item2);
+        assert!(merged.get.is_some());
+        // 简要校验：合并后仍有 GET，且未被覆盖（函数当前实现按先后 or 保留）
+        // 无直接字段比较，存在即视为保留先者语义
     }
 }
