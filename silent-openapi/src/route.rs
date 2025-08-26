@@ -3,8 +3,7 @@
 //! 提供路由文档自动收集功能和路由扩展trait。
 
 use crate::doc::{
-    DocMeta, ResponseMeta, list_registered_json_types, lookup_doc_by_handler_ptr,
-    lookup_response_by_handler_ptr,
+    DocMeta, ResponseMeta, lookup_doc_by_handler_ptr, lookup_response_by_handler_ptr,
 };
 use crate::{OpenApiDoc, schema::PathInfo};
 use silent::prelude::Route;
