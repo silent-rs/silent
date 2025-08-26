@@ -75,6 +75,66 @@ pub fn list_registered_json_types() -> Vec<&'static str> {
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+    use utoipa::ToSchema;
+
+    async fn ok_handler(_req: SilentRequest) -> SilentResult<SilentResponse> {
+        Ok(SilentResponse::text("ok"))
+    }
+
+    #[test]
+    fn test_register_and_lookup_doc() {
+        let handler = Arc::new(HandlerWrapper::new(|_req: SilentRequest| async move {
+            Ok::<_, silent::SilentError>(SilentResponse::text("doc"))
+        }));
+        let ptr = Arc::as_ptr(&handler) as *const () as usize;
+        register_doc_by_ptr(ptr, Some("summary"), Some("desc"));
+        let got = lookup_doc_by_handler_ptr(ptr).expect("doc meta");
+        assert_eq!(got.summary.as_deref(), Some("summary"));
+        assert_eq!(got.description.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn test_register_and_lookup_response() {
+        let handler = Arc::new(HandlerWrapper::new(ok_handler));
+        let ptr = Arc::as_ptr(&handler) as *const () as usize;
+        register_response_by_ptr(ptr, ResponseMeta::TextPlain);
+        let got = lookup_response_by_handler_ptr(ptr).expect("resp meta");
+        matches!(got, ResponseMeta::TextPlain);
+    }
+
+    #[test]
+    fn test_list_registered_json_types() {
+        let h1 = Arc::new(HandlerWrapper::new(ok_handler));
+        let h2 = Arc::new(HandlerWrapper::new(ok_handler));
+        let p1 = Arc::as_ptr(&h1) as *const () as usize;
+        let p2 = Arc::as_ptr(&h2) as *const () as usize;
+        register_response_by_ptr(p1, ResponseMeta::Json { type_name: "User" });
+        register_response_by_ptr(p2, ResponseMeta::Json { type_name: "User" });
+        let list = list_registered_json_types();
+        assert!(list.contains(&"User"));
+        assert_eq!(list.len(), 1);
+    }
+
+    #[derive(Serialize, ToSchema)]
+    struct FooSchema {
+        id: i32,
+        name: String,
+    }
+
+    #[test]
+    fn test_register_schema_and_apply() {
+        register_schema_for::<FooSchema>();
+        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
+        apply_registered_schemas(&mut openapi);
+        let components = openapi.components.expect("components");
+        assert!(components.schemas.contains_key("FooSchema"));
+    }
+}
+
 // ====== ToSchema 完整 schema 注册 ======
 static SCHEMA_REGISTRY: Lazy<Mutex<Vec<fn(&mut Components)>>> =
     Lazy::new(|| Mutex::new(Vec::new()));

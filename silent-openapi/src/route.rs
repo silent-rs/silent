@@ -412,6 +412,7 @@ impl RouteOpenApiExt for Route {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::doc::{DocMeta, ResponseMeta};
 
     #[test]
     fn test_path_format_conversion() {
@@ -453,5 +454,110 @@ mod tests {
             Some("根据ID获取用户信息".to_string())
         );
         assert_eq!(operation.tags, Some(vec!["users".to_string()]));
+    }
+
+    #[test]
+    fn test_documented_route_generate_items() {
+        let route = DocumentedRoute::new(Route::new(""))
+            .add_path_doc(PathInfo::new(http::Method::GET, "/ping").summary("ping"));
+        let items = route.generate_path_items("");
+        let (_p, item) = items.into_iter().find(|(p, _)| p == "/ping").unwrap();
+        assert!(item.get.is_some());
+    }
+
+    #[test]
+    fn test_generate_openapi_doc_with_registered_schema() {
+        use serde::Serialize;
+        use utoipa::ToSchema;
+        #[derive(Serialize, ToSchema)]
+        struct MyType {
+            id: i32,
+        }
+        crate::doc::register_schema_for::<MyType>();
+        let route = Route::new("");
+        let openapi = route.generate_openapi_doc("t", "1", None).into_openapi();
+        assert!(
+            openapi
+                .components
+                .as_ref()
+                .expect("components")
+                .schemas
+                .contains_key("MyType")
+        );
+    }
+
+    #[test]
+    fn test_collect_paths_with_multiple_methods() {
+        async fn h1(_r: silent::Request) -> silent::Result<silent::Response> {
+            Ok(silent::Response::text("ok"))
+        }
+        async fn h2(_r: silent::Request) -> silent::Result<silent::Response> {
+            Ok(silent::Response::text("ok"))
+        }
+        let route = Route::new("svc").get(h1).post(h2);
+        let paths = route.collect_openapi_paths("");
+        // 找到 /svc 项
+        let (_p, item) = paths.into_iter().find(|(p, _)| p == "/svc").expect("/svc");
+        assert!(item.get.is_some());
+        assert!(item.post.is_some());
+    }
+
+    #[test]
+    fn test_operation_with_text_plain() {
+        let op = create_operation_with_doc(
+            &http::Method::GET,
+            "/hello",
+            Some(DocMeta {
+                summary: Some("s".into()),
+                description: Some("d".into()),
+            }),
+            Some(ResponseMeta::TextPlain),
+        );
+        let resp = op.responses.responses.get("200").expect("200 resp");
+        let resp = match resp {
+            utoipa::openapi::RefOr::T(r) => r,
+            _ => panic!("expected T"),
+        };
+        let content = &resp.content;
+        assert!(content.contains_key("text/plain"));
+    }
+
+    #[test]
+    fn test_operation_with_json_ref() {
+        let op = create_operation_with_doc(
+            &http::Method::GET,
+            "/users/{id}",
+            None,
+            Some(ResponseMeta::Json { type_name: "User" }),
+        );
+        let resp = op.responses.responses.get("200").expect("200 resp");
+        let resp = match resp {
+            utoipa::openapi::RefOr::T(r) => r,
+            _ => panic!("expected T"),
+        };
+        let content = &resp.content;
+        let mt = content.get("application/json").expect("app/json");
+        let schema = mt.schema.as_ref().expect("schema");
+        match schema {
+            utoipa::openapi::RefOr::Ref(r) => assert!(r.ref_location.ends_with("/User")),
+            _ => panic!("ref expected"),
+        }
+    }
+
+    #[test]
+    fn test_merge_path_items_get_post() {
+        let get = create_or_update_path_item(
+            None,
+            &http::Method::GET,
+            create_operation_with_doc(&http::Method::GET, "/a", None, None),
+        );
+        let post = create_or_update_path_item(
+            None,
+            &http::Method::POST,
+            create_operation_with_doc(&http::Method::POST, "/a", None, None),
+        );
+        let merged = merge_path_items(&get, &post);
+        assert!(merged.get.is_some());
+        assert!(merged.post.is_some());
     }
 }

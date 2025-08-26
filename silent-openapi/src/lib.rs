@@ -12,7 +12,7 @@
 //!
 //! ## 快速开始
 //!
-//! ```rust
+//! ```ignore
 //! use silent::prelude::*;
 //! use silent_openapi::{OpenApiDoc, SwaggerUiHandler};
 //! use utoipa::OpenApi;

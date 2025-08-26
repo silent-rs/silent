@@ -323,6 +323,7 @@ mod tests {
         assert!(handler.matches_path("/swagger-ui/"));
         assert!(handler.matches_path("/swagger-ui/index.html"));
         assert!(handler.matches_path("/swagger-ui/openapi.json"));
+        assert!(handler.matches_path("/swagger-ui/any/asset.js"));
         assert!(!handler.matches_path("/api/users"));
         assert!(!handler.matches_path("/swagger"));
     }
@@ -335,6 +336,47 @@ mod tests {
         // 注意：Silent的Response没有public的status()方法
         // 这里只验证响应能成功创建
         assert!(response.headers().get(http::header::CONTENT_TYPE).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_call_openapi_json_via_dispatch() {
+        let handler = SwaggerUiHandler::new("/docs", TestApiDoc::openapi()).unwrap();
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/docs/openapi.json");
+        let resp = handler.call(req).await.unwrap();
+        assert!(
+            resp.headers()
+                .get(http::header::CONTENT_TYPE)
+                .map(|v| v.to_str().unwrap_or("").contains("application/json"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_redirect_and_asset() {
+        let handler = SwaggerUiHandler::new("/docs", TestApiDoc::openapi()).unwrap();
+        // 重定向
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/docs");
+        let resp = handler.call(req).await.unwrap();
+        assert!(resp.headers().get(http::header::LOCATION).is_some());
+
+        // 静态资源404 分支可达
+        let mut req2 = Request::empty();
+        *req2.uri_mut() = http::Uri::from_static("http://localhost/docs/unknown.css");
+        let _resp2 = handler.call(req2).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_head_fallback_via_route() {
+        // 使用 into_route 挂载后，通过 Route 执行 HEAD，验证可达（GET 回退 HEAD）。
+        let handler = SwaggerUiHandler::new("/docs", TestApiDoc::openapi()).unwrap();
+        let route = handler.into_route();
+        let mut req = Request::empty();
+        *req.method_mut() = http::Method::HEAD;
+        *req.uri_mut() = http::Uri::from_static("http://localhost/docs/openapi.json");
+        let resp = route.call(req).await.unwrap();
+        assert!(resp.headers().get(http::header::CONTENT_TYPE).is_some());
     }
 }
 

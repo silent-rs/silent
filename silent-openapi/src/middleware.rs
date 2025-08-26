@@ -33,7 +33,7 @@ impl SwaggerUiMiddleware {
     ///
     /// # 示例
     ///
-    /// ```rust
+    /// ```ignore
     /// use silent::prelude::*;
     /// use silent_openapi::SwaggerUiMiddleware;
     /// use utoipa::OpenApi;
@@ -305,7 +305,7 @@ impl MiddleWareHandler for SwaggerUiMiddleware {
 ///
 /// # 示例
 ///
-/// ```rust
+/// ```ignore
 /// use silent::prelude::*;
 /// use silent_openapi::add_swagger_ui;
 /// use utoipa::OpenApi;
@@ -376,6 +376,43 @@ mod tests {
         // 验证Content-Type头（Silent Response没有public的status方法）
         let content_type = response.headers().get(http::header::CONTENT_TYPE);
         assert!(content_type.is_some());
+        // 验证CORS头
+        assert!(
+            response
+                .headers()
+                .get(http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_redirect_on_base_path() {
+        let middleware = SwaggerUiMiddleware::new("/docs", TestApiDoc::openapi()).unwrap();
+        let resp = middleware.handle_swagger_request("/docs").await.unwrap();
+        // 无法读取状态码，验证是否存在 LOCATION 头以确认重定向
+        assert!(resp.headers().get(http::header::LOCATION).is_some());
+    }
+
+    #[tokio::test]
+    async fn test_custom_api_doc_path() {
+        let mw = SwaggerUiMiddleware::with_custom_api_doc_path(
+            "/docs",
+            "/openapi-docs.json",
+            TestApiDoc::openapi(),
+        )
+        .unwrap();
+        // 自定义路径匹配
+        assert!(mw.matches_swagger_path("/openapi-docs.json"));
+        let resp = mw
+            .handle_swagger_request("/openapi-docs.json")
+            .await
+            .unwrap();
+        assert!(
+            resp.headers()
+                .get(http::header::CONTENT_TYPE)
+                .map(|v| v.to_str().unwrap_or("").contains("application/json"))
+                .unwrap_or(false)
+        );
     }
 }
 

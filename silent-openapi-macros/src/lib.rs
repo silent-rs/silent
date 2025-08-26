@@ -8,15 +8,17 @@ use syn::{
     parse_macro_input,
 };
 
-#[proc_macro_attribute]
-pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+fn endpoint_impl(
+    attr: proc_macro2::TokenStream,
+    item: proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
     struct MetaArgs(Punctuated<Meta, Token![,]>);
     impl Parse for MetaArgs {
         fn parse(input: ParseStream) -> SynResult<Self> {
             Ok(MetaArgs(Punctuated::parse_terminated(input)?))
         }
     }
-    let MetaArgs(args) = parse_macro_input!(attr as MetaArgs);
+    let MetaArgs(args) = syn::parse2::<MetaArgs>(attr).expect("parse attr");
     let mut summary_arg: Option<String> = None;
     let mut description_arg: Option<String> = None;
     for meta in args {
@@ -39,7 +41,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let input = parse_macro_input!(item as ItemFn);
+    let input: ItemFn = syn::parse2(item).expect("parse item fn");
     let vis = &input.vis;
     let sig = input.sig.clone();
     let attrs = &input.attrs;
@@ -321,5 +323,64 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         #impls
     };
 
-    code.into()
+    code
+}
+
+#[proc_macro_attribute]
+pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
+    endpoint_impl(attr.into(), item.into()).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+
+    fn render(ts: proc_macro2::TokenStream) -> String {
+        ts.to_string()
+    }
+
+    #[test]
+    fn generates_endpoint_type_and_const_for_request_sig() {
+        let attr = quote!(summary = "hello", description = "world");
+        let item = quote!(
+            async fn get_hello(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("struct GetHelloEndpoint"));
+        assert!(s.contains("const get_hello"));
+    }
+
+    #[test]
+    fn generates_into_route_handler_for_extractor_sig() {
+        let attr = quote!();
+        let item = quote!(
+            async fn get_user(_id: Path<u64>) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        // 生成的端点常量与 IntoRouteHandler 实现
+        assert!(s.contains("struct GetUserEndpoint"));
+        assert!(s.contains("const get_user"));
+        assert!(s.contains("IntoRouteHandler"));
+        assert!(s.contains("GetUserEndpoint"));
+    }
+
+    #[test]
+    fn registers_response_meta_for_string() {
+        let attr = quote!();
+        let item = quote!(
+            async fn ping(_req: ::silent::Request) -> ::silent::Result<String> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        // 生成文本响应的注册调用
+        assert!(s.contains("ResponseMeta :: TextPlain"));
+    }
 }
