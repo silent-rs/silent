@@ -108,6 +108,26 @@ impl OpenApiDoc {
         self
     }
 
+    /// 为给定类型名追加占位 schema（占位 Object，用于引用解析）
+    pub fn add_placeholder_schemas(mut self, type_names: &[&str]) -> Self {
+        use utoipa::openapi::ComponentsBuilder;
+        use utoipa::openapi::schema::{ObjectBuilder, Schema};
+        let mut components = self
+            .openapi
+            .components
+            .unwrap_or_else(|| ComponentsBuilder::new().build());
+        for name in type_names {
+            components
+                .schemas
+                .entry((*name).to_string())
+                .or_insert_with(|| {
+                    utoipa::openapi::RefOr::T(Schema::Object(ObjectBuilder::new().build()))
+                });
+        }
+        self.openapi.components = Some(components);
+        self
+    }
+
     /// 添加 Bearer/JWT 安全定义
     pub fn add_bearer_auth(mut self, scheme_name: &str, description: Option<&str>) -> Self {
         use utoipa::openapi::ComponentsBuilder;

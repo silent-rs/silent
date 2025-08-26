@@ -35,6 +35,45 @@ pub(crate) fn lookup_doc_by_handler_ptr(ptr: usize) -> Option<DocMeta> {
     DOC_REGISTRY.lock().ok().and_then(|m| m.get(&ptr).cloned())
 }
 
+/// 响应类型元信息
+#[derive(Clone, Debug)]
+pub enum ResponseMeta {
+    TextPlain,
+    Json { type_name: &'static str },
+}
+
+static RESPONSE_REGISTRY: Lazy<Mutex<HashMap<usize, ResponseMeta>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_response_by_ptr(ptr: usize, meta: ResponseMeta) {
+    let mut map = RESPONSE_REGISTRY
+        .lock()
+        .expect("response registry poisoned");
+    map.insert(ptr, meta);
+}
+
+pub(crate) fn lookup_response_by_handler_ptr(ptr: usize) -> Option<ResponseMeta> {
+    RESPONSE_REGISTRY
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&ptr).cloned())
+}
+
+pub fn list_registered_json_types() -> Vec<&'static str> {
+    let map = RESPONSE_REGISTRY.lock().ok();
+    let mut out = Vec::new();
+    if let Some(map) = map {
+        for meta in map.values() {
+            if let ResponseMeta::Json { type_name } = meta {
+                if !out.iter().any(|&n| n == *type_name) {
+                    out.push(*type_name);
+                }
+            }
+        }
+    }
+    out
+}
+
 /// 路由文档标注扩展：在完成 handler 挂载后，追加文档说明
 pub trait RouteDocMarkExt {
     fn doc(self, method: Method, summary: &str, description: &str) -> Self;

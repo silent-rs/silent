@@ -2,7 +2,10 @@
 //!
 //! 提供路由文档自动收集功能和路由扩展trait。
 
-use crate::doc::{DocMeta, lookup_doc_by_handler_ptr};
+use crate::doc::{
+    DocMeta, ResponseMeta, list_registered_json_types, lookup_doc_by_handler_ptr,
+    lookup_response_by_handler_ptr,
+};
 use crate::{OpenApiDoc, schema::PathInfo};
 use silent::prelude::Route;
 use utoipa::openapi::{PathItem, ResponseBuilder, path::Operation};
@@ -109,6 +112,10 @@ pub trait RouteDocumentation {
 
         let paths = self.collect_openapi_paths("");
         doc = doc.add_paths(paths);
+        // 为已注册的 JSON 类型追加占位 schema，便于引用解析
+        let types = crate::doc::list_registered_json_types();
+        let names: Vec<&str> = types.into_iter().collect();
+        doc = doc.add_placeholder_schemas(&names);
 
         doc
     }
@@ -141,7 +148,8 @@ fn collect_paths_recursive(route: &Route, current_path: &str, paths: &mut Vec<(S
         let openapi_path = convert_path_format(&full_path);
         let ptr = std::sync::Arc::as_ptr(handler) as *const () as usize;
         let doc = lookup_doc_by_handler_ptr(ptr);
-        let operation = create_operation_with_doc(method, &full_path, doc);
+        let resp = lookup_response_by_handler_ptr(ptr);
+        let operation = create_operation_with_doc(method, &full_path, doc, resp);
         let path_item = create_or_update_path_item(None, method, operation);
 
         // 查找是否已存在相同路径
@@ -225,7 +233,12 @@ fn create_operation_from_path_info(path_info: &PathInfo) -> Operation {
 }
 
 /// 创建默认的Operation
-fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocMeta>) -> Operation {
+fn create_operation_with_doc(
+    method: &http::Method,
+    path: &str,
+    doc: Option<DocMeta>,
+    resp: Option<ResponseMeta>,
+) -> Operation {
     use utoipa::openapi::Required;
     use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
 
@@ -261,9 +274,33 @@ fn create_operation_with_doc(method: &http::Method, path: &str, doc: Option<DocM
         .next()
         .map(|s| s.to_string());
 
-    let default_response = ResponseBuilder::new()
-        .description("Successful response")
-        .build();
+    let mut response_builder = ResponseBuilder::new().description("Successful response");
+    if let Some(rm) = resp {
+        match rm {
+            ResponseMeta::TextPlain => {
+                use utoipa::openapi::{
+                    RefOr,
+                    content::ContentBuilder,
+                    schema::{ObjectBuilder, Schema},
+                };
+                let content = ContentBuilder::new()
+                    .schema::<RefOr<Schema>>(Some(RefOr::T(Schema::Object(
+                        ObjectBuilder::new().build(),
+                    ))))
+                    .build();
+                response_builder = response_builder.content("text/plain", content);
+            }
+            ResponseMeta::Json { type_name } => {
+                use utoipa::openapi::{Ref, RefOr, content::ContentBuilder, schema::Schema};
+                let schema_ref = RefOr::Ref(Ref::from_schema_name(type_name));
+                let content = ContentBuilder::new()
+                    .schema::<RefOr<Schema>>(Some(schema_ref))
+                    .build();
+                response_builder = response_builder.content("application/json", content);
+            }
+        }
+    }
+    let default_response = response_builder.build();
 
     // 从路径中提取 Silent 风格参数 <name:type> 或 OpenAPI 风格 {name}，提供基础参数声明
     let mut builder = OperationBuilder::new()

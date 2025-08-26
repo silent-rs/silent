@@ -97,6 +97,68 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         quote!(None)
     };
 
+    // 解析返回类型 Ok(T) -> ResponseMeta
+    let ret_meta = {
+        match &sig.output {
+            syn::ReturnType::Type(_, ty) => {
+                if let syn::Type::Path(tp) = ty.as_ref() {
+                    if let Some(seg) = tp.path.segments.last() {
+                        if seg.ident == "Result" || seg.ident == "SilentResult" {
+                            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                                if let Some(syn::GenericArgument::Type(ok_ty)) = args.args.first() {
+                                    match ok_ty {
+                                        syn::Type::Path(tpath) => {
+                                            if let Some(id) = tpath.path.segments.last() {
+                                                if id.ident == "Response" {
+                                                    quote!(None)
+                                                } else if id.ident == "String" {
+                                                    quote!(Some(::silent_openapi::doc::ResponseMeta::TextPlain))
+                                                } else {
+                                                    let tn = id.ident.to_string();
+                                                    quote!(Some(::silent_openapi::doc::ResponseMeta::Json { type_name: #tn }))
+                                                }
+                                            } else {
+                                                quote!(None)
+                                            }
+                                        }
+                                        syn::Type::Reference(r) => {
+                                            if let syn::Type::Path(tp2) = r.elem.as_ref() {
+                                                if let Some(id) = tp2.path.segments.last() {
+                                                    if id.ident == "str" {
+                                                        quote!(Some(::silent_openapi::doc::ResponseMeta::TextPlain))
+                                                    } else {
+                                                        let tn = id.ident.to_string();
+                                                        quote!(Some(::silent_openapi::doc::ResponseMeta::Json { type_name: #tn }))
+                                                    }
+                                                } else {
+                                                    quote!(None)
+                                                }
+                                            } else {
+                                                quote!(None)
+                                            }
+                                        }
+                                        _ => quote!(None),
+                                    }
+                                } else {
+                                    quote!(None)
+                                }
+                            } else {
+                                quote!(None)
+                            }
+                        } else {
+                            quote!(None)
+                        }
+                    } else {
+                        quote!(None)
+                    }
+                } else {
+                    quote!(None)
+                }
+            }
+            _ => quote!(None),
+        }
+    };
+
     // 根据函数参数形态生成 IntoRouteHandler 实现
     let inputs = sig.inputs.clone().into_iter().collect::<Vec<_>>();
     let impls = if inputs.len() == 1 {
@@ -119,6 +181,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }
                         }
@@ -136,6 +199,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }
                         }
@@ -166,6 +230,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }
                         }
