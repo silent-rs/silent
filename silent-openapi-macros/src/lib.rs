@@ -159,6 +159,66 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
+    // 为自定义 Ok(T) 注册 ToSchema 完整 schema
+    let ret_schema_register = {
+        match &sig.output {
+            syn::ReturnType::Type(_, ty) => {
+                if let syn::Type::Path(tp) = ty.as_ref() {
+                    if let Some(seg) = tp.path.segments.last() {
+                        if seg.ident == "Result" || seg.ident == "SilentResult" {
+                            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                                if let Some(syn::GenericArgument::Type(ok_ty)) = args.args.first() {
+                                    match ok_ty {
+                                        syn::Type::Path(tpath) => {
+                                            if let Some(id) = tpath.path.segments.last() {
+                                                if id.ident == "Response" || id.ident == "String" {
+                                                    quote!()
+                                                } else {
+                                                    let ty = ok_ty.clone();
+                                                    quote!(::silent_openapi::doc::register_schema_for::<#ty>();)
+                                                }
+                                            } else {
+                                                quote!()
+                                            }
+                                        }
+                                        syn::Type::Reference(r) => {
+                                            if let syn::Type::Path(tp2) = r.elem.as_ref() {
+                                                if let Some(id) = tp2.path.segments.last() {
+                                                    if id.ident == "str" {
+                                                        quote!()
+                                                    } else {
+                                                        let inner = tp2.clone();
+                                                        quote!(::silent_openapi::doc::register_schema_for::<#inner>();)
+                                                    }
+                                                } else {
+                                                    quote!()
+                                                }
+                                            } else {
+                                                quote!()
+                                            }
+                                        }
+                                        _ => quote!(),
+                                    }
+                                } else {
+                                    quote!()
+                                }
+                            } else {
+                                quote!()
+                            }
+                        } else {
+                            quote!()
+                        }
+                    } else {
+                        quote!()
+                    }
+                } else {
+                    quote!()
+                }
+            }
+            _ => quote!(),
+        }
+    };
+
     // 根据函数参数形态生成 IntoRouteHandler 实现
     let inputs = sig.inputs.clone().into_iter().collect::<Vec<_>>();
     let impls = if inputs.len() == 1 {
@@ -181,6 +241,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }
@@ -199,6 +260,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }
@@ -230,6 +292,7 @@ pub fn endpoint(attr: TokenStream, item: TokenStream) -> TokenStream {
                                     #sum_tokens,
                                     #desc_tokens,
                                 );
+                                #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
                                 handler
                             }

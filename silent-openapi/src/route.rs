@@ -111,11 +111,7 @@ pub trait RouteDocumentation {
         }
 
         let paths = self.collect_openapi_paths("");
-        doc = doc.add_paths(paths);
-        // 为已注册的 JSON 类型追加占位 schema，便于引用解析
-        let types = crate::doc::list_registered_json_types();
-        let names: Vec<&str> = types.into_iter().collect();
-        doc = doc.add_placeholder_schemas(&names);
+        doc = doc.add_paths(paths).apply_registered_schemas();
 
         doc
     }

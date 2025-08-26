@@ -9,6 +9,7 @@ use silent::{
     Handler, HandlerWrapper, Request as SilentRequest, Response as SilentResponse,
     Result as SilentResult,
 };
+use utoipa::openapi::{Components, ComponentsBuilder, OpenApi};
 
 /// 用于标注接口文档的元信息
 #[derive(Clone, Debug)]
@@ -72,6 +73,44 @@ pub fn list_registered_json_types() -> Vec<&'static str> {
         }
     }
     out
+}
+
+// ====== ToSchema 完整 schema 注册 ======
+static SCHEMA_REGISTRY: Lazy<Mutex<Vec<fn(&mut Components)>>> =
+    Lazy::new(|| Mutex::new(Vec::new()));
+
+pub fn register_schema_for<T>()
+where
+    T: crate::ToSchema + ::utoipa::PartialSchema + 'static,
+{
+    fn add_impl<U: crate::ToSchema + ::utoipa::PartialSchema>(components: &mut Components) {
+        let mut refs: Vec<(
+            String,
+            ::utoipa::openapi::RefOr<::utoipa::openapi::schema::Schema>,
+        )> = Vec::new();
+        <U as crate::ToSchema>::schemas(&mut refs);
+        for (name, schema) in refs {
+            components.schemas.entry(name).or_insert(schema);
+        }
+        let name = <U as crate::ToSchema>::name().into_owned();
+        let schema = <U as ::utoipa::PartialSchema>::schema();
+        components.schemas.entry(name).or_insert(schema);
+    }
+    let mut reg = SCHEMA_REGISTRY.lock().expect("schema registry poisoned");
+    reg.push(add_impl::<T> as fn(&mut Components));
+}
+
+pub fn apply_registered_schemas(openapi: &mut OpenApi) {
+    let mut components = openapi
+        .components
+        .clone()
+        .unwrap_or_else(|| ComponentsBuilder::new().build());
+    if let Ok(reg) = SCHEMA_REGISTRY.lock() {
+        for f in reg.iter() {
+            f(&mut components);
+        }
+    }
+    openapi.components = Some(components);
 }
 
 /// 路由文档标注扩展：在完成 handler 挂载后，追加文档说明

@@ -128,6 +128,12 @@ impl OpenApiDoc {
         self
     }
 
+    /// 应用由 endpoint 宏注册的 ToSchema 完整 schema
+    pub fn apply_registered_schemas(mut self) -> Self {
+        crate::doc::apply_registered_schemas(&mut self.openapi);
+        self
+    }
+
     /// 添加 Bearer/JWT 安全定义
     pub fn add_bearer_auth(mut self, scheme_name: &str, description: Option<&str>) -> Self {
         use utoipa::openapi::ComponentsBuilder;
