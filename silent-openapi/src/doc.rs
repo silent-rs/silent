@@ -65,79 +65,19 @@ pub fn list_registered_json_types() -> Vec<&'static str> {
     let mut out = Vec::new();
     if let Some(map) = map {
         for meta in map.values() {
-            if let ResponseMeta::Json { type_name } = meta {
-                if !out.iter().any(|&n| n == *type_name) {
-                    out.push(*type_name);
-                }
+            if let ResponseMeta::Json { type_name } = meta
+                && !out.contains(type_name)
+            {
+                out.push(*type_name);
             }
         }
     }
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde::Serialize;
-    use utoipa::ToSchema;
-
-    async fn ok_handler(_req: SilentRequest) -> SilentResult<SilentResponse> {
-        Ok(SilentResponse::text("ok"))
-    }
-
-    #[test]
-    fn test_register_and_lookup_doc() {
-        let handler = Arc::new(HandlerWrapper::new(|_req: SilentRequest| async move {
-            Ok::<_, silent::SilentError>(SilentResponse::text("doc"))
-        }));
-        let ptr = Arc::as_ptr(&handler) as *const () as usize;
-        register_doc_by_ptr(ptr, Some("summary"), Some("desc"));
-        let got = lookup_doc_by_handler_ptr(ptr).expect("doc meta");
-        assert_eq!(got.summary.as_deref(), Some("summary"));
-        assert_eq!(got.description.as_deref(), Some("desc"));
-    }
-
-    #[test]
-    fn test_register_and_lookup_response() {
-        let handler = Arc::new(HandlerWrapper::new(ok_handler));
-        let ptr = Arc::as_ptr(&handler) as *const () as usize;
-        register_response_by_ptr(ptr, ResponseMeta::TextPlain);
-        let got = lookup_response_by_handler_ptr(ptr).expect("resp meta");
-        matches!(got, ResponseMeta::TextPlain);
-    }
-
-    #[test]
-    fn test_list_registered_json_types() {
-        let h1 = Arc::new(HandlerWrapper::new(ok_handler));
-        let h2 = Arc::new(HandlerWrapper::new(ok_handler));
-        let p1 = Arc::as_ptr(&h1) as *const () as usize;
-        let p2 = Arc::as_ptr(&h2) as *const () as usize;
-        register_response_by_ptr(p1, ResponseMeta::Json { type_name: "User" });
-        register_response_by_ptr(p2, ResponseMeta::Json { type_name: "User" });
-        let list = list_registered_json_types();
-        assert!(list.contains(&"User"));
-        assert_eq!(list.len(), 1);
-    }
-
-    #[derive(Serialize, ToSchema)]
-    struct FooSchema {
-        id: i32,
-        name: String,
-    }
-
-    #[test]
-    fn test_register_schema_and_apply() {
-        register_schema_for::<FooSchema>();
-        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
-        apply_registered_schemas(&mut openapi);
-        let components = openapi.components.expect("components");
-        assert!(components.schemas.contains_key("FooSchema"));
-    }
-}
-
 // ====== ToSchema 完整 schema 注册 ======
-static SCHEMA_REGISTRY: Lazy<Mutex<Vec<fn(&mut Components)>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+type SchemaRegFn = fn(&mut Components);
+static SCHEMA_REGISTRY: Lazy<Mutex<Vec<SchemaRegFn>>> = Lazy::new(|| Mutex::new(Vec::new()));
 
 pub fn register_schema_for<T>()
 where
@@ -157,7 +97,7 @@ where
         components.schemas.entry(name).or_insert(schema);
     }
     let mut reg = SCHEMA_REGISTRY.lock().expect("schema registry poisoned");
-    reg.push(add_impl::<T> as fn(&mut Components));
+    reg.push(add_impl::<T> as SchemaRegFn);
 }
 
 pub fn apply_registered_schemas(openapi: &mut OpenApi) {
@@ -246,5 +186,65 @@ impl RouteDocAppendExt for Route {
         let ptr = Arc::as_ptr(&handler) as *const () as usize;
         register_doc_by_ptr(ptr, Some(summary), Some(description));
         <Route as HandlerGetter>::handler(self, Method::OPTIONS, handler)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+    use utoipa::ToSchema;
+
+    async fn ok_handler(_req: SilentRequest) -> SilentResult<SilentResponse> {
+        Ok(SilentResponse::text("ok"))
+    }
+
+    #[test]
+    fn test_register_and_lookup_doc() {
+        let handler = Arc::new(HandlerWrapper::new(|_req: SilentRequest| async move {
+            Ok::<_, silent::SilentError>(SilentResponse::text("doc"))
+        }));
+        let ptr = Arc::as_ptr(&handler) as *const () as usize;
+        register_doc_by_ptr(ptr, Some("summary"), Some("desc"));
+        let got = lookup_doc_by_handler_ptr(ptr).expect("doc meta");
+        assert_eq!(got.summary.as_deref(), Some("summary"));
+        assert_eq!(got.description.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn test_register_and_lookup_response() {
+        let handler = Arc::new(HandlerWrapper::new(ok_handler));
+        let ptr = Arc::as_ptr(&handler) as *const () as usize;
+        register_response_by_ptr(ptr, ResponseMeta::TextPlain);
+        let got = lookup_response_by_handler_ptr(ptr).expect("resp meta");
+        matches!(got, ResponseMeta::TextPlain);
+    }
+
+    #[test]
+    fn test_list_registered_json_types() {
+        let h1 = Arc::new(HandlerWrapper::new(ok_handler));
+        let h2 = Arc::new(HandlerWrapper::new(ok_handler));
+        let p1 = Arc::as_ptr(&h1) as *const () as usize;
+        let p2 = Arc::as_ptr(&h2) as *const () as usize;
+        register_response_by_ptr(p1, ResponseMeta::Json { type_name: "User" });
+        register_response_by_ptr(p2, ResponseMeta::Json { type_name: "User" });
+        let list = list_registered_json_types();
+        assert!(list.contains(&"User"));
+        assert_eq!(list.len(), 1);
+    }
+
+    #[derive(Serialize, ToSchema)]
+    struct FooSchema {
+        id: i32,
+        name: String,
+    }
+
+    #[test]
+    fn test_register_schema_and_apply() {
+        register_schema_for::<FooSchema>();
+        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
+        apply_registered_schemas(&mut openapi);
+        let components = openapi.components.expect("components");
+        assert!(components.schemas.contains_key("FooSchema"));
     }
 }

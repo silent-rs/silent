@@ -265,8 +265,7 @@ fn create_operation_with_doc(
     // 默认 tag：取首个非空路径段
     let default_tag = path
         .split('/')
-        .filter(|s| !s.is_empty())
-        .next()
+        .find(|s| !s.is_empty())
         .map(|s| s.to_string());
 
     let mut response_builder = ResponseBuilder::new().description("Successful response");

@@ -22,20 +22,18 @@ fn endpoint_impl(
     let mut description_arg: Option<String> = None;
     for meta in args {
         if let Meta::NameValue(nv) = meta {
-            if nv.path.is_ident("summary") {
-                if let Expr::Lit(ExprLit {
+            if nv.path.is_ident("summary")
+                && let Expr::Lit(ExprLit {
                     lit: Lit::Str(s), ..
-                }) = nv.value
-                {
-                    summary_arg = Some(s.value());
-                }
-            } else if nv.path.is_ident("description") {
-                if let Expr::Lit(ExprLit {
+                }) = &nv.value
+            {
+                summary_arg = Some(s.value());
+            } else if nv.path.is_ident("description")
+                && let Expr::Lit(ExprLit {
                     lit: Lit::Str(s), ..
-                }) = nv.value
-                {
-                    description_arg = Some(s.value());
-                }
+                }) = &nv.value
+            {
+                description_arg = Some(s.value());
             }
         }
     }
@@ -86,13 +84,13 @@ fn endpoint_impl(
         name.to_string().to_case(convert_case::Case::UpperCamel)
     );
     let sum_tokens = if let Some(s) = &summary {
-        let lit = syn::LitStr::new(&s, proc_macro2::Span::call_site());
+        let lit = syn::LitStr::new(s, proc_macro2::Span::call_site());
         quote!(Some(#lit))
     } else {
         quote!(None)
     };
     let desc_tokens = if let Some(s) = &description {
-        let lit = syn::LitStr::new(&s, proc_macro2::Span::call_site());
+        let lit = syn::LitStr::new(s, proc_macro2::Span::call_site());
         quote!(Some(#lit))
     } else {
         quote!(None)

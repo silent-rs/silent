@@ -16,3 +16,4 @@ Cargo.lock
 out/
 .cargo-home
 .pre-commit-cache
+*.sock
