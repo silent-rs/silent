@@ -1,0 +1,19 @@
+[package]
+authors.workspace = true
+description = "Proc-macros for silent-openapi"
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+name = "silent-openapi-macros"
+readme.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+convert_case = "0.8"
+proc-macro2 = "1"
+quote = "1"
+syn = {version = "2", features = ["full"]}

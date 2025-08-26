@@ -1,6 +1,6 @@
 [workspace]
-default-members = ["silent"]
-members = ["silent", "benchmark", "examples/*", "xtask"]
+default-members = ["silent", "silent-openapi", "silent-openapi-macros"]
+members = ["silent", "silent-openapi", "silent-openapi-macros", "examples/*", "benchmark", "xtask"]
 resolver = "2"
 
 [workspace.package]

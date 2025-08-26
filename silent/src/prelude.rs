@@ -24,7 +24,7 @@ pub use crate::handler::HandlerWrapper;
 pub use crate::handler::static_handler;
 pub use crate::log::*;
 pub use crate::middleware::MiddleWareHandler;
-pub use crate::route::handler_append::{HandlerAppend, HandlerGetter};
+pub use crate::route::handler_append::{HandlerAppend, HandlerGetter, IntoRouteHandler};
 pub use crate::route::{Route, RouteService, RouterAdapt};
 #[cfg(feature = "scheduler")]
 pub use crate::scheduler::{SCHEDULER, SchedulerExt, Task};

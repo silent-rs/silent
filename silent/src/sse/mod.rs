@@ -6,7 +6,7 @@
 //!
 //! use std::time::Duration;
 //! use std::convert::Infallible;
-//! use silent::{Method, prelude::Route, prelude::HandlerAppend, Response};
+//! use silent::{Method, prelude::Route, prelude::HandlerAppend, Request, Response};
 //! use futures_util::{stream::iter, Stream};
 //! use silent::prelude::{HandlerGetter, sse_reply, SSEEvent, Result};
 //!
@@ -27,7 +27,7 @@
 //! }
 //!
 //! let route = Route::new("push-notifications")
-//!     .get(|req| async {
+//!     .get(|req: Request| async {
 //!         sse_reply(sse_events())
 //!     });
 //! ```
