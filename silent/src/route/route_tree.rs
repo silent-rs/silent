@@ -182,10 +182,14 @@ impl RouteTree {
         if last_path.is_empty() {
             // 空路径：优先让子结点有机会处理（例如特殊路径）
             for child in &self.children {
-                // 使用临时 Request 检测是否可解析到处理器
-                let (matched, rem) = child.match_current(&mut Request::empty(), "");
-                if matched && child.can_resolve(rem, req.method()) {
-                    return child.call_with_path(req, rem.to_string()).await;
+                // 先用临时请求做预判
+                let (pre_matched, rem) = child.match_current(&mut Request::empty(), "");
+                if pre_matched && child.can_resolve(rem, req.method()) {
+                    // 再用真实请求执行一次匹配以写入路径参数
+                    let mut real_req = req;
+                    let (matched, rem2) = child.match_current(&mut real_req, "");
+                    debug_assert!(matched);
+                    return child.call_with_path(real_req, rem2.to_string()).await;
                 }
             }
             // 子结点均不可处理：若当前结点有处理器则直接调用
@@ -201,10 +205,14 @@ impl RouteTree {
 
         // 仍有剩余路径：在兄弟结点间尝试回溯
         for child in &self.children {
-            // 用临时 Request 进行匹配，不污染真实请求
-            let (matched, rem) = child.match_current(&mut Request::empty(), last_path.as_str());
-            if matched && child.can_resolve(rem, req.method()) {
-                return child.call_with_path(req, rem.to_string()).await;
+            // 先用临时 Request 进行预匹配
+            let (pre_matched, rem) = child.match_current(&mut Request::empty(), last_path.as_str());
+            if pre_matched && child.can_resolve(rem, req.method()) {
+                // 再用真实请求执行一次匹配以写入路径参数
+                let mut real_req = req;
+                let (matched, rem2) = child.match_current(&mut real_req, last_path.as_str());
+                debug_assert!(matched);
+                return child.call_with_path(real_req, rem2.to_string()).await;
             }
         }
 

@@ -86,6 +86,8 @@ impl<'a> TryFrom<&'a PathParam> for i64 {
     fn try_from(value: &'a PathParam) -> Result<Self, Self::Error> {
         match value {
             PathParam::Int64(value) => Ok(*value),
+            PathParam::Int(value) => Ok(i64::from(*value)),
+            PathParam::Int32(value) => Ok(i64::from(*value)),
             _ => Err(SilentError::ParamsNotFound),
         }
     }
