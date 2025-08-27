@@ -99,11 +99,10 @@ fn run_bench(
     };
 
     // 端口占用预检：若端口已被占用，直接报错退出，避免重复启动导致混乱
+    let mut reused_server = false;
     if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-        return Err(io::Error::new(
-            io::ErrorKind::AddrInUse,
-            format!("端口 {} 已被占用，请更换 -p 或停止占用进程", port),
-        ));
+        // 端口已被占用：复用已存在服务，仅运行 bombardier，避免重复启动。
+        reused_server = true;
     }
 
     // Spawn benchmark server: SCENARIO=... PORT=...
@@ -123,17 +122,28 @@ fn run_bench(
         scenario, port
     );
 
-    let mut child = server_cmd.spawn()?;
+    let mut child = if reused_server {
+        None
+    } else {
+        Some(server_cmd.spawn()?)
+    };
 
     // If only run server, wait and return
     if run_only {
-        let status = child.wait()?;
-        println!("[xtask] server exited with status: {}", status);
+        if let Some(mut ch) = child.take() {
+            let status = ch.wait()?;
+            println!("[xtask] server exited with status: {}", status);
+        } else {
+            println!(
+                "[xtask] server already running on port {}, reuse mode",
+                port
+            );
+        }
         return Ok(());
     }
 
     // 等待服务启动（最多 5s 重试），避免固定 sleep 导致冷机未就绪
-    {
+    if !reused_server {
         use std::net::TcpStream;
         let start = std::time::Instant::now();
         loop {
@@ -188,8 +198,10 @@ fn run_bench(
         eprintln!(
             "未找到 bombardier 可执行文件，请先安装：apt-get install bombardier 或参考 https://github.com/codesenberg/bombardier",
         );
-        let _ = child.kill();
-        let _ = child.wait();
+        if let Some(mut ch) = child.take() {
+            let _ = ch.kill();
+            let _ = ch.wait();
+        }
         return Ok(());
     }
 
@@ -269,8 +281,10 @@ fn run_bench(
     }
 
     // Terminate server process
-    let _ = child.kill();
-    let _ = child.wait();
+    if let Some(mut ch) = child.take() {
+        let _ = ch.kill();
+        let _ = ch.wait();
+    }
 
     Ok(())
 }
