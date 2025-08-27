@@ -4,9 +4,6 @@ use async_trait::async_trait;
 
 #[async_trait]
 pub trait MiddleWareHandler: Send + Sync + 'static {
-    async fn match_req(&self, _req: &Request) -> bool {
-        true
-    }
     async fn handle(&self, _req: Request, _next: &Next) -> Result<Response>;
 }
 
@@ -46,7 +43,7 @@ mod tests {
         );
         let res = middlewares.call(req).await;
         assert!(res.is_ok());
-        info!("{:?}", res.unwrap());
+        info!("{:?}", res?);
         Ok(())
     }
 }

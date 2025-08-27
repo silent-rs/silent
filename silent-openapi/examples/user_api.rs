@@ -56,7 +56,7 @@ struct ApiDoc;
     )
 )]
 async fn list_users(req: Request) -> Result<Response> {
-    let store = req.get_config::<UserStore>().unwrap();
+    let store = req.get_config::<UserStore>()?;
     let users: Vec<User> = store.read().await.values().cloned().collect();
     Ok(Response::json(&users))
 }

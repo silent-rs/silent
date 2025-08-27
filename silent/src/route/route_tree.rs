@@ -127,74 +127,22 @@ impl RouteTree {
         }
     }
 
-    // 深度优先：先匹配当前结点，再尝试子结点；子结点不匹配回退到当前结点处理器（若存在）
-    fn dfs_match<'a>(
-        &'a self,
-        req: &mut Request,
-        path: &'a str,
-        stack: &mut Vec<&'a RouteTree>,
-    ) -> bool {
-        let (matched, last_path) = self.match_current(req, path);
-        if !matched {
-            return false;
-        }
-
-        // 选择当前结点
-        stack.push(self);
-
-        if last_path.is_empty() {
-            // URL 已完全匹配：仍尝试所有子结点，让特殊路径（如 <path:**>）有机会匹配空余路径
-            for child in &self.children {
-                if child.dfs_match(req, last_path, stack) {
-                    return true;
-                }
-            }
-            // 无子结点匹配：仅当当前结点存在处理器时才认为匹配成功
-            if self.has_handler {
-                return true;
-            } else {
-                stack.pop();
-                return false;
-            }
-        }
-
-        // 继续匹配子路由
-        for child in &self.children {
-            if child.dfs_match(req, last_path, stack) {
-                return true;
-            }
-        }
-
-        // 子路由未匹配
-        // 当仍有剩余路径时，只有在 **（FullPath）节点上才允许回退到当前处理器
-        if !last_path.is_empty() {
-            let is_full_path = if self.special_match {
-                matches!(self.path.as_str().into(), SpecialPath::FullPath(_))
-            } else {
-                false
-            };
-            if is_full_path && self.has_handler {
-                return true;
-            }
-            // 回溯：移除当前结点
-            stack.pop();
-            return false;
-        }
-
-        // 没有剩余路径：若有处理器则匹配成功，否则失败
-        if self.has_handler {
-            return true;
-        }
-        stack.pop();
-        false
-    }
+    // 旧的 DFS 收集中间件逻辑已移除
 }
 
 #[async_trait]
 impl Handler for RouteTree {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
-        let (req, last_path) = req.split_url();
-        self.call_with_path(req, last_path).await
+        let (mut req, last_path) = req.split_url();
+        // 入口处匹配当前结点一次
+        let (matched, remain) = self.match_current(&mut req, last_path.as_str());
+        if !matched {
+            return Err(SilentError::business_error(
+                StatusCode::NOT_FOUND,
+                "not found".to_string(),
+            ));
+        }
+        self.call_with_path(req, remain.to_string()).await
     }
 }
 
@@ -212,55 +160,143 @@ impl RouteTree {
         mut req: Request,
         last_path: String,
     ) -> crate::error::SilentResult<Response> {
+        // 当前结点已被匹配，合并配置
         if let Some(configs) = self.get_configs().cloned() {
             req.configs_mut().insert(configs);
         }
 
-        // 执行 DFS 匹配，收集从根到目标结点的路径
-        let mut stack: Vec<&RouteTree> = Vec::new();
-        if !self.dfs_match(&mut req, last_path.as_str(), &mut stack) {
-            return Err(SilentError::business_error(
-                StatusCode::NOT_FOUND,
-                "not found".to_string(),
-            ));
-        }
+        // 构建“继续向下匹配”的端点处理器，并按注册顺序包裹当前结点的中间件，形成真正的洋葱模型
+        let endpoint: Arc<dyn Handler> =
+            Arc::new(ContinuationHandler::new(Arc::new(self.clone()), last_path));
+        let middlewares: Vec<Arc<dyn MiddleWareHandler>> = self.middlewares.clone();
+        let next = Next::build(endpoint, middlewares);
+        next.call(req).await
+    }
 
-        // 终点为路径上的最后一个结点
-        let target = match stack.last() {
-            Some(n) => *n,
-            None => {
-                return Err(SilentError::business_error(
-                    StatusCode::NOT_FOUND,
-                    "not found".to_string(),
-                ));
-            }
-        };
-
-        // 优化：预分配容量并保持原有的正确执行顺序逻辑
-        let total_middlewares = stack.iter().map(|node| node.middlewares.len()).sum();
-        let mut active_middlewares: Vec<Arc<dyn MiddleWareHandler>> =
-            Vec::with_capacity(total_middlewares);
-
-        // 按层级顺序收集中间件（保持原有逻辑）
-        for node in &stack {
-            for mw in node.middlewares.iter().cloned() {
-                if mw.match_req(&req).await {
-                    active_middlewares.push(mw);
+    // 仅在当前结点已匹配后调用：尝试子路由，必要时回退到当前处理器
+    async fn call_children(
+        &self,
+        req: Request,
+        last_path: String,
+    ) -> crate::error::SilentResult<Response> {
+        if last_path.is_empty() {
+            // 空路径：优先让子结点有机会处理（例如特殊路径）
+            for child in &self.children {
+                // 先用临时请求做预判
+                let (pre_matched, rem) = child.match_current(&mut Request::empty(), "");
+                if pre_matched && child.can_resolve(rem, req.method()) {
+                    // 再用真实请求执行一次匹配以写入路径参数
+                    let mut real_req = req;
+                    let (matched, rem2) = child.match_current(&mut real_req, "");
+                    debug_assert!(matched);
+                    return child.call_with_path(real_req, rem2.to_string()).await;
                 }
             }
+            // 子结点均不可处理：若当前结点有处理器则直接调用
+            return if self.has_handler && self.method_allowed(req.method()) {
+                self.handler.call(req).await
+            } else {
+                Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ))
+            };
         }
 
-        // 修正执行顺序：期望进入顺序为 ROOT -> API -> V1 -> USERS
-        if active_middlewares.len() >= 2 {
-            let last = active_middlewares.pop().unwrap();
-            active_middlewares.reverse();
-            active_middlewares.push(last);
+        // 仍有剩余路径：在兄弟结点间尝试回溯
+        for child in &self.children {
+            // 先用临时 Request 进行预匹配
+            let (pre_matched, rem) = child.match_current(&mut Request::empty(), last_path.as_str());
+            if pre_matched && child.can_resolve(rem, req.method()) {
+                // 再用真实请求执行一次匹配以写入路径参数
+                let mut real_req = req;
+                let (matched, rem2) = child.match_current(&mut real_req, last_path.as_str());
+                debug_assert!(matched);
+                return child.call_with_path(real_req, rem2.to_string()).await;
+            }
         }
 
-        // 构建 Next 链并调用
-        let endpoint = Arc::new(target.handler.clone());
-        let next = Next::build(endpoint, active_middlewares);
-        next.call(req).await
+        // 子路由未匹配：仅当当前为 **（FullPath）并且存在处理器且方法允许时可回退到当前处理器
+        let is_full_path = if self.special_match {
+            matches!(self.path.as_str().into(), SpecialPath::FullPath(_))
+        } else {
+            false
+        };
+        if is_full_path && self.has_handler && self.method_allowed(req.method()) {
+            let handler_map = Arc::new(self.handler.clone());
+            return handler_map.call(req).await;
+        }
+
+        Err(SilentError::business_error(
+            StatusCode::NOT_FOUND,
+            "not found".to_string(),
+        ))
+    }
+
+    // 判断当前结点是否存在可处理给定 HTTP 方法的处理器（含 HEAD -> GET 回退）
+    fn method_allowed(&self, method: &Method) -> bool {
+        if self.handler.contains_key(method) {
+            return true;
+        }
+        *method == Method::HEAD && self.handler.contains_key(&Method::GET)
+    }
+
+    // 仅使用路径与方法做静态解析，判断是否能够在该子树中解析到可用处理器
+    fn can_resolve(&self, last_path: &str, method: &Method) -> bool {
+        // 优先尝试子结点
+        if !last_path.is_empty() {
+            for child in &self.children {
+                let (matched, rem) = child.match_current(&mut Request::empty(), last_path);
+                if matched && child.can_resolve(rem, method) {
+                    return true;
+                }
+            }
+        } else {
+            // 空路径：子结点也许仍可处理（如特殊路径）
+            for child in &self.children {
+                let (matched, rem) = child.match_current(&mut Request::empty(), last_path);
+                if matched && child.can_resolve(rem, method) {
+                    return true;
+                }
+            }
+            // 子结点不行则看当前结点
+            if self.has_handler && self.method_allowed(method) {
+                return true;
+            }
+        }
+
+        // 子路由未匹配：仅当 ** 可回退
+        if !last_path.is_empty() {
+            let is_full_path = if self.special_match {
+                matches!(self.path.as_str().into(), SpecialPath::FullPath(_))
+            } else {
+                false
+            };
+            if is_full_path && self.has_handler && self.method_allowed(method) {
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+// 继续匹配的端点处理器：在某结点的中间件执行完毕后，进入此处理器继续对子路由/当前处理器进行匹配与调用
+struct ContinuationHandler {
+    node: Arc<RouteTree>,
+    last_path: String,
+}
+
+impl ContinuationHandler {
+    fn new(node: Arc<RouteTree>, last_path: String) -> Self {
+        Self { node, last_path }
+    }
+}
+
+#[async_trait]
+impl Handler for ContinuationHandler {
+    async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
+        self.node.call_children(req, self.last_path.clone()).await
     }
 }
 
@@ -482,7 +518,7 @@ mod tests {
         let mut req = Request::empty();
         req.set_remote("127.0.0.1:8080".parse().unwrap());
         *req.uri_mut() = "/oauth2/applications".parse().unwrap();
-        *req.method_mut() = http::Method::GET;
+        *req.method_mut() = Method::GET;
 
         let mut res = routes.call(req).await.expect("should route ok");
         let body = res
