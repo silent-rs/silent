@@ -62,8 +62,13 @@ impl RouteTree {
         } else {
             match self.path.as_str().into() {
                 SpecialPath::String(key) => {
-                    req.set_path_params(key, local_path.to_string().into());
-                    (true, last_path)
+                    // 必须存在实际的路径段，空字符串不匹配
+                    if local_path.is_empty() {
+                        (false, "")
+                    } else {
+                        req.set_path_params(key, local_path.to_string().into());
+                        (true, last_path)
+                    }
                 }
                 SpecialPath::Int(key) => match local_path.parse::<i32>() {
                     Ok(v) => {
@@ -414,5 +419,81 @@ mod tests {
         let _ = routes.call(req).await.unwrap();
         assert_eq!(c1.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(c2.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn oauth2_applications_get_should_not_405() {
+        async fn ok(_: Request) -> Result<String, SilentError> {
+            Ok("ok".into())
+        }
+        async fn created(_: Request) -> Result<String, SilentError> {
+            Ok("created".into())
+        }
+        async fn get_detail(_: Request) -> Result<String, SilentError> {
+            Ok("detail".into())
+        }
+        async fn updated(_: Request) -> Result<String, SilentError> {
+            Ok("updated".into())
+        }
+        async fn deleted(_: Request) -> Result<String, SilentError> {
+            Ok("deleted".into())
+        }
+        async fn patched(_: Request) -> Result<String, SilentError> {
+            Ok("patched".into())
+        }
+
+        // 构造与用户描述一致的路由
+        let route = Route::new("").append(
+            Route::new("oauth2")
+                // OAuth2应用管理路由
+                .append(
+                    Route::new("applications")
+                        .get(ok) // 获取应用列表
+                        .post(created) // 创建应用
+                        .append(
+                            Route::new("<id:str>")
+                                .get(get_detail)
+                                .put(updated)
+                                .delete(deleted)
+                                .append(Route::new("status").patch(patched))
+                                .append(Route::new("regenerate-secret").post(created))
+                                .append(Route::new("access-config").put(updated)),
+                        ),
+                )
+                // OAuth2应用信息获取路由（用于授权页面）
+                .append(Route::new("application/info/<app_key:str>").get(ok))
+                // OAuth2授权流程路由
+                .append(Route::new("application/user-authorize").post(created))
+                .append(Route::new("application/user-authorize/code").post(created))
+                // 审计日志管理路由
+                .append(
+                    Route::new("audit-logs")
+                        .get(ok)
+                        .append(Route::new("stats").get(ok))
+                        .append(Route::new("export").post(created)),
+                )
+                // 用户管理路由
+                .append(Route::new("my-applications").get(ok)),
+        );
+
+        let routes = route.convert_to_route_tree();
+
+        // 发起 GET /oauth2/applications，应命中列表GET而不是405
+        let mut req = Request::empty();
+        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        *req.uri_mut() = "/oauth2/applications".parse().unwrap();
+        *req.method_mut() = http::Method::GET;
+
+        let mut res = routes.call(req).await.expect("should route ok");
+        let body = res
+            .body
+            .frame()
+            .await
+            .unwrap()
+            .unwrap()
+            .data_ref()
+            .unwrap()
+            .clone();
+        assert_eq!(body, Bytes::from("ok"));
     }
 }
