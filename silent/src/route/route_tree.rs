@@ -166,7 +166,7 @@ impl RouteTree {
         }
 
         // 构建“继续向下匹配”的端点处理器，并按注册顺序包裹当前结点的中间件，形成真正的洋葱模型
-        let endpoint: Arc<dyn crate::handler::Handler> =
+        let endpoint: Arc<dyn Handler> =
             Arc::new(ContinuationHandler::new(Arc::new(self.clone()), last_path));
         let middlewares: Vec<Arc<dyn MiddleWareHandler>> = self.middlewares.clone();
         let next = Next::build(endpoint, middlewares);
@@ -193,14 +193,14 @@ impl RouteTree {
                 }
             }
             // 子结点均不可处理：若当前结点有处理器则直接调用
-            if self.has_handler && self.method_allowed(req.method()) {
-                let handler_map = Arc::new(self.handler.clone());
-                return handler_map.call(req).await;
-            }
-            return Err(SilentError::business_error(
-                StatusCode::NOT_FOUND,
-                "not found".to_string(),
-            ));
+            return if self.has_handler && self.method_allowed(req.method()) {
+                self.handler.call(req).await
+            } else {
+                Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ))
+            };
         }
 
         // 仍有剩余路径：在兄弟结点间尝试回溯
@@ -238,7 +238,7 @@ impl RouteTree {
         if self.handler.contains_key(method) {
             return true;
         }
-        *method == http::Method::HEAD && self.handler.contains_key(&http::Method::GET)
+        *method == Method::HEAD && self.handler.contains_key(&Method::GET)
     }
 
     // 仅使用路径与方法做静态解析，判断是否能够在该子树中解析到可用处理器
@@ -294,7 +294,7 @@ impl ContinuationHandler {
 }
 
 #[async_trait]
-impl crate::handler::Handler for ContinuationHandler {
+impl Handler for ContinuationHandler {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
         self.node.call_children(req, self.last_path.clone()).await
     }
@@ -518,7 +518,7 @@ mod tests {
         let mut req = Request::empty();
         req.set_remote("127.0.0.1:8080".parse().unwrap());
         *req.uri_mut() = "/oauth2/applications".parse().unwrap();
-        *req.method_mut() = http::Method::GET;
+        *req.method_mut() = Method::GET;
 
         let mut res = routes.call(req).await.expect("should route ok");
         let body = res

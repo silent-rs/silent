@@ -98,13 +98,6 @@ fn run_bench(
         Scenario::C => "C",
     };
 
-    // 端口占用预检：若端口已被占用，直接报错退出，避免重复启动导致混乱
-    let mut reused_server = false;
-    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-        // 端口已被占用：复用已存在服务，仅运行 bombardier，避免重复启动。
-        reused_server = true;
-    }
-
     // Spawn benchmark server: SCENARIO=... PORT=...
     let mut server_cmd = Command::new(env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     server_cmd
@@ -122,41 +115,17 @@ fn run_bench(
         scenario, port
     );
 
-    let mut child = if reused_server {
-        None
-    } else {
-        Some(server_cmd.spawn()?)
-    };
+    let mut child = server_cmd.spawn()?;
 
     // If only run server, wait and return
     if run_only {
-        if let Some(mut ch) = child.take() {
-            let status = ch.wait()?;
-            println!("[xtask] server exited with status: {}", status);
-        } else {
-            println!(
-                "[xtask] server already running on port {}, reuse mode",
-                port
-            );
-        }
+        let status = child.wait()?;
+        println!("[xtask] server exited with status: {}", status);
         return Ok(());
     }
 
-    // 等待服务启动（最多 5s 重试），避免固定 sleep 导致冷机未就绪
-    if !reused_server {
-        use std::net::TcpStream;
-        let start = std::time::Instant::now();
-        loop {
-            if TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                break;
-            }
-            if start.elapsed() > std::time::Duration::from_secs(5) {
-                eprintln!("[xtask] 等待服务在 127.0.0.1:{} 启动超时（>5s）", port);
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-    }
+    // Give the server a moment to boot
+    std::thread::sleep(std::time::Duration::from_millis(500));
 
     // Prepare bombardier target URL
     let target = match scenario {
@@ -193,16 +162,14 @@ fn run_bench(
         }
     }
 
-    // Preflight: ensure bombardier is available（若缺失，优雅退出并停止服务）
+    // Preflight: ensure bombardier is available
     if which::which("bombardier").is_err() {
-        eprintln!(
-            "未找到 bombardier 可执行文件，请先安装：apt-get install bombardier 或参考 https://github.com/codesenberg/bombardier",
-        );
-        if let Some(mut ch) = child.take() {
-            let _ = ch.kill();
-            let _ = ch.wait();
-        }
-        return Ok(());
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "未找到 bombardier 可执行文件，请先安装：brew install bombardier 或参考 https://github.com/codesenberg/bombardier",
+        ));
     }
 
     // Run bombardier
@@ -241,26 +208,23 @@ fn run_bench(
     // 执行 bombardier
     if format.is_some() {
         let output = bombardier.output()?;
-        let mut body = String::from_utf8_lossy(&output.stdout).to_string();
-
-        // 某些环境下 stdout 可能包含非 JSON 前缀/空行，尝试定位第一个 '{' 开始
-        if matches!(format, Some(OutputFormat::Json)) {
-            if let Some(pos) = body.find('{') {
-                body = body.split_off(pos);
-            }
-        }
+        let body = String::from_utf8_lossy(&output.stdout).to_string();
 
         let content = if matches!(format, Some(OutputFormat::Json)) && prune {
             match prune_bombardier_json(&body, &scenario, port, concurrency, duration) {
                 Ok(pruned) => pruned,
                 Err(e) => {
                     eprintln!("[xtask] prune failed: {}. Fallback to raw.", e);
-                    body.trim().to_string()
+                    body
                 }
             }
         } else {
-            body.trim().to_string()
-        };
+            body
+        }
+        .split("\n")
+        .last()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
 
         if let Some(ref path) = out_file {
             if let Some(parent) = path.parent() {
@@ -281,10 +245,8 @@ fn run_bench(
     }
 
     // Terminate server process
-    if let Some(mut ch) = child.take() {
-        let _ = ch.kill();
-        let _ = ch.wait();
-    }
+    let _ = child.kill();
+    let _ = child.wait();
 
     Ok(())
 }

@@ -43,7 +43,7 @@ mod tests {
         );
         let res = middlewares.call(req).await;
         assert!(res.is_ok());
-        info!("{:?}", res.unwrap());
+        info!("{:?}", res?);
         Ok(())
     }
 }

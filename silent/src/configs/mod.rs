@@ -48,7 +48,7 @@ impl Configs {
 
     /// Insert a type into this `Configs`.
     ///
-    /// If a extension of this type already existed, it will
+    /// If an extension of this type already existed, it will
     /// be returned.
     ///
     /// # Example
@@ -88,7 +88,7 @@ impl Configs {
 
     /// Remove a type from this `Configs`.
     ///
-    /// If a extension of this type existed, it will be returned.
+    /// If aa extension of this type existed, it will be returned.
     ///
     /// # Example
     ///
