@@ -218,11 +218,10 @@ impl Handler for Route {
             req.configs_mut()
                 .insert(self.get_configs().unwrap().clone());
         }
-        let (req, last_path) = req.split_url();
         // Route 结构已不再在服务路径上使用，保持向后兼容：
-        // 直接把自身转换为 RouteTree 并调用，避免重复维护两套匹配逻辑
+        // 直接把自身转换为 RouteTree，并让 RouteTree 自行完成首段匹配与后续执行
         let tree = self.clone().convert_to_route_tree();
-        tree.call_with_path(req, last_path).await
+        tree.call(req).await
     }
 }
 

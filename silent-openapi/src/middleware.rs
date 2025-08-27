@@ -4,7 +4,7 @@
 
 use crate::{OpenApiError, Result, SwaggerUiOptions};
 use async_trait::async_trait;
-use silent::{MiddleWareHandler, Next, Request, Response, StatusCode};
+use silent::{Handler, MiddleWareHandler, Next, Request, Response, StatusCode};
 use utoipa::openapi::OpenApi;
 
 /// Swagger UI 中间件
@@ -271,26 +271,23 @@ impl SwaggerUiMiddleware {
 
 #[async_trait]
 impl MiddleWareHandler for SwaggerUiMiddleware {
-    /// 检查请求是否匹配Swagger UI路径
-    async fn match_req(&self, req: &Request) -> bool {
+    /// 处理请求：命中 Swagger 相关路径则拦截返回，否则交由下一个处理器
+    async fn handle(&self, req: Request, next: &Next) -> silent::Result<Response> {
         let path = req.uri().path();
-        self.matches_swagger_path(path)
-    }
-
-    /// 处理匹配的请求
-    async fn handle(&self, req: Request, _next: &Next) -> silent::Result<Response> {
-        let path = req.uri().path();
-
-        match self.handle_swagger_request(path).await {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                eprintln!("Swagger UI中间件处理错误: {}", e);
-                // 返回适当的错误响应
-                let mut response = Response::empty();
-                response.set_status(StatusCode::INTERNAL_SERVER_ERROR);
-                response.set_body(format!("Swagger UI Error: {}", e).into());
-                Ok(response)
+        if self.matches_swagger_path(path) {
+            match self.handle_swagger_request(path).await {
+                Ok(response) => Ok(response),
+                Err(e) => {
+                    eprintln!("Swagger UI中间件处理错误: {}", e);
+                    // 返回适当的错误响应
+                    let mut response = Response::empty();
+                    response.set_status(StatusCode::INTERNAL_SERVER_ERROR);
+                    response.set_body(format!("Swagger UI Error: {}", e).into());
+                    Ok(response)
+                }
             }
+        } else {
+            next.call(req).await
         }
     }
 }
@@ -418,9 +415,7 @@ mod tests {
     #[tokio::test]
     async fn test_non_match_request_path() {
         let mw = SwaggerUiMiddleware::new("/docs", TestApiDoc::openapi()).unwrap();
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/other");
-        assert!(!mw.match_req(&req).await);
+        assert!(!mw.matches_swagger_path("/other"));
     }
 
     #[tokio::test]
