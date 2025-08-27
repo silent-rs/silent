@@ -98,6 +98,14 @@ fn run_bench(
         Scenario::C => "C",
     };
 
+    // 端口占用预检：若端口已被占用，直接报错退出，避免重复启动导致混乱
+    if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+        return Err(io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("端口 {} 已被占用，请更换 -p 或停止占用进程", port),
+        ));
+    }
+
     // Spawn benchmark server: SCENARIO=... PORT=...
     let mut server_cmd = Command::new(env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
     server_cmd
@@ -124,8 +132,21 @@ fn run_bench(
         return Ok(());
     }
 
-    // Give the server a moment to boot
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // 等待服务启动（最多 5s 重试），避免固定 sleep 导致冷机未就绪
+    {
+        use std::net::TcpStream;
+        let start = std::time::Instant::now();
+        loop {
+            if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                break;
+            }
+            if start.elapsed() > std::time::Duration::from_secs(5) {
+                eprintln!("[xtask] 等待服务在 127.0.0.1:{} 启动超时（>5s）", port);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
 
     // Prepare bombardier target URL
     let target = match scenario {
@@ -162,14 +183,14 @@ fn run_bench(
         }
     }
 
-    // Preflight: ensure bombardier is available
+    // Preflight: ensure bombardier is available（若缺失，优雅退出并停止服务）
     if which::which("bombardier").is_err() {
+        eprintln!(
+            "未找到 bombardier 可执行文件，请先安装：apt-get install bombardier 或参考 https://github.com/codesenberg/bombardier",
+        );
         let _ = child.kill();
         let _ = child.wait();
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "未找到 bombardier 可执行文件，请先安装：brew install bombardier 或参考 https://github.com/codesenberg/bombardier",
-        ));
+        return Ok(());
     }
 
     // Run bombardier
@@ -208,23 +229,26 @@ fn run_bench(
     // 执行 bombardier
     if format.is_some() {
         let output = bombardier.output()?;
-        let body = String::from_utf8_lossy(&output.stdout).to_string();
+        let mut body = String::from_utf8_lossy(&output.stdout).to_string();
+
+        // 某些环境下 stdout 可能包含非 JSON 前缀/空行，尝试定位第一个 '{' 开始
+        if matches!(format, Some(OutputFormat::Json)) {
+            if let Some(pos) = body.find('{') {
+                body = body.split_off(pos);
+            }
+        }
 
         let content = if matches!(format, Some(OutputFormat::Json)) && prune {
             match prune_bombardier_json(&body, &scenario, port, concurrency, duration) {
                 Ok(pruned) => pruned,
                 Err(e) => {
                     eprintln!("[xtask] prune failed: {}. Fallback to raw.", e);
-                    body
+                    body.trim().to_string()
                 }
             }
         } else {
-            body
-        }
-        .split("\n")
-        .last()
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default();
+            body.trim().to_string()
+        };
 
         if let Some(ref path) = out_file {
             if let Some(parent) = path.parent() {
