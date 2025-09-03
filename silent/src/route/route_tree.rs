@@ -134,6 +134,9 @@ impl RouteTree {
 impl Handler for RouteTree {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
         let (mut req, last_path) = req.split_url();
+        if let Some(configs) = self.get_configs().cloned() {
+            *req.configs_mut() = configs;
+        }
         // 入口处匹配当前结点一次
         let (matched, remain) = self.match_current(&mut req, last_path.as_str());
         if !matched {
