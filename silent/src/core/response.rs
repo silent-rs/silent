@@ -215,6 +215,7 @@ impl<S: Serialize> From<S> for Response {
             Value::String(value) => Response::empty()
                 .with_typed_header(ContentType::json())
                 .with_body(full(value.as_bytes().to_vec())),
+            Value::Null => Response::empty().with_status(StatusCode::NO_CONTENT),
             _ => Self::json(&value),
         }
     }
