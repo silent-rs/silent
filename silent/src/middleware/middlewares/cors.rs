@@ -45,7 +45,7 @@ enum CorsOriginType {
 impl CorsOriginType {
     fn get_value(&self, origin: &str) -> String {
         match self {
-            CorsOriginType::Any => "*".to_string(),
+            CorsOriginType::Any => origin.to_string(),
             CorsOriginType::AllowSome(value) => {
                 if let Some(v) = value.iter().find(|&v| v == origin) {
                     v.to_string()
@@ -209,6 +209,11 @@ impl MiddleWareHandler for Cors {
             .get("origin")
             .map_or("", |v| v.to_str().unwrap_or(""))
             .to_string();
+
+        // 如果没有 origin 一般为同源请求，直接返回
+        if req_origin.is_empty() {
+            return next.call(req).await;
+        }
 
         // 优化：复用预构建的响应头模板
         let mut res = Response::empty();
