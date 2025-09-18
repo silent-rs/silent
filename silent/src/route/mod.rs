@@ -229,7 +229,9 @@ impl Handler for Route {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Next, Request, Response};
+    use std::sync::Mutex;
+
+    use crate::{Next, Request, Response, SilentError};
 
     use super::*;
 
@@ -260,5 +262,153 @@ mod tests {
             .append(Route::new("test"));
         assert_eq!(route.children.len(), 1);
         assert_eq!(route.children[0].children.len(), 1);
+    }
+
+    /// 测试Route的洋葱模型
+    #[tokio::test]
+    async fn test_route_onion_model() {
+        // 日志容器用于记录执行顺序
+        let log: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+        // 定义一个可选短路的中间件：
+        // - 正常情况：记录 pre -> 调 next -> 记录 post
+        // - 当遇到 OPTIONS 时：直接短路返回 200，并记录 pre(short) -> return(short)
+        #[derive(Clone)]
+        struct LoggingMw {
+            name: &'static str,
+            log: Arc<Mutex<Vec<String>>>,
+            short_on_options: bool,
+        }
+
+        #[async_trait::async_trait]
+        impl MiddleWareHandler for LoggingMw {
+            async fn handle(
+                &self,
+                req: Request,
+                next: &Next,
+            ) -> crate::error::SilentResult<Response> {
+                {
+                    let mut v = self.log.lock().unwrap();
+                    v.push(format!("{}:pre", self.name));
+                }
+                if self.short_on_options && *req.method() == Method::OPTIONS {
+                    let mut v = self.log.lock().unwrap();
+                    v.push(format!("{}:short", self.name));
+                    let mut res = Response::empty();
+                    res.headers_mut()
+                        .insert("X-Short-Circuit", "true".parse().unwrap());
+                    return Ok(res);
+                }
+                let res = next.call(req).await;
+                {
+                    let mut v = self.log.lock().unwrap();
+                    v.push(format!("{}:post", self.name));
+                }
+                res
+            }
+        }
+
+        // 终端处理器：记录 handler 执行
+        let log1 = log.clone();
+        async fn ok(_: Request) -> Result<String, SilentError> {
+            Ok("ok".into())
+        }
+        let handler = move |req: Request| {
+            let l = log1.clone();
+            async move {
+                {
+                    let mut v = l.lock().unwrap();
+                    v.push("handler".to_string());
+                }
+                ok(req).await
+            }
+        };
+
+        // 构建多层路由："" -> "api" -> "v1" -> handler
+        let route = Route::new("")
+            .hook(LoggingMw {
+                name: "root",
+                log: log.clone(),
+                short_on_options: false,
+            })
+            .append(
+                Route::new("api")
+                    .hook(LoggingMw {
+                        name: "api",
+                        log: log.clone(),
+                        short_on_options: false,
+                    })
+                    .append(
+                        Route::new("v1")
+                            .hook(LoggingMw {
+                                name: "v1",
+                                log: log.clone(),
+                                short_on_options: true,
+                            })
+                            .get(handler),
+                    ),
+            );
+
+        let routes = route.convert_to_route_tree();
+
+        // 1) 普通 GET 请求：应完整命中 handler，执行顺序：
+        // root:pre -> api:pre -> v1:pre -> handler -> v1:post -> api:post -> root:post
+        {
+            let mut req = Request::empty();
+            *req.uri_mut() = "/api/v1".parse().unwrap();
+            *req.method_mut() = Method::GET;
+            let _ = routes.call(req).await.expect("GET should pass");
+
+            let entries = log.lock().unwrap().clone();
+            assert_eq!(
+                entries,
+                vec![
+                    "root:pre",
+                    "api:pre",
+                    "v1:pre",
+                    "handler",
+                    "v1:post",
+                    "api:post",
+                    "root:post",
+                ]
+            );
+        }
+
+        // 2) 预检 OPTIONS 请求：在 v1 处短路，不应触达 handler。
+        // 执行顺序：root:pre -> api:pre -> v1:pre -> v1:short -> api:post -> root:post
+        {
+            // 清空日志
+            log.lock().unwrap().clear();
+
+            let mut req = Request::empty();
+            *req.uri_mut() = "/api/v1".parse().unwrap();
+            *req.method_mut() = Method::OPTIONS;
+            let res = routes
+                .call(req)
+                .await
+                .expect("OPTIONS should short-circuit");
+            assert_eq!(res.status, http::StatusCode::OK);
+            assert_eq!(
+                res.headers()
+                    .get("X-Short-Circuit")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "true"
+            );
+
+            let entries = log.lock().unwrap().clone();
+            assert_eq!(
+                entries,
+                vec![
+                    "root:pre",
+                    "api:pre",
+                    "v1:pre",
+                    "v1:short",
+                    "api:post",
+                    "root:post",
+                ]
+            );
+        }
     }
 }

@@ -257,3 +257,30 @@ impl MiddleWareHandler for Cors {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::Route;
+
+    #[tokio::test]
+    async fn test_cors() {
+        let route = Route::new("/")
+            .hook(Cors::new().origin(CorsType::Any))
+            .get(|_req: Request| async { Ok("hello world") });
+        let route = Route::new_root().append(route);
+        let mut req = Request::empty();
+        *req.method_mut() = Method::OPTIONS;
+        *req.uri_mut() = "http://localhost:8080/".parse().unwrap();
+        req.headers_mut()
+            .insert("origin", "http://localhost:8080".parse().unwrap());
+        req.headers_mut()
+            .insert("access-control-request-method", "GET".parse().unwrap());
+        req.headers_mut().insert(
+            "access-control-request-headers",
+            "content-type".parse().unwrap(),
+        );
+        let res = route.call(req).await.unwrap();
+        assert_eq!(res.status, http::StatusCode::OK);
+    }
+}
