@@ -7,7 +7,6 @@ use tokio::net::TcpStream;
 #[cfg(not(target_os = "windows"))]
 use tokio::net::UnixStream;
 
-#[allow(dead_code)]
 pub(crate) enum Stream {
     TcpStream(TcpStream),
     #[cfg(not(target_os = "windows"))]

@@ -79,9 +79,8 @@ impl Listen for TokioTcpListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
-            let futs_stream = TokioAsFutures(stream);
             Ok((
-                Box::new(futs_stream) as Box<dyn Connection + Send>,
+                Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
                 SocketAddr::Tcp(addr),
             ))
         };
@@ -102,9 +101,8 @@ impl Listen for TokioUnixListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
-            let futs_stream = TokioAsFutures(stream);
             Ok((
-                Box::new(futs_stream) as Box<dyn Connection + Send>,
+                Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
                 SocketAddr::Unix(addr.into()),
             ))
         };
