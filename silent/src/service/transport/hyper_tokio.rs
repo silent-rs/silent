@@ -8,6 +8,7 @@ use hyper_util::server::conn::auto::Builder;
 use std::error::Error as StdError;
 use std::future::Future;
 use std::pin::Pin;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
 
 pub struct HyperTokioTransport {
     builder: Builder<TokioExecutor>,
@@ -35,8 +36,9 @@ impl HttpTransport for HyperTokioTransport {
         routes: RouteTree,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn StdError + Send + Sync>>> + Send + 'a>>
     {
-        // SAFETY: Hyper requires TokioIo; our Connection currently uses tokio::io traits.
-        let io = TokioIo::new(stream);
+        // Adapt futures-io Connection back to tokio-io for Hyper
+        let io_tokio = stream.compat();
+        let io = TokioIo::new(io_tokio);
         let fut = self
             .builder
             .serve_connection_with_upgrades(io, HyperServiceHandler::new(peer_addr, routes));

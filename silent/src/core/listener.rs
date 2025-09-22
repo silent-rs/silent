@@ -1,4 +1,5 @@
 use super::socket_addr::SocketAddr;
+#[allow(unused_imports)]
 use super::stream::Stream;
 use crate::core::connection::Connection;
 use futures_util::StreamExt;
@@ -9,6 +10,7 @@ use std::path::Path;
 use std::pin::Pin;
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub type AcceptFuture<'a> = Pin<
     Box<dyn Future<Output = Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> + Send + 'a>,
@@ -78,8 +80,9 @@ impl Listen for TokioTcpListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
+            let futs_stream = stream.compat();
             Ok((
-                Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send + Sync>,
                 SocketAddr::Tcp(addr),
             ))
         };
@@ -100,8 +103,9 @@ impl Listen for TokioUnixListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
+            let futs_stream = stream.compat();
             Ok((
-                Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send + Sync>,
                 SocketAddr::Unix(addr.into()),
             ))
         };
@@ -132,11 +136,16 @@ pub struct TlsListener {
 #[cfg(feature = "tls")]
 impl Listen for TlsListener {
     fn accept(&self) -> AcceptFuture<'_> {
+        use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
         let accept_future = async move {
             let (stream, addr) = self.listener.accept().await?;
-            let tls_stream = self.acceptor.accept(stream).await?;
+            // futures-io -> tokio-io for TLS accept
+            let tokio_in = stream.compat();
+            let tls_tokio = self.acceptor.accept(tokio_in).await?;
+            // tokio-io -> futures-io for returning Connection
+            let tls_futs = tls_tokio.compat();
             Ok((
-                Box::new(tls_stream) as Box<dyn Connection + Send + Sync>,
+                Box::new(tls_futs) as Box<dyn Connection + Send + Sync>,
                 addr,
             ))
         };

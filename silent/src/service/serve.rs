@@ -1,3 +1,4 @@
+#[allow(unused_imports)]
 use crate::core::connection::Connection;
 use crate::core::socket_addr::SocketAddr;
 use crate::route::RouteTree;
@@ -20,11 +21,14 @@ impl Serve {
             builder: Builder::new(TokioExecutor::new()),
         }
     }
-    pub(crate) async fn call<S: Connection + Send + Sync + 'static>(
+    pub(crate) async fn call<S>(
         &self,
         stream: S,
         peer_addr: SocketAddr,
-    ) -> Result<(), Box<dyn StdError + Send + Sync>> {
+    ) -> Result<(), Box<dyn StdError + Send + Sync>>
+    where
+        S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + Sync + 'static,
+    {
         let io = TokioIo::new(stream);
         self.builder
             .serve_connection_with_upgrades(
