@@ -2,7 +2,7 @@ use crate::log::debug;
 use crate::runtime::RwLock;
 use crate::runtime::mpsc::{UnboundedSender, unbounded_channel};
 use crate::ws::message::Message;
-use crate::ws::upgrade::{Upgraded, WebSocketParts};
+use crate::ws::upgrade::{Upgraded, UpgradedIo, WebSocketParts};
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
@@ -10,8 +10,11 @@ use async_trait::async_trait;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
-use hyper::upgrade::Upgraded as HyperUpgraded;
 use hyper_util::rt::TokioIo;
+use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+trait TokioIoRW: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T> TokioIoRW for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,7 +24,7 @@ use tokio_tungstenite::tungstenite::protocol;
 
 pub struct WebSocket {
     parts: Arc<RwLock<WebSocketParts>>,
-    upgrade: WebSocketStream<TokioIo<HyperUpgraded>>,
+    upgrade: WebSocketStream<Box<dyn TokioIoRW>>,
 }
 
 unsafe impl Sync for WebSocket {}
@@ -33,11 +36,14 @@ impl WebSocket {
         role: protocol::Role,
         config: Option<protocol::WebSocketConfig>,
     ) -> Self {
-        let (parts, upgraded) = upgraded.into_parts();
-        let upgraded = TokioIo::new(upgraded);
+        let (parts, upgraded_io) = upgraded.into_parts();
+        let io: Box<dyn TokioIoRW> = match upgraded_io {
+            UpgradedIo::Hyper(up) => Box::new(TokioIo::new(up)),
+            UpgradedIo::Futures(futs) => Box::new(futs.compat()),
+        };
         Self {
             parts: Arc::new(RwLock::new(parts)),
-            upgrade: WebSocketStream::from_raw_socket(upgraded, role, config).await,
+            upgrade: WebSocketStream::from_raw_socket(io, role, config).await,
         }
     }
 

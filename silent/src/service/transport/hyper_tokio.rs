@@ -1,7 +1,7 @@
 use super::HttpTransport;
 use crate::core::connection::Connection;
 use crate::core::socket_addr::SocketAddr;
-use crate::route::RouteTree;
+use crate::handler::Handler;
 use crate::service::hyper_service::HyperServiceHandler;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
@@ -33,7 +33,7 @@ impl HttpTransport for HyperTokioTransport {
         &'a self,
         stream: Box<dyn Connection + Send + Sync>,
         peer_addr: SocketAddr,
-        routes: RouteTree,
+        routes: std::sync::Arc<dyn Handler>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn StdError + Send + Sync>>> + Send + 'a>>
     {
         // Adapt futures-io Connection back to tokio-io for Hyper

@@ -8,6 +8,7 @@ use crate::core::socket_addr::SocketAddr;
 use crate::core::{adapt::RequestAdapt, adapt::ResponseAdapt, res_body::ResBody};
 use crate::prelude::ReqBody;
 use crate::{Handler, Request, Response};
+//
 
 #[doc(hidden)]
 #[derive(Clone)]
@@ -33,6 +34,8 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
         async move { routes.call(req).await.unwrap_or_else(Into::into) }
     }
 }
+
+// 泛型实现已覆盖 Arc<dyn Handler>（因其实现了 Handler）
 
 impl<B, H: Handler + Clone> HyperService<HyperRequest<B>> for HyperServiceHandler<H>
 where

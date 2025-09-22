@@ -18,7 +18,7 @@ mod scheduler;
 #[cfg(feature = "security")]
 mod security;
 #[cfg(feature = "server")]
-mod service;
+pub mod service;
 #[cfg(feature = "session")]
 mod session;
 #[cfg(feature = "sse")]

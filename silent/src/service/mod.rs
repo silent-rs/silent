@@ -8,7 +8,7 @@ use crate::route::RouteService;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::{SCHEDULER, Scheduler, middleware::SchedulerMiddleware};
 // use crate::service::serve::Serve; // moved into transport backend
-mod transport;
+pub mod transport;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
@@ -41,10 +41,9 @@ impl Server {
         }
     }
 
-    /// 替换传输后端（内部使用）。
+    /// 替换传输后端：允许选择非 tokio 的 AsyncIoTransport
     #[inline]
-    #[allow(dead_code)]
-    pub(crate) fn with_transport<T>(mut self, transport: T) -> Self
+    pub fn with_transport<T>(mut self, transport: T) -> Self
     where
         T: HttpTransport,
     {
@@ -52,10 +51,9 @@ impl Server {
         self
     }
 
-    /// 动态设置传输后端（内部使用）。
+    /// 动态设置传输后端。
     #[inline]
-    #[allow(dead_code)]
-    pub(crate) fn set_transport<T>(&mut self, transport: T) -> &mut Self
+    pub fn set_transport<T>(&mut self, transport: T) -> &mut Self
     where
         T: HttpTransport,
     {
@@ -163,8 +161,9 @@ impl Server {
                             tracing::info!("Accepting from: {}", peer_addr);
                             let routes = root_route.clone().convert_to_route_tree();
                             let transport = transport.clone();
+                            let handler = std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
                             crate::runtime::spawn(async move {
-                                if let Err(err) = transport.serve(stream, peer_addr, routes).await {
+                                if let Err(err) = transport.serve(stream, peer_addr, handler).await {
                                     tracing::error!("Failed to serve connection: {:?}", err);
                                 }
                             });

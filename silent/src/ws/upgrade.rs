@@ -1,10 +1,13 @@
+use crate::core::connection::Connection;
 use crate::header::{HeaderMap, HeaderValue};
 use crate::prelude::PathParam;
 use crate::{Request, Result, SilentError};
+use futures::channel::oneshot;
 use http::Extensions;
 use hyper::upgrade;
 use hyper::upgrade::OnUpgrade;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -47,14 +50,19 @@ impl WebSocketParts {
     }
 }
 
+pub enum UpgradedIo {
+    Hyper(upgrade::Upgraded),
+    Futures(Box<dyn Connection + Send + Sync>),
+}
+
 pub(crate) struct Upgraded {
     head: WebSocketParts,
-    upgrade: upgrade::Upgraded,
+    upgrade: UpgradedIo,
 }
 
 #[allow(dead_code)]
 impl Upgraded {
-    pub(crate) fn into_parts(self) -> (WebSocketParts, upgrade::Upgraded) {
+    pub(crate) fn into_parts(self) -> (WebSocketParts, UpgradedIo) {
         (self.head, self.upgrade)
     }
 
@@ -89,6 +97,23 @@ pub(crate) async fn on(mut req: Request) -> Result<Upgraded> {
     let path_params = req.path_params().clone();
     let params = req.params().clone();
     let mut extensions = req.take_extensions();
+    // 优先使用 AsyncIoTransport 注入的升级通道
+    if let Some(rx) = extensions.remove::<AsyncUpgradeRx>() {
+        let rx = rx
+            .take()
+            .ok_or_else(|| SilentError::WsError("Upgrade channel missing".into()))?;
+        let stream = rx.await.map_err(|e| SilentError::WsError(e.to_string()))?;
+        return Ok(Upgraded {
+            head: WebSocketParts {
+                path_params,
+                params,
+                headers,
+                extensions,
+            },
+            upgrade: UpgradedIo::Futures(stream),
+        });
+    }
+    // 回退到 Hyper 的 OnUpgrade
     let on_upgrade = extensions
         .remove::<OnUpgrade>()
         .ok_or(SilentError::WsError(
@@ -102,6 +127,23 @@ pub(crate) async fn on(mut req: Request) -> Result<Upgraded> {
             headers,
             extensions,
         },
-        upgrade,
+        upgrade: UpgradedIo::Hyper(upgrade),
     })
+}
+
+// AsyncIoTransport 注入的升级接收器类型
+#[derive(Clone)]
+pub struct AsyncUpgradeRx(AsyncUpgradeInner);
+
+#[allow(clippy::type_complexity)]
+#[derive(Clone)]
+struct AsyncUpgradeInner(Arc<Mutex<Option<oneshot::Receiver<Box<dyn Connection + Send + Sync>>>>>);
+
+impl AsyncUpgradeRx {
+    pub fn new(rx: oneshot::Receiver<Box<dyn Connection + Send + Sync>>) -> Self {
+        Self(AsyncUpgradeInner(Arc::new(Mutex::new(Some(rx)))))
+    }
+    pub fn take(&self) -> Option<oneshot::Receiver<Box<dyn Connection + Send + Sync>>> {
+        self.0.0.lock().ok().and_then(|mut g| g.take())
+    }
 }
