@@ -7,17 +7,22 @@ use crate::prelude::Listen;
 use crate::route::RouteService;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::{SCHEDULER, Scheduler, middleware::SchedulerMiddleware};
-use crate::service::serve::Serve;
+// use crate::service::serve::Serve; // moved into transport backend
+mod transport;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
+use std::sync::Arc;
 use tokio::signal;
+use transport::HttpTransport;
+use transport::HyperTokioTransport;
 // 使用运行时中立的 spawn，而不强依赖 tokio JoinSet
 
 pub struct Server {
     listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     configs: Option<Configs>,
+    transport: Arc<dyn HttpTransport>,
 }
 
 impl Default for Server {
@@ -32,7 +37,30 @@ impl Server {
             listeners_builder: ListenersBuilder::new(),
             shutdown_callback: None,
             configs: None,
+            transport: Arc::new(HyperTokioTransport::new()),
         }
+    }
+
+    /// 替换传输后端（内部使用）。
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn with_transport<T>(mut self, transport: T) -> Self
+    where
+        T: HttpTransport,
+    {
+        self.transport = Arc::new(transport);
+        self
+    }
+
+    /// 动态设置传输后端（内部使用）。
+    #[inline]
+    #[allow(dead_code)]
+    pub(crate) fn set_transport<T>(&mut self, transport: T) -> &mut Self
+    where
+        T: HttpTransport,
+    {
+        self.transport = Arc::new(transport);
+        self
     }
 
     #[inline]
@@ -81,6 +109,7 @@ impl Server {
         let Self {
             listeners_builder,
             configs,
+            transport,
             ..
         } = self;
 
@@ -133,8 +162,9 @@ impl Server {
                         Ok((stream, peer_addr)) => {
                             tracing::info!("Accepting from: {}", peer_addr);
                             let routes = root_route.clone().convert_to_route_tree();
+                            let transport = transport.clone();
                             crate::runtime::spawn(async move {
-                                if let Err(err) = Serve::new(routes).call(stream,peer_addr).await {
+                                if let Err(err) = transport.serve(stream, peer_addr, routes).await {
                                     tracing::error!("Failed to serve connection: {:?}", err);
                                 }
                             });

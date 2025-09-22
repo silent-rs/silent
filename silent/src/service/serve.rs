@@ -6,11 +6,13 @@ use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 use std::error::Error as StdError;
 
+#[allow(dead_code)]
 pub(crate) struct Serve<E = TokioExecutor> {
     pub(crate) routes: RouteTree,
     pub(crate) builder: Builder<E>,
 }
 
+#[allow(dead_code)]
 impl Serve {
     pub(crate) fn new(routes: RouteTree) -> Self {
         Self {
