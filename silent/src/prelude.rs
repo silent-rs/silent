@@ -13,7 +13,6 @@ pub use crate::core::{
     res_body::full,
     res_body::stream_body,
     response::Response,
-    stream::Stream,
 };
 pub use crate::error::{SilentError, SilentResult as Result};
 #[cfg(feature = "grpc")]
@@ -26,6 +25,8 @@ pub use crate::log::*;
 pub use crate::middleware::MiddleWareHandler;
 pub use crate::route::handler_append::{HandlerAppend, HandlerGetter, IntoRouteHandler};
 pub use crate::route::{Route, RouteService, RouterAdapt};
+// 运行时中立同步与通道导出，便于使用方与框架类型一致
+pub use crate::runtime::{RwLock, mpsc};
 #[cfg(feature = "scheduler")]
 pub use crate::scheduler::{SCHEDULER, SchedulerExt, Task};
 #[cfg(feature = "security")]

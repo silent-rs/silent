@@ -12,6 +12,7 @@ mod log;
 pub mod middleware;
 pub mod prelude;
 mod route;
+mod runtime;
 #[cfg(feature = "scheduler")]
 mod scheduler;
 #[cfg(feature = "security")]

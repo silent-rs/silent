@@ -23,7 +23,7 @@ impl Timeout {
 #[async_trait]
 impl MiddleWareHandler for Timeout {
     async fn handle(&self, req: Request, next: &Next) -> Result<Response> {
-        match tokio::time::timeout(self.timeout, next.call(req))
+        match crate::runtime::timeout(self.timeout, next.call(req))
             .await
             .map_err(|_| {
                 SilentError::business_error(

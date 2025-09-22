@@ -1,4 +1,3 @@
-use crate::core::socket_addr::SocketAddr;
 use std::io;
 use std::io::Error;
 use std::pin::Pin;
@@ -8,21 +7,13 @@ use tokio::net::TcpStream;
 #[cfg(not(target_os = "windows"))]
 use tokio::net::UnixStream;
 
-pub enum Stream {
+pub(crate) enum Stream {
     TcpStream(TcpStream),
     #[cfg(not(target_os = "windows"))]
     UnixStream(UnixStream),
 }
 
-impl Stream {
-    pub fn peer_addr(&self) -> io::Result<SocketAddr> {
-        match self {
-            Stream::TcpStream(s) => Ok(s.peer_addr()?.into()),
-            #[cfg(not(target_os = "windows"))]
-            Stream::UnixStream(s) => Ok(SocketAddr::Unix(s.peer_addr()?.into())),
-        }
-    }
-}
+// NOTE: 如需 peer_addr，请在上层保存并传递 SocketAddr。
 
 impl AsyncRead for Stream {
     fn poll_read(

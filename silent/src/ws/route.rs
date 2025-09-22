@@ -1,11 +1,11 @@
 use crate::prelude::{HandlerGetter, Message, Result, WebSocketParts};
 use crate::route::Route;
+use crate::runtime::RwLock;
+use crate::runtime::mpsc::UnboundedSender;
 use crate::ws::{HandlerWrapperWebSocket, WebSocketHandler};
 use http::Method;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 pub trait WSHandlerAppend<

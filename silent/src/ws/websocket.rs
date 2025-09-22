@@ -1,4 +1,6 @@
 use crate::log::debug;
+use crate::runtime::RwLock;
+use crate::runtime::mpsc::{UnboundedSender, unbounded_channel};
 use crate::ws::message::Message;
 use crate::ws::upgrade::{Upgraded, WebSocketParts};
 use crate::ws::websocket_handler::WebSocketHandler;
@@ -14,8 +16,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::protocol;
 
@@ -210,7 +210,8 @@ where
         let receiver_parts = parts;
 
         let fut = async move {
-            while let Some(message) = rx.recv().await {
+            use futures_util::StreamExt;
+            while let Some(message) = rx.next().await {
                 let message = if let Some(on_send) = on_send.clone() {
                     on_send(message.clone(), sender_parts.clone())
                         .await
@@ -223,7 +224,7 @@ where
                 ws_tx.send(message).await.unwrap();
             }
         };
-        tokio::task::spawn(fut);
+        crate::runtime::spawn(fut);
         let fut = async move {
             while let Some(message) = ws_rx.next().await {
                 if let Ok(message) = message {
@@ -243,7 +244,7 @@ where
                 on_close(receiver_parts).await;
             }
         };
-        tokio::task::spawn(fut);
+        crate::runtime::spawn(fut);
         Ok(())
     }
 }

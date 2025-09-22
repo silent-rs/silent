@@ -10,8 +10,7 @@ use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use silent::prelude::mpsc;
 
 use silent::prelude::*;
 
@@ -62,9 +61,8 @@ async fn user_connected(_req: Request) -> Result<Response> {
     // Use an unbounded channel to handle buffering and flushing of messages
     // to the event source...
     let (tx, rx) = mpsc::unbounded_channel();
-    let rx = UnboundedReceiverStream::new(rx);
 
-    tx.send(Message::UserId(my_id))
+    tx.unbounded_send(Message::UserId(my_id))
         // rx is right above, so this cannot fail
         .unwrap();
 
@@ -98,7 +96,7 @@ fn user_message(my_id: usize, msg: &str) {
             true
         } else {
             // If not `is_ok`, the SSE stream is gone, and so don't retain
-            tx.send(Message::Reply(new_msg.clone())).is_ok()
+            tx.unbounded_send(Message::Reply(new_msg.clone())).is_ok()
         }
     });
 }

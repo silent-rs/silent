@@ -1,6 +1,7 @@
 use crate::log::error;
 use crate::sse::SSEEvent;
 use crate::{Result, SilentError, StatusCode};
+use async_io::Timer;
 use futures_util::{Stream, TryStream};
 use pin_project::pin_project;
 use std::borrow::Cow;
@@ -9,8 +10,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tokio::time;
-use tokio::time::Sleep;
+use std::time::Instant;
 
 /// Configure the interval between keep-alive messages, the content
 /// of each message, and the associated stream.
@@ -61,7 +61,7 @@ impl KeepAlive {
         S: TryStream<Ok = SSEEvent> + Send + 'static,
         S::Error: StdError + Send + Sync + 'static,
     {
-        let alive_timer = time::sleep(self.max_interval);
+        let alive_timer = Timer::after(self.max_interval);
         SseKeepAlive {
             event_stream,
             comment_text: self.comment_text,
@@ -78,7 +78,7 @@ struct SseKeepAlive<S> {
     comment_text: Cow<'static, str>,
     max_interval: Duration,
     #[pin]
-    alive_timer: Sleep,
+    alive_timer: Timer,
 }
 
 impl<S> Stream for SseKeepAlive<S>
@@ -95,8 +95,8 @@ where
                 Poll::Pending => Poll::Pending,
                 Poll::Ready(_) => {
                     // restart timer
-                    pin.alive_timer
-                        .reset(time::Instant::now() + *pin.max_interval);
+                    let next = Instant::now() + *pin.max_interval;
+                    *pin.alive_timer = Timer::at(next);
                     let comment_str = pin.comment_text.clone();
                     let event = SSEEvent::default().comment(comment_str);
                     Poll::Ready(Some(Ok(event)))
@@ -104,8 +104,8 @@ where
             },
             Poll::Ready(Some(Ok(event))) => {
                 // restart timer
-                pin.alive_timer
-                    .reset(time::Instant::now() + *pin.max_interval);
+                let next = Instant::now() + *pin.max_interval;
+                *pin.alive_timer = Timer::at(next);
                 Poll::Ready(Some(Ok(event)))
             }
             Poll::Ready(None) => Poll::Ready(None),

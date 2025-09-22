@@ -13,11 +13,11 @@ use http::{Extensions, HeaderMap, HeaderValue, Method, Uri, Version};
 use http::{Request as BaseRequest, StatusCode};
 use http_body_util::BodyExt;
 use mime::Mime;
+use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::de::StdError;
 use serde_json::Value;
 use std::collections::HashMap;
-use tokio::sync::OnceCell;
 use url::form_urlencoded;
 
 /// 请求体
@@ -303,9 +303,14 @@ impl Request {
         }
         let body = self.take_body();
         let headers = self.headers();
-        self.form_data
-            .get_or_try_init(|| async { FormData::read(headers, body).await })
-            .await
+        if self.form_data.get().is_none() {
+            let fd = FormData::read(headers, body).await?;
+            let _ = self.form_data.set(fd);
+        }
+        self.form_data.get().ok_or(SilentError::BusinessError {
+            code: StatusCode::INTERNAL_SERVER_ERROR,
+            msg: "form_data init failed".into(),
+        })
     }
 
     /// 解析表单数据（支持 multipart/form-data 和 application/x-www-form-urlencoded）

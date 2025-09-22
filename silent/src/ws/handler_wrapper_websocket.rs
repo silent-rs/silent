@@ -1,3 +1,5 @@
+use crate::runtime::RwLock;
+use crate::runtime::mpsc::UnboundedSender;
 use crate::ws::handler::websocket_handler;
 use crate::ws::websocket::{WebSocket, WebSocketHandlerTrait};
 use crate::ws::websocket_handler::WebSocketHandler;
@@ -6,8 +8,6 @@ use crate::{Handler, Request, Response, Result};
 use async_trait::async_trait;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::UnboundedSender;
 use tokio_tungstenite::tungstenite::protocol;
 use tracing::error;
 
@@ -146,7 +146,7 @@ where
         let res = websocket_handler(&req)?;
         let config = self.config;
         let handler = self.handler.clone();
-        tokio::task::spawn(async move {
+        crate::runtime::spawn(async move {
             match upgrade::on(req).await {
                 Ok(upgrade) => {
                     let ws =

@@ -1,0 +1,10 @@
+[package]
+edition = "2021"
+name = "example-runtime-agnostic-smol-minimal"
+version = "0.1.0"
+license = "Apache-2.0"
+
+[dependencies]
+silent = { path = "../../silent" }
+smol = "2"
+async-compat = "0.2"

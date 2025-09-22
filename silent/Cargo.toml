@@ -47,6 +47,7 @@ http-body-util = "0.1"
 hyper = {version = "1", features = ["full"]}
 hyper-util = {version = "0.1", features = ["server-auto", "tokio"]}
 mime = "0.3"
+futures = "0.3"
 pin-project = {version = "1", optional = true}
 pin-project-lite = {version = "0.2", optional = true}
 serde = {version = "1", features = ["derive"]}
@@ -62,6 +63,10 @@ tracing-subscriber = {version = "0.3", features = ["chrono", "env-filter"]}
 url = "2"
 urlencoding = {version = "2", optional = true}
 uuid = "1.17"
+async-io = "2"
+async-global-executor = "2"
+async-lock = "3"
+once_cell = { version = "1", default-features = true }
 
 # Scheduler
 cron = {version = "0.15", optional = true}

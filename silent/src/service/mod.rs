@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use tokio::signal;
-use tokio::task::JoinSet;
+// 使用运行时中立的 spawn，而不强依赖 tokio JoinSet
 
 pub struct Server {
     listeners_builder: ListenersBuilder,
@@ -102,11 +102,10 @@ impl Server {
         #[cfg(feature = "scheduler")]
         root_route.hook_first(SchedulerMiddleware::new());
         #[cfg(feature = "scheduler")]
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             let scheduler = SCHEDULER.clone();
             Scheduler::schedule(scheduler).await;
         });
-        let mut join_set = JoinSet::new();
         loop {
             #[cfg(unix)]
             let terminate = async {
@@ -134,7 +133,7 @@ impl Server {
                         Ok((stream, peer_addr)) => {
                             tracing::info!("Accepting from: {}", peer_addr);
                             let routes = root_route.clone().convert_to_route_tree();
-                            join_set.spawn(async move {
+                            crate::runtime::spawn(async move {
                                 if let Err(err) = Serve::new(routes).call(stream,peer_addr).await {
                                     tracing::error!("Failed to serve connection: {:?}", err);
                                 }

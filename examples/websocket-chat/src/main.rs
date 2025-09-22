@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use once_cell::sync::Lazy;
-use tokio::sync::{RwLock, mpsc};
+use silent::prelude::{RwLock, mpsc};
 
 use silent::prelude::*;
 
@@ -42,7 +42,7 @@ async fn on_connect(
     info!("new chat user: {}", my_id);
     parts.extensions_mut().insert(my_id);
     sender
-        .send(Message::text(format!("Hello User#{my_id}")))
+        .unbounded_send(Message::text(format!("Hello User#{my_id}")))
         .unwrap();
     ONLINE_USERS.write().await.insert(my_id, sender);
     Ok(())
@@ -68,7 +68,7 @@ async fn on_receive(message: Message, parts: Arc<RwLock<WebSocketParts>>) -> Res
     let message = Message::text(format!("<User#{my_id}>: {msg}"));
     for (uid, tx) in ONLINE_USERS.read().await.iter() {
         if my_id != uid {
-            if let Err(_disconnected) = tx.send(message.clone()) {}
+            if let Err(_disconnected) = tx.unbounded_send(message.clone()) {}
         }
     }
     Ok(())

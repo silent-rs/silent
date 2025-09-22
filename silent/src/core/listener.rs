@@ -19,10 +19,14 @@ pub trait Listen: Send + Sync {
     fn local_addr(&self) -> Result<SocketAddr>;
 }
 
-pub enum Listener {
-    TcpListener(tokio::net::TcpListener),
-    #[cfg(not(target_os = "windows"))]
-    UnixListener(tokio::net::UnixListener),
+pub struct Listener {
+    inner: Box<dyn Listen + Send + Sync>,
+}
+
+impl Listener {
+    fn new(inner: Box<dyn Listen + Send + Sync>) -> Self {
+        Self { inner }
+    }
 }
 
 impl From<std::net::TcpListener> for Listener {
@@ -30,67 +34,82 @@ impl From<std::net::TcpListener> for Listener {
         listener
             .set_nonblocking(true)
             .expect("failed to set nonblocking");
-        Listener::TcpListener(
-            tokio::net::TcpListener::from_std(listener).expect("failed to convert"),
-        )
+        let inner = tokio::net::TcpListener::from_std(listener).expect("failed to convert");
+        Listener::new(Box::new(TokioTcpListener(Arc::new(inner))))
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 impl From<std::os::unix::net::UnixListener> for Listener {
     fn from(value: std::os::unix::net::UnixListener) -> Self {
-        Listener::UnixListener(
-            tokio::net::UnixListener::from_std(value).expect("failed to convert"),
-        )
+        let inner = tokio::net::UnixListener::from_std(value).expect("failed to convert");
+        Listener::new(Box::new(TokioUnixListener(Arc::new(inner))))
     }
 }
 
 impl From<tokio::net::TcpListener> for Listener {
     fn from(listener: tokio::net::TcpListener) -> Self {
-        Listener::TcpListener(listener)
+        Listener::new(Box::new(TokioTcpListener(Arc::new(listener))))
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 impl From<tokio::net::UnixListener> for Listener {
     fn from(value: tokio::net::UnixListener) -> Self {
-        Listener::UnixListener(value)
+        Listener::new(Box::new(TokioUnixListener(Arc::new(value))))
     }
 }
 
 impl Listen for Listener {
     fn accept(&self) -> AcceptFuture<'_> {
-        match self {
-            Listener::TcpListener(listener) => {
-                let accept_future = async move {
-                    let (stream, addr) = listener.accept().await?;
-                    Ok((
-                        Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
-                        SocketAddr::Tcp(addr),
-                    ))
-                };
-                Box::pin(accept_future)
-            }
-            #[cfg(not(target_os = "windows"))]
-            Listener::UnixListener(listener) => {
-                let accept_future = async move {
-                    let (stream, addr) = listener.accept().await?;
-                    Ok((
-                        Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
-                        SocketAddr::Unix(addr.into()),
-                    ))
-                };
-                Box::pin(accept_future)
-            }
-        }
+        self.inner.accept()
     }
 
     fn local_addr(&self) -> Result<SocketAddr> {
-        match self {
-            Listener::TcpListener(listener) => listener.local_addr().map(SocketAddr::Tcp),
-            #[cfg(not(target_os = "windows"))]
-            Listener::UnixListener(listener) => Ok(SocketAddr::Unix(listener.local_addr()?.into())),
-        }
+        self.inner.local_addr()
+    }
+}
+
+use std::sync::Arc;
+struct TokioTcpListener(Arc<tokio::net::TcpListener>);
+
+impl Listen for TokioTcpListener {
+    fn accept(&self) -> AcceptFuture<'_> {
+        let listener = self.0.clone();
+        let accept_future = async move {
+            let (stream, addr) = listener.accept().await?;
+            Ok((
+                Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
+                SocketAddr::Tcp(addr),
+            ))
+        };
+        Box::pin(accept_future)
+    }
+
+    fn local_addr(&self) -> Result<SocketAddr> {
+        self.0.local_addr().map(SocketAddr::Tcp)
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+struct TokioUnixListener(Arc<tokio::net::UnixListener>);
+
+#[cfg(not(target_os = "windows"))]
+impl Listen for TokioUnixListener {
+    fn accept(&self) -> AcceptFuture<'_> {
+        let listener = self.0.clone();
+        let accept_future = async move {
+            let (stream, addr) = listener.accept().await?;
+            Ok((
+                Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
+                SocketAddr::Unix(addr.into()),
+            ))
+        };
+        Box::pin(accept_future)
+    }
+
+    fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(SocketAddr::Unix(self.0.local_addr()?.into()))
     }
 }
 
