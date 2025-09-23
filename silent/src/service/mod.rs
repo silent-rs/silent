@@ -187,70 +187,19 @@ impl Server {
             futures_util::pin_mut!(shutdown);
 
             loop {
-                let accept_fut = async_listener.accept();
-                futures_util::pin_mut!(accept_fut);
-                use futures_util::future::Either;
-                match futures_util::future::select(&mut shutdown, accept_fut).await {
-                    Either::Left((_shutdowned, _pending_accept)) => {
-                        if let Some(callback) = shutdown_callback {
-                            callback();
-                        }
-                        break;
+                let (stream, peer) = async_listener.accept().await.expect("accept failed");
+                let peer_addr = crate::core::socket_addr::SocketAddr::Tcp(peer);
+                let routes = root_route.clone().convert_to_route_tree();
+                let transport = transport.clone();
+                let handler =
+                    std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
+                crate::runtime::spawn(async move {
+                    let conn: Box<dyn crate::core::connection::Connection + Send> =
+                        Box::new(stream);
+                    if let Err(err) = transport.serve(conn, peer_addr, handler).await {
+                        tracing::error!("Failed to serve connection: {:?}", err);
                     }
-                    Either::Right((Ok((stream, peer)), _)) => {
-                        let routes = root_route.clone().convert_to_route_tree();
-                        let transport = transport.clone();
-                        let handler = std::sync::Arc::new(routes)
-                            as std::sync::Arc<dyn crate::handler::Handler>;
-
-                        #[cfg(feature = "tls")]
-                        let async_tls_acceptor = async_tls.clone();
-
-                        crate::runtime::spawn(async move {
-                            #[cfg(feature = "tls")]
-                            if let Some(acceptor) = async_tls_acceptor {
-                                match acceptor.accept(stream).await {
-                                    Ok(tls_stream) => {
-                                        let peer_addr =
-                                            crate::core::socket_addr::SocketAddr::Tcp(peer)
-                                                .tls()
-                                                .unwrap_or(
-                                                    crate::core::socket_addr::SocketAddr::Tcp(peer),
-                                                );
-                                        let conn: Box<
-                                            dyn crate::core::connection::Connection + Send,
-                                        > = Box::new(tls_stream);
-                                        if let Err(err) =
-                                            transport.serve(conn, peer_addr, handler).await
-                                        {
-                                            tracing::error!(
-                                                "Failed to serve TLS connection: {:?}",
-                                                err
-                                            );
-                                        }
-                                    }
-                                    Err(err) => {
-                                        tracing::error!(
-                                            "TLS accept failed from {}: {:?}",
-                                            peer,
-                                            err
-                                        );
-                                    }
-                                }
-                            } else {
-                                let peer_addr = crate::core::socket_addr::SocketAddr::Tcp(peer);
-                                let conn: Box<dyn crate::core::connection::Connection + Send> =
-                                    Box::new(stream);
-                                if let Err(err) = transport.serve(conn, peer_addr, handler).await {
-                                    tracing::error!("Failed to serve connection: {:?}", err);
-                                }
-                            }
-                        });
-                    }
-                    Either::Right((Err(e), _)) => {
-                        tracing::error!(error = ?e, "accept connection failed");
-                    }
-                }
+                });
             }
         }
     }

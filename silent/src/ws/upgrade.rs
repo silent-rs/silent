@@ -49,6 +49,7 @@ impl WebSocketParts {
 }
 
 pub enum UpgradedIo {
+    Hyper(upgrade::Upgraded),
     Futures(Box<dyn Connection + Send>),
 }
 

@@ -80,7 +80,7 @@ impl Listen for TokioTcpListener {
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
             Ok((
-                Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Tcp(addr),
             ))
         };
@@ -102,7 +102,7 @@ impl Listen for TokioUnixListener {
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
             Ok((
-                Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Unix(addr.into()),
             ))
         };
@@ -139,7 +139,7 @@ impl Listen for TlsListener {
             let tokio_in = FuturesAsTokio(stream);
             let tls_tokio = self.acceptor.accept(tokio_in).await?;
             // tokio-io -> futures-io for returning Connection
-            let tls_futs = TokioAsFutures(tls_tokio);
+            let tls_futs = tls_tokio.compat();
             Ok((Box::new(tls_futs) as Box<dyn Connection + Send>, addr))
         };
         Box::pin(accept_future)
