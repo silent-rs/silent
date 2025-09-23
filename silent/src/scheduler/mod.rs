@@ -5,9 +5,9 @@ mod task;
 pub mod traits;
 
 use anyhow::{Result, anyhow};
+use async_lock::Mutex;
 use std::sync::{Arc, LazyLock};
 use std::thread;
-use tokio::sync::Mutex;
 use tracing::{error, info};
 
 pub use process_time::ProcessTime;
@@ -73,7 +73,7 @@ impl Scheduler {
                 removable_list.push(task.id.clone());
             }
             if task.is_async {
-                tokio::spawn(async move {
+                crate::runtime::spawn(async move {
                     match task.clone().run_async().await {
                         Ok(_) => {}
                         Err(e) => error!(
@@ -104,7 +104,7 @@ impl Scheduler {
     pub async fn schedule(schedule: Arc<Mutex<Self>>) {
         loop {
             schedule.lock().await.run().await;
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            async_io::Timer::after(std::time::Duration::from_secs(1)).await;
             if !schedule.lock().await.schedule {
                 schedule.lock().await.schedule = true;
                 break;
@@ -115,9 +115,9 @@ impl Scheduler {
 
 #[cfg(test)]
 mod tests {
+    use async_lock::Mutex;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio::sync::Mutex;
 
     use crate::scheduler::Scheduler;
     use crate::scheduler::process_time::ProcessTime;
@@ -159,10 +159,10 @@ mod tests {
         assert!(scheduler.get_task("async_task").is_some());
         let arc_scheduler = Arc::new(Mutex::new(scheduler));
         let arc_scheduler_clone = arc_scheduler.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             Scheduler::schedule(arc_scheduler_clone).await;
         });
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        async_io::Timer::after(std::time::Duration::from_secs(1)).await;
         assert_eq!(counter.load(Ordering::SeqCst), 2);
         arc_scheduler.lock().await.stop();
     }
@@ -188,10 +188,10 @@ mod tests {
         assert!(scheduler.get_task("async_task").is_some());
         let arc_scheduler = Arc::new(Mutex::new(scheduler));
         let arc_scheduler_clone = arc_scheduler.clone();
-        tokio::spawn(async move {
+        crate::runtime::spawn(async move {
             Scheduler::schedule(arc_scheduler_clone).await;
         });
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        async_io::Timer::after(std::time::Duration::from_secs(5)).await;
         assert_eq!(counter.load(Ordering::SeqCst), 1);
         arc_scheduler.lock().await.stop();
     }

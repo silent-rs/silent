@@ -1,7 +1,7 @@
 use crate::{Request, Result, Scheduler, SilentError};
+use async_lock::Mutex;
 use http::StatusCode;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 pub trait SchedulerExt {
     fn scheduler(&self) -> Result<&Arc<Mutex<Scheduler>>>;

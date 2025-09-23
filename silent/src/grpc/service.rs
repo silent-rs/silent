@@ -2,9 +2,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use async_lock::Mutex;
 use hyper::body::Incoming;
 use hyper::service::Service as HyperService;
-use tokio::sync::Mutex;
 use tonic::body::Body;
 use tonic::codegen::Service;
 use tracing::error;

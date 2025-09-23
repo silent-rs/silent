@@ -1,7 +1,10 @@
+use async_fs::File;
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures_util::StreamExt;
-use tokio::fs::File;
-use tokio_util::io::ReaderStream;
+use futures_util::stream::Stream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use crate::prelude::stream_body;
 use crate::{Handler, Request, Response, SilentError, StatusCode};
@@ -52,8 +55,7 @@ impl Handler for HandlerWrapperStatic {
                 } else {
                     res.set_typed_header(headers::ContentType::octet_stream());
                 }
-                let reader_stream = ReaderStream::new(file);
-                let stream = reader_stream.boxed();
+                let stream = ReaderStream::new(file).boxed();
                 res.set_body(stream_body(stream));
                 return Ok(res);
             }
@@ -62,6 +64,40 @@ impl Handler for HandlerWrapperStatic {
             code: StatusCode::NOT_FOUND,
             msg: "Not Found".to_string(),
         })
+    }
+}
+
+// 一个基于 futures-io 的简单 ReaderStream 实现，将 AsyncRead 映射为 Stream<Bytes>
+struct ReaderStream<R> {
+    reader: R,
+}
+
+impl<R> ReaderStream<R>
+where
+    R: futures::io::AsyncRead + Unpin,
+{
+    fn new(reader: R) -> Self {
+        Self { reader }
+    }
+}
+
+impl<R> Stream for ReaderStream<R>
+where
+    R: futures::io::AsyncRead + Unpin + Send + 'static,
+{
+    type Item = Result<Bytes, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut buf = [0u8; 8 * 1024];
+        let n = match futures::ready!(Pin::new(&mut self.reader).poll_read(cx, &mut buf)) {
+            Ok(n) => n,
+            Err(e) => return Poll::Ready(Some(Err(e))),
+        };
+        if n == 0 {
+            return Poll::Ready(None);
+        }
+        let chunk = Bytes::copy_from_slice(&buf[..n]);
+        Poll::Ready(Some(Ok(chunk)))
     }
 }
 
