@@ -58,7 +58,7 @@ session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project"]
 static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
-upgrade = ["dep:tokio-tungstenite"]
+upgrade = []
 worker = ["dep:worker", "tokio/sync"]
 grpc = [
     "upgrade",
