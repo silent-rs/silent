@@ -10,7 +10,7 @@ use std::path::Path;
 use std::pin::Pin;
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
-use tokio_util::compat::TokioAsyncReadCompatExt;
+// compat removed: use local adapters instead
 
 pub type AcceptFuture<'a> =
     Pin<Box<dyn Future<Output = Result<(Box<dyn Connection + Send>, SocketAddr)>> + Send + 'a>>;
@@ -79,7 +79,7 @@ impl Listen for TokioTcpListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
-            let futs_stream = stream.compat();
+            let futs_stream = TokioAsFutures(stream);
             Ok((
                 Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Tcp(addr),
@@ -102,7 +102,7 @@ impl Listen for TokioUnixListener {
         let listener = self.0.clone();
         let accept_future = async move {
             let (stream, addr) = listener.accept().await?;
-            let futs_stream = stream.compat();
+            let futs_stream = TokioAsFutures(stream);
             Ok((
                 Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Unix(addr.into()),
@@ -135,14 +135,13 @@ pub struct TlsListener {
 #[cfg(feature = "tls")]
 impl Listen for TlsListener {
     fn accept(&self) -> AcceptFuture<'_> {
-        use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
         let accept_future = async move {
             let (stream, addr) = self.listener.accept().await?;
             // futures-io -> tokio-io for TLS accept
-            let tokio_in = stream.compat();
+            let tokio_in = FuturesAsTokio(stream);
             let tls_tokio = self.acceptor.accept(tokio_in).await?;
             // tokio-io -> futures-io for returning Connection
-            let tls_futs = tls_tokio.compat();
+            let tls_futs = TokioAsFutures(tls_tokio);
             Ok((Box::new(tls_futs) as Box<dyn Connection + Send>, addr))
         };
         Box::pin(accept_future)
@@ -200,6 +199,106 @@ impl ListenersBuilder {
 pub(crate) struct Listeners {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
     local_addrs: Vec<SocketAddr>,
+}
+
+// tokio-io -> futures-io 适配器
+struct TokioAsFutures<T>(T);
+
+impl<T> futures::io::AsyncRead for TokioAsFutures<T>
+where
+    T: tokio::io::AsyncRead + Unpin + Send,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        let mut rb = tokio::io::ReadBuf::new(buf);
+        match Pin::new(&mut self.0).poll_read(cx, &mut rb) {
+            std::task::Poll::Ready(Ok(())) => std::task::Poll::Ready(Ok(rb.filled().len())),
+            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl<T> futures::io::AsyncWrite for TokioAsFutures<T>
+where
+    T: tokio::io::AsyncWrite + Unpin + Send,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
+// futures-io -> tokio-io 适配器
+struct FuturesAsTokio<T>(T);
+
+impl<T> tokio::io::AsyncRead for FuturesAsTokio<T>
+where
+    T: futures::io::AsyncRead + Unpin + Send,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let unfilled = buf.initialize_unfilled();
+        match Pin::new(&mut self.0).poll_read(cx, unfilled) {
+            std::task::Poll::Ready(Ok(n)) => {
+                unsafe { buf.assume_init(n) };
+                buf.advance(n);
+                std::task::Poll::Ready(Ok(()))
+            }
+            std::task::Poll::Ready(Err(e)) => std::task::Poll::Ready(Err(e)),
+            std::task::Poll::Pending => std::task::Poll::Pending,
+        }
+    }
+}
+
+impl<T> tokio::io::AsyncWrite for FuturesAsTokio<T>
+where
+    T: futures::io::AsyncWrite + Unpin + Send,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_close(cx)
+    }
 }
 
 impl Listeners {
