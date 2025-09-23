@@ -7,23 +7,21 @@ use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
 use async_trait::async_trait;
+use async_tungstenite::WebSocketStream;
+use async_tungstenite::tungstenite::protocol;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
 use hyper_util::rt::TokioIo;
-use tokio_util::compat::FuturesAsyncReadCompatExt;
-trait TokioIoRW: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
-impl<T> TokioIoRW for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub struct WebSocket {
     parts: Arc<RwLock<WebSocketParts>>,
-    upgrade: WebSocketStream<Box<dyn TokioIoRW>>,
+    upgrade: WebSocketStream<Box<dyn crate::core::connection::Connection + Send>>,
 }
 
 unsafe impl Sync for WebSocket {}
@@ -36,9 +34,10 @@ impl WebSocket {
         config: Option<protocol::WebSocketConfig>,
     ) -> Self {
         let (parts, upgraded_io) = upgraded.into_parts();
-        let io: Box<dyn TokioIoRW> = match upgraded_io {
-            UpgradedIo::Hyper(up) => Box::new(TokioIo::new(up)),
-            UpgradedIo::Futures(futs) => Box::new(futs.compat()),
+        // 统一在 Hyper 路径进行 tokio -> futures 的适配
+        let io: Box<dyn crate::core::connection::Connection + Send> = match upgraded_io {
+            UpgradedIo::Hyper(up) => Box::new(TokioIo::new(up).compat()),
+            UpgradedIo::Futures(futs) => futs,
         };
         Self {
             parts: Arc::new(RwLock::new(parts)),

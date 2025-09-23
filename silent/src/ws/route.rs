@@ -3,10 +3,10 @@ use crate::route::Route;
 use crate::runtime::RwLock;
 use crate::runtime::mpsc::UnboundedSender;
 use crate::ws::{HandlerWrapperWebSocket, WebSocketHandler};
+use async_tungstenite::tungstenite::protocol::WebSocketConfig;
 use http::Method;
 use std::future::Future;
 use std::sync::Arc;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 pub trait WSHandlerAppend<
     FnOnConnect,

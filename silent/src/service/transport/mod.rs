@@ -11,7 +11,7 @@ pub type TransportFuture<'a> =
 pub trait HttpTransport: Send + Sync + 'static {
     fn serve<'a>(
         &'a self,
-        stream: Box<dyn Connection + Send + Sync>,
+        stream: Box<dyn Connection + Send>,
         peer_addr: SocketAddr,
         routes: std::sync::Arc<dyn Handler>,
     ) -> TransportFuture<'a>;

@@ -214,7 +214,7 @@ impl Server {
                 let handler =
                     std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
                 crate::runtime::spawn(async move {
-                    let conn: Box<dyn crate::core::connection::Connection + Send + Sync> =
+                    let conn: Box<dyn crate::core::connection::Connection + Send> =
                         Box::new(stream);
                     if let Err(err) = transport.serve(conn, peer_addr, handler).await {
                         tracing::error!("Failed to serve connection: {:?}", err);

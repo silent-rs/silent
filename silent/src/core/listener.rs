@@ -12,9 +12,8 @@ use std::pin::Pin;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
-pub type AcceptFuture<'a> = Pin<
-    Box<dyn Future<Output = Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> + Send + 'a>,
->;
+pub type AcceptFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<(Box<dyn Connection + Send>, SocketAddr)>> + Send + 'a>>;
 
 pub trait Listen: Send + Sync {
     fn accept(&self) -> AcceptFuture<'_>;
@@ -82,7 +81,7 @@ impl Listen for TokioTcpListener {
             let (stream, addr) = listener.accept().await?;
             let futs_stream = stream.compat();
             Ok((
-                Box::new(futs_stream) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Tcp(addr),
             ))
         };
@@ -105,7 +104,7 @@ impl Listen for TokioUnixListener {
             let (stream, addr) = listener.accept().await?;
             let futs_stream = stream.compat();
             Ok((
-                Box::new(futs_stream) as Box<dyn Connection + Send + Sync>,
+                Box::new(futs_stream) as Box<dyn Connection + Send>,
                 SocketAddr::Unix(addr.into()),
             ))
         };
@@ -144,10 +143,7 @@ impl Listen for TlsListener {
             let tls_tokio = self.acceptor.accept(tokio_in).await?;
             // tokio-io -> futures-io for returning Connection
             let tls_futs = tls_tokio.compat();
-            Ok((
-                Box::new(tls_futs) as Box<dyn Connection + Send + Sync>,
-                addr,
-            ))
+            Ok((Box::new(tls_futs) as Box<dyn Connection + Send>, addr))
         };
         Box::pin(accept_future)
     }
@@ -209,7 +205,7 @@ pub(crate) struct Listeners {
 impl Listeners {
     pub(crate) async fn accept(
         &mut self,
-    ) -> Option<Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> {
+    ) -> Option<Result<(Box<dyn Connection + Send>, SocketAddr)>> {
         let mut listener_futures: FuturesUnordered<AcceptFuture<'_>> = self
             .listeners
             .iter()

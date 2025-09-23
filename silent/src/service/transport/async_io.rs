@@ -32,7 +32,7 @@ impl Default for AsyncIoTransport {
 impl HttpTransport for AsyncIoTransport {
     fn serve<'a>(
         &'a self,
-        mut stream: Box<dyn Connection + Send + Sync>,
+        mut stream: Box<dyn Connection + Send>,
         peer_addr: SocketAddr,
         routes: std::sync::Arc<dyn Handler>,
     ) -> TransportFuture<'a> {
@@ -66,7 +66,7 @@ impl HttpTransport for AsyncIoTransport {
                     let mut req = build_request(method, path, version, headers, body, peer_addr)?;
                     #[cfg(feature = "upgrade")]
                     let (tx, rx) =
-                        futures::channel::oneshot::channel::<Box<dyn Connection + Send + Sync>>();
+                        futures::channel::oneshot::channel::<Box<dyn Connection + Send>>();
                     #[cfg(feature = "upgrade")]
                     {
                         // 注入升级接收器，供 ws::upgrade::on 使用
@@ -166,7 +166,7 @@ fn build_request(
 }
 
 async fn write_response(
-    stream: &mut (dyn Connection + Send + Sync),
+    stream: &mut (dyn Connection + Send),
     res: Response,
 ) -> Result<http::StatusCode, Box<dyn StdError + Send + Sync>> {
     let hyper_res: hyper::Response<crate::core::res_body::ResBody> =

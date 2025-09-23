@@ -1,9 +1,9 @@
 use crate::{Result, SilentError};
+use async_tungstenite::tungstenite::{Utf8Bytes, protocol};
 use bytes::Bytes;
 use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
-use tokio_tungstenite::tungstenite::{Utf8Bytes, protocol};
 
 #[derive(Eq, PartialEq, Clone)]
 pub struct Message {
@@ -134,6 +134,7 @@ impl Message {
     /// Destructure this message into binary data.
     #[inline]
     pub fn into_bytes(self) -> Vec<u8> {
+        // tungstenite 0.27 的 into_data 返回 Bytes
         self.inner.into_data().to_vec()
     }
 }

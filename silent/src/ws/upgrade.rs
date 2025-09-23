@@ -52,7 +52,7 @@ impl WebSocketParts {
 
 pub enum UpgradedIo {
     Hyper(upgrade::Upgraded),
-    Futures(Box<dyn Connection + Send + Sync>),
+    Futures(Box<dyn Connection + Send>),
 }
 
 pub(crate) struct Upgraded {
@@ -137,13 +137,13 @@ pub struct AsyncUpgradeRx(AsyncUpgradeInner);
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone)]
-struct AsyncUpgradeInner(Arc<Mutex<Option<oneshot::Receiver<Box<dyn Connection + Send + Sync>>>>>);
+struct AsyncUpgradeInner(Arc<Mutex<Option<oneshot::Receiver<Box<dyn Connection + Send>>>>>);
 
 impl AsyncUpgradeRx {
-    pub fn new(rx: oneshot::Receiver<Box<dyn Connection + Send + Sync>>) -> Self {
+    pub fn new(rx: oneshot::Receiver<Box<dyn Connection + Send>>) -> Self {
         Self(AsyncUpgradeInner(Arc::new(Mutex::new(Some(rx)))))
     }
-    pub fn take(&self) -> Option<oneshot::Receiver<Box<dyn Connection + Send + Sync>>> {
+    pub fn take(&self) -> Option<oneshot::Receiver<Box<dyn Connection + Send>>> {
         self.0.0.lock().ok().and_then(|mut g| g.take())
     }
 }

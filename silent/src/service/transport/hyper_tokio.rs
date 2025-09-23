@@ -31,7 +31,7 @@ impl Default for HyperTokioTransport {
 impl HttpTransport for HyperTokioTransport {
     fn serve<'a>(
         &'a self,
-        stream: Box<dyn Connection + Send + Sync>,
+        stream: Box<dyn Connection + Send>,
         peer_addr: SocketAddr,
         routes: std::sync::Arc<dyn Handler>,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn StdError + Send + Sync>>> + Send + 'a>>
