@@ -94,7 +94,7 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"], optional = true }
 mime = "0.3"
 futures = "0.3"
 pin-project = { version = "1", optional = true }
