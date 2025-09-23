@@ -12,7 +12,6 @@ use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
 use hyper_util::rt::TokioIo;
 use tokio_util::compat::FuturesAsyncReadCompatExt;
-
 trait TokioIoRW: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 impl<T> TokioIoRW for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
 use std::future::Future;

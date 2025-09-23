@@ -23,6 +23,7 @@ pub struct Server {
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     configs: Option<Configs>,
     transport: Arc<dyn HttpTransport>,
+    bound_addrs: Vec<std::net::SocketAddr>,
 }
 
 impl Default for Server {
@@ -38,6 +39,7 @@ impl Server {
             shutdown_callback: None,
             configs: None,
             transport: Arc::new(HyperTokioTransport::new()),
+            bound_addrs: Vec::new(),
         }
     }
 
@@ -75,7 +77,10 @@ impl Server {
 
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
-        self.listeners_builder.bind(addr);
+        if self.transport.requires_tokio() {
+            self.listeners_builder.bind(addr);
+        }
+        self.bound_addrs.push(addr);
         self
     }
 
@@ -111,10 +116,6 @@ impl Server {
             ..
         } = self;
 
-        let mut listener = listeners_builder.listen().expect("failed to listen");
-        for addr in listener.local_addrs().iter() {
-            tracing::info!("listening on: {:?}", addr);
-        }
         let mut root_route = service.route();
 
         // 只有当configs不是None时才设置，避免覆盖已有的configs
@@ -133,46 +134,92 @@ impl Server {
             let scheduler = SCHEDULER.clone();
             Scheduler::schedule(scheduler).await;
         });
-        loop {
-            #[cfg(unix)]
-            let terminate = async {
-                signal::unix::signal(signal::unix::SignalKind::terminate())
-                    .expect("failed to install signal handler")
-                    .recv()
-                    .await;
-            };
+        if transport.requires_tokio() {
+            let mut listener = listeners_builder.listen().expect("failed to listen");
+            for addr in listener.local_addrs().iter() {
+                tracing::info!("listening on: http://{:?}", addr);
+            }
+            loop {
+                #[cfg(unix)]
+                let terminate = async {
+                    signal::unix::signal(signal::unix::SignalKind::terminate())
+                        .expect("failed to install signal handler")
+                        .recv()
+                        .await;
+                };
 
-            #[cfg(not(unix))]
-            let terminate = async {
-                let _ = std::future::pending::<()>().await;
-            };
-            tokio::select! {
-                _ = signal::ctrl_c() => {
-                    if let Some(ref callback) = self.shutdown_callback { callback() };
-                    break;
-                }
-                _ = terminate => {
-                    if let Some(ref callback) = self.shutdown_callback { callback() };
-                    break;
-                }
-                Some(s) = listener.accept() =>{
-                    match s{
-                        Ok((stream, peer_addr)) => {
-                            tracing::info!("Accepting from: {}", peer_addr);
-                            let routes = root_route.clone().convert_to_route_tree();
-                            let transport = transport.clone();
-                            let handler = std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
-                            crate::runtime::spawn(async move {
-                                if let Err(err) = transport.serve(stream, peer_addr, handler).await {
-                                    tracing::error!("Failed to serve connection: {:?}", err);
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            tracing::error!(error = ?e, "accept connection failed");
+                #[cfg(not(unix))]
+                let terminate = async {
+                    let _ = std::future::pending::<()>().await;
+                };
+                tokio::select! {
+                    _ = signal::ctrl_c() => {
+                        if let Some(ref callback) = self.shutdown_callback { callback() };
+                        break;
+                    }
+                    _ = terminate => {
+                        if let Some(ref callback) = self.shutdown_callback { callback() };
+                        break;
+                    }
+                    Some(s) = listener.accept() =>{
+                        match s{
+                            Ok((stream, peer_addr)) => {
+                                tracing::info!("Accepting from: {}", peer_addr);
+                                let routes = root_route.clone().convert_to_route_tree();
+                                let transport = transport.clone();
+                                let handler = std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
+                                crate::runtime::spawn(async move {
+                                    if let Err(err) = transport.serve(stream, peer_addr, handler).await {
+                                        tracing::error!("Failed to serve connection: {:?}", err);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                tracing::error!(error = ?e, "accept connection failed");
+                            }
                         }
                     }
                 }
+            }
+        } else {
+            // async-io 接入
+            let addrs = if self.bound_addrs.is_empty() {
+                vec!["127.0.0.1:8000".parse().unwrap()]
+            } else {
+                self.bound_addrs.clone()
+            };
+            let mut listeners = Vec::new();
+            for addr in addrs {
+                let std_listener =
+                    std::net::TcpListener::bind(addr).expect("bind async-io listener failed");
+                std_listener
+                    .set_nonblocking(true)
+                    .expect("set nonblocking failed");
+                let async_listener =
+                    async_io::Async::new(std_listener).expect("wrap async-io listener failed");
+                tracing::info!(
+                    "listening on: http://{:?}",
+                    async_listener.get_ref().local_addr().unwrap()
+                );
+                listeners.push(async_listener);
+            }
+            // 单 listener 支持
+            // 简化处理：只用第一个监听器
+            let async_listener = listeners.remove(0);
+            loop {
+                let (stream, peer) = async_listener.accept().await.expect("accept failed");
+                let peer_addr = crate::core::socket_addr::SocketAddr::Tcp(peer);
+                let routes = root_route.clone().convert_to_route_tree();
+                let transport = transport.clone();
+                let handler =
+                    std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
+                crate::runtime::spawn(async move {
+                    let conn: Box<dyn crate::core::connection::Connection + Send + Sync> =
+                        Box::new(stream);
+                    if let Err(err) = transport.serve(conn, peer_addr, handler).await {
+                        tracing::error!("Failed to serve connection: {:?}", err);
+                    }
+                });
             }
         }
     }

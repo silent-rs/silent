@@ -64,17 +64,28 @@ impl HttpTransport for AsyncIoTransport {
                     }
 
                     let mut req = build_request(method, path, version, headers, body, peer_addr)?;
-                    // 注入升级接收器，供 ws::upgrade::on 使用
+                    #[cfg(feature = "upgrade")]
                     let (tx, rx) =
                         futures::channel::oneshot::channel::<Box<dyn Connection + Send + Sync>>();
-                    req.extensions_mut()
-                        .insert(crate::ws::AsyncUpgradeRx::new(rx));
+                    #[cfg(feature = "upgrade")]
+                    {
+                        // 注入升级接收器，供 ws::upgrade::on 使用
+                        req.extensions_mut()
+                            .insert(crate::ws::AsyncUpgradeRx::new(rx));
+                    }
 
                     let res = routes.clone().call(req).await.unwrap_or_else(Into::into);
-                    let status = write_response(stream.as_mut(), res).await?;
-                    if status == http::StatusCode::SWITCHING_PROTOCOLS {
-                        // 将底层流交由 WS 处理
-                        let _ = tx.send(stream);
+                    #[cfg(feature = "upgrade")]
+                    {
+                        let status = write_response(stream.as_mut(), res).await?;
+                        if status == http::StatusCode::SWITCHING_PROTOCOLS {
+                            // 将底层流交由 WS 处理
+                            let _ = tx.send(stream);
+                        }
+                    }
+                    #[cfg(not(feature = "upgrade"))]
+                    {
+                        let _ = write_response(stream.as_mut(), res).await?;
                     }
                     break;
                 }
@@ -84,6 +95,10 @@ impl HttpTransport for AsyncIoTransport {
             }
             Ok(())
         })
+    }
+
+    fn requires_tokio(&self) -> bool {
+        false
     }
 }
 

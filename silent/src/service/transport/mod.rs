@@ -15,6 +15,12 @@ pub trait HttpTransport: Send + Sync + 'static {
         peer_addr: SocketAddr,
         routes: std::sync::Arc<dyn Handler>,
     ) -> TransportFuture<'a>;
+
+    /// 指示是否需要基于 Tokio 的监听/接入流程。
+    /// 默认返回 true；基于 async-io 的实现应返回 false，以便 Server 采用 async-io 接入。
+    fn requires_tokio(&self) -> bool {
+        true
+    }
 }
 
 mod hyper_tokio;
