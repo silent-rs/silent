@@ -41,12 +41,12 @@ full = [
 ]
 multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
-server = ["tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
+server = ["tokio/net", "tokio/rt-multi-thread", "tokio/signal", "dep:tokio-util", "dep:hyper-util"]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project"]
 static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
-upgrade = []
+upgrade = ["dep:tokio-util", "dep:hyper-util"]
 #wasi = ["tokio/sync"]
 grpc = [
     "upgrade",
@@ -70,7 +70,7 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"], optional = true }
 mime = "0.3"
 futures = "0.3"
 pin-project = { version = "1", optional = true }
@@ -82,7 +82,7 @@ thiserror = "2"
 tokio = { version = "1", optional = true }
 tokio-stream = { version = "0.1", features = ["net"], optional = true }
 async-tungstenite = "0.31"
-tokio-util = { version = "0.7", features = ["compat"] }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
