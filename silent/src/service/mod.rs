@@ -18,12 +18,17 @@ use transport::HttpTransport;
 use transport::HyperTokioTransport;
 // 使用运行时中立的 spawn，而不强依赖 tokio JoinSet
 
+#[cfg(feature = "tls")]
+type AsyncTlsAcceptor = futures_rustls::TlsAcceptor;
+
 pub struct Server {
     listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     configs: Option<Configs>,
     transport: Arc<dyn HttpTransport>,
     bound_addrs: Vec<std::net::SocketAddr>,
+    #[cfg(feature = "tls")]
+    async_tls: Option<AsyncTlsAcceptor>,
 }
 
 impl Default for Server {
@@ -40,6 +45,8 @@ impl Server {
             configs: None,
             transport: Arc::new(HyperTokioTransport::new()),
             bound_addrs: Vec::new(),
+            #[cfg(feature = "tls")]
+            async_tls: None,
         }
     }
 
@@ -60,6 +67,23 @@ impl Server {
         T: HttpTransport,
     {
         self.transport = Arc::new(transport);
+        self
+    }
+
+    /// 配置 async-io 分支的 TLS 接入（基于 futures-rustls）。
+    /// 仅在启用 `tls` 特性时可用。
+    #[cfg(feature = "tls")]
+    #[inline]
+    pub fn with_async_tls(mut self, acceptor: AsyncTlsAcceptor) -> Self {
+        self.async_tls = Some(acceptor);
+        self
+    }
+
+    /// 设置 async-io TLS 接入器。
+    #[cfg(feature = "tls")]
+    #[inline]
+    pub fn set_async_tls(&mut self, acceptor: AsyncTlsAcceptor) -> &mut Self {
+        self.async_tls = Some(acceptor);
         self
     }
 
@@ -111,9 +135,12 @@ impl Server {
     {
         let Self {
             listeners_builder,
+            ref shutdown_callback,
             configs,
             transport,
-            ..
+            bound_addrs,
+            #[cfg(feature = "tls")]
+            async_tls,
         } = self;
 
         let mut root_route = service.route();
@@ -154,11 +181,11 @@ impl Server {
                 };
                 tokio::select! {
                     _ = signal::ctrl_c() => {
-                        if let Some(ref callback) = self.shutdown_callback { callback() };
+                        if let Some(callback) = shutdown_callback { callback() };
                         break;
                     }
                     _ = terminate => {
-                        if let Some(ref callback) = self.shutdown_callback { callback() };
+                        if let Some(callback) = shutdown_callback { callback() };
                         break;
                     }
                     Some(s) = listener.accept() =>{
@@ -183,10 +210,10 @@ impl Server {
             }
         } else {
             // async-io 接入
-            let addrs = if self.bound_addrs.is_empty() {
+            let addrs = if bound_addrs.is_empty() {
                 vec!["127.0.0.1:8000".parse().unwrap()]
             } else {
-                self.bound_addrs.clone()
+                bound_addrs.clone()
             };
             let mut listeners = Vec::new();
             for addr in addrs {
@@ -206,20 +233,83 @@ impl Server {
             // 单 listener 支持
             // 简化处理：只用第一个监听器
             let async_listener = listeners.remove(0);
+
+            // 优雅退出：监听 Ctrl-C / SIGTERM
+            let shutdown = {
+                Box::pin(async move {
+                    let _ = async_ctrlc::CtrlC::new()
+                        .expect("install ctrl-c handler failed")
+                        .await;
+                })
+                    as core::pin::Pin<Box<dyn core::future::Future<Output = ()> + Send>>
+            };
+            futures_util::pin_mut!(shutdown);
+
             loop {
-                let (stream, peer) = async_listener.accept().await.expect("accept failed");
-                let peer_addr = crate::core::socket_addr::SocketAddr::Tcp(peer);
-                let routes = root_route.clone().convert_to_route_tree();
-                let transport = transport.clone();
-                let handler =
-                    std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
-                crate::runtime::spawn(async move {
-                    let conn: Box<dyn crate::core::connection::Connection + Send> =
-                        Box::new(stream);
-                    if let Err(err) = transport.serve(conn, peer_addr, handler).await {
-                        tracing::error!("Failed to serve connection: {:?}", err);
+                let accept_fut = async_listener.accept();
+                futures_util::pin_mut!(accept_fut);
+                use futures_util::future::Either;
+                match futures_util::future::select(&mut shutdown, accept_fut).await {
+                    Either::Left((_shutdowned, _pending_accept)) => {
+                        if let Some(callback) = shutdown_callback {
+                            callback();
+                        }
+                        break;
                     }
-                });
+                    Either::Right((Ok((stream, peer)), _)) => {
+                        let routes = root_route.clone().convert_to_route_tree();
+                        let transport = transport.clone();
+                        let handler = std::sync::Arc::new(routes)
+                            as std::sync::Arc<dyn crate::handler::Handler>;
+
+                        #[cfg(feature = "tls")]
+                        let async_tls_acceptor = async_tls.clone();
+
+                        crate::runtime::spawn(async move {
+                            #[cfg(feature = "tls")]
+                            if let Some(acceptor) = async_tls_acceptor {
+                                match acceptor.accept(stream).await {
+                                    Ok(tls_stream) => {
+                                        let peer_addr =
+                                            crate::core::socket_addr::SocketAddr::Tcp(peer)
+                                                .tls()
+                                                .unwrap_or(
+                                                    crate::core::socket_addr::SocketAddr::Tcp(peer),
+                                                );
+                                        let conn: Box<
+                                            dyn crate::core::connection::Connection + Send,
+                                        > = Box::new(tls_stream);
+                                        if let Err(err) =
+                                            transport.serve(conn, peer_addr, handler).await
+                                        {
+                                            tracing::error!(
+                                                "Failed to serve TLS connection: {:?}",
+                                                err
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        tracing::error!(
+                                            "TLS accept failed from {}: {:?}",
+                                            peer,
+                                            err
+                                        );
+                                    }
+                                }
+                            } else {
+                                let peer_addr = crate::core::socket_addr::SocketAddr::Tcp(peer);
+                                let conn: Box<dyn crate::core::connection::Connection + Send> =
+                                    Box::new(stream);
+                                if let Err(err) = transport.serve(conn, peer_addr, handler).await {
+                                    tracing::error!("Failed to serve connection: {:?}", err);
+                                }
+                            }
+                        });
+                    }
+                    Either::Right((Err(e), _)) => {
+                        tracing::error!(error = ?e, "accept connection failed");
+                    }
+                }
             }
         }
     }

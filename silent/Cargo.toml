@@ -56,7 +56,7 @@ grpc = [
 ]
 scheduler = ["dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
-tls = ["dep:tokio-rustls"]
+tls = ["dep:tokio-rustls", "dep:futures-rustls"]
 
 [dependencies]
 # Basic dependencies
@@ -94,6 +94,7 @@ async-lock = "3"
 memchr = "2"
 once_cell = { version = "1", default-features = true }
 async-fs = { version = "2", optional = true }
+async-ctrlc = "1.2"
 
 # Scheduler
 cron = { version = "0.15", optional = true }
@@ -130,3 +131,5 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
     "logging",
     "tls12",
 ] }
+futures-rustls = { version = "0.26", optional = true, default-features = true }
+rustls-pki-types = { version = "1", optional = true }
