@@ -12,6 +12,17 @@ categories = [
     "network-programming",
     "asynchronous",
 ]
+categories = [
+    
+    "web-programming::http-server",
+   
+    "web-programming::websocket",
+   
+    "network-programming",
+   
+    "asynchronous",
+,
+]
 description = """
 Silent Web Framework
 """
@@ -45,13 +56,7 @@ full = [
     "grpc",
     "tls",
 ]
-multipart = [
-    "tokio/fs",
-    "dep:multer",
-    "dep:multimap",
-    "dep:tempfile",
-    "dep:textnonce",
-]
+multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["dep:hyper-util"]
 session = ["cookie", "dep:async-session"]
@@ -61,11 +66,17 @@ template = ["dep:tera"]
 upgrade = []
 worker = ["dep:worker", "tokio/sync"]
 grpc = [
+    
     "upgrade",
+   
     "dep:tonic",
+   
     "dep:pin-project-lite",
+   
     "dep:pin-project",
+   
     "dep:tokio-stream",
+,
 ]
 scheduler = ["dep:cron"]
 test = []
