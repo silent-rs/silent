@@ -43,7 +43,7 @@ multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
 session = ["cookie", "dep:async-session"]
-sse = ["dep:pin-project", "dep:tokio-stream"]
+sse = ["dep:pin-project"]
 static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
 upgrade = []
@@ -53,7 +53,6 @@ grpc = [
     "dep:tonic",
     "dep:pin-project-lite",
     "dep:pin-project",
-    "dep:tokio-stream",
 ]
 scheduler = ["dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
