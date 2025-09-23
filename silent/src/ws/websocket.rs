@@ -17,7 +17,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_util::compat::TokioAsyncReadCompatExt;
+// 自定义 tokio-io -> futures-io 适配，避免 tokio-util 依赖
 
 pub struct WebSocket {
     parts: Arc<RwLock<WebSocketParts>>,
@@ -36,7 +36,7 @@ impl WebSocket {
         let (parts, upgraded_io) = upgraded.into_parts();
         // 统一在 Hyper 路径进行 tokio -> futures 的适配
         let io: Box<dyn crate::core::connection::Connection + Send> = match upgraded_io {
-            UpgradedIo::Hyper(up) => Box::new(TokioIo::new(up).compat()),
+            UpgradedIo::Hyper(up) => Box::new(TokioAsFutures(TokioIo::new(up))),
             UpgradedIo::Futures(futs) => futs,
         };
         Self {
@@ -72,6 +72,48 @@ impl WebSocket {
     #[inline]
     pub async fn close(mut self) -> Result<()> {
         future::poll_fn(|cx| Pin::new(&mut self).poll_close(cx)).await
+    }
+}
+
+// 自实现 tokio-io -> futures-io 适配器
+struct TokioAsFutures<T>(T);
+
+impl<T> futures::io::AsyncRead for TokioAsFutures<T>
+where
+    T: tokio::io::AsyncRead + Unpin + Send,
+{
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let mut rb = tokio::io::ReadBuf::new(buf);
+        match Pin::new(&mut self.0).poll_read(cx, &mut rb) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(rb.filled().len())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<T> futures::io::AsyncWrite for TokioAsFutures<T>
+where
+    T: tokio::io::AsyncWrite + Unpin + Send,
+{
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
     }
 }
 
