@@ -1,0 +1,22 @@
+[package]
+name = "example-cloudflare-worker"
+edition.workspace = true
+authors.workspace = true
+homepage.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+version.workspace = true
+publish = false
+description = "Silent route running on Cloudflare Workers"
+
+[lib]
+crate-type = ["cdylib"]
+
+
+[dependencies]
+worker = "0.6.6"
+console_error_panic_hook = "0.1"
+silent = { path = "../../silent", default-features = false, features = [
+    "worker",
+] }

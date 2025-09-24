@@ -52,6 +52,16 @@ impl Response {
             configs: Configs::default(),
         }
     }
+    /// 获取响应状态码
+    #[inline]
+    pub fn status(&self) -> StatusCode {
+        self.status
+    }
+    /// 取出响应体（将内部body置为空）
+    #[inline]
+    pub fn take_body(&mut self) -> ResBody {
+        std::mem::replace(&mut self.body, ResBody::None)
+    }
     #[inline]
     /// 设置响应重定向
     pub fn redirect(url: &str) -> Result<Self> {
