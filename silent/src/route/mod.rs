@@ -217,9 +217,8 @@ impl Route {
 #[async_trait]
 impl Handler for Route {
     async fn call(&self, mut req: Request) -> crate::error::SilentResult<Response> {
-        if self.configs.is_some() {
-            req.configs_mut()
-                .insert(self.get_configs().unwrap().clone());
+        if let Some(cfg) = self.get_configs() {
+            req.configs_mut().extend_from(cfg);
         }
         // Route 结构已不再在服务路径上使用，保持向后兼容：
         // 直接把自身转换为 RouteTree，并让 RouteTree 自行完成首段匹配与后续执行

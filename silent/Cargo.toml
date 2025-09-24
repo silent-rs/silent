@@ -53,8 +53,7 @@ sse = ["dep:pin-project", "dep:tokio-stream"]
 static = ["tokio/fs", "dep:urlencoding"]
 template = ["dep:tera"]
 upgrade = ["dep:tokio-tungstenite"]
-wasi = ["tokio/sync"]
-worker = ["dep:worker", "wasi"]
+worker = ["dep:worker", "tokio/sync"]
 grpc = [
     "upgrade",
     "dep:tonic",
