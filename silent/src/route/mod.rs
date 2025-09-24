@@ -18,6 +18,8 @@ mod handler_match;
 mod route_service;
 mod route_tree;
 pub(crate) use route_tree::RouteTree;
+#[cfg(all(feature = "worker", target_arch = "wasm32"))]
+pub mod worker;
 pub trait RouterAdapt {
     fn into_router(self) -> Route;
 }
@@ -173,6 +175,7 @@ impl Route {
     }
 
     /// 设置配置（任何路由都可以使用）
+    #[cfg_attr(all(feature = "worker", target_arch = "wasm32"), allow(dead_code))]
     pub(crate) fn set_configs(&mut self, configs: Option<crate::Configs>) {
         self.configs = configs;
     }

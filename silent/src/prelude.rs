@@ -3,17 +3,13 @@ pub use crate::configs::Configs;
 pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "multipart")]
 pub use crate::core::form::{FilePart, FormData};
+#[cfg(feature = "server")]
+pub use crate::core::listener::{Listen, Listener};
+#[cfg(feature = "server")]
+pub use crate::core::stream::Stream;
 pub use crate::core::{
-    listener::{Listen, Listener},
-    next::Next,
-    path_param::PathParam,
-    req_body::ReqBody,
-    request::Request,
-    res_body::ResBody,
-    res_body::full,
-    res_body::stream_body,
-    response::Response,
-    stream::Stream,
+    next::Next, path_param::PathParam, req_body::ReqBody, request::Request, res_body::ResBody,
+    res_body::full, res_body::stream_body, response::Response,
 };
 pub use crate::error::{SilentError, SilentResult as Result};
 #[cfg(feature = "grpc")]
@@ -25,6 +21,8 @@ pub use crate::handler::static_handler;
 pub use crate::log::*;
 pub use crate::middleware::MiddleWareHandler;
 pub use crate::route::handler_append::{HandlerAppend, HandlerGetter, IntoRouteHandler};
+#[cfg(all(feature = "worker", target_arch = "wasm32"))]
+pub use crate::route::worker::WorkRoute;
 pub use crate::route::{Route, RouteService, RouterAdapt};
 #[cfg(feature = "scheduler")]
 pub use crate::scheduler::{SCHEDULER, SchedulerExt, Task};

@@ -1,6 +1,11 @@
 [package]
 authors.workspace = true
-categories = ["web-programming::http-server", "web-programming::websocket", "network-programming", "asynchronous"]
+categories = [
+    "web-programming::http-server",
+    "web-programming::websocket",
+    "network-programming",
+    "asynchronous",
+]
 description = """
 Silent Web Framework
 """
@@ -18,8 +23,29 @@ version.workspace = true
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
 default = ["server", "test"]
-full = ["admin", "server", "multipart", "upgrade", "sse", "security", "static", "session", "cookie", "template", "test", "scheduler", "grpc", "tls"]
-multipart = ["tokio/fs", "dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
+full = [
+    "admin",
+    "server",
+    "multipart",
+    "upgrade",
+    "sse",
+    "security",
+    "static",
+    "session",
+    "cookie",
+    "template",
+    "test",
+    "scheduler",
+    "grpc",
+    "tls",
+]
+multipart = [
+    "tokio/fs",
+    "dep:multer",
+    "dep:multimap",
+    "dep:tempfile",
+    "dep:textnonce",
+]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
 session = ["cookie", "dep:async-session"]
@@ -27,8 +53,15 @@ sse = ["dep:pin-project", "dep:tokio-stream"]
 static = ["tokio/fs", "dep:urlencoding"]
 template = ["dep:tera"]
 upgrade = ["dep:tokio-tungstenite"]
-#wasi = ["tokio/sync"]
-grpc = ["upgrade", "dep:tonic", "dep:pin-project-lite", "dep:pin-project", "dep:tokio-stream"]
+wasi = ["tokio/sync"]
+worker = ["dep:worker", "wasi"]
+grpc = [
+    "upgrade",
+    "dep:tonic",
+    "dep:pin-project-lite",
+    "dep:pin-project",
+    "dep:tokio-stream",
+]
 scheduler = ["dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
 tls = ["dep:tokio-rustls"]
@@ -38,57 +71,66 @@ tls = ["dep:tokio-rustls"]
 anyhow = "1"
 async-trait = "0.1"
 bytes = "1"
-chrono = {version = "0.4", default-features = false, features = ["clock"]}
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = "0.3"
 headers = "0.4"
 http = "1"
 http-body = "1"
 http-body-util = "0.1"
-hyper = {version = "1", features = ["full"]}
-hyper-util = {version = "0.1", features = ["server-auto", "tokio"]}
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 mime = "0.3"
-pin-project = {version = "1", optional = true}
-pin-project-lite = {version = "0.2", optional = true}
-serde = {version = "1", features = ["derive"]}
+pin-project = { version = "1", optional = true }
+pin-project-lite = { version = "0.2", optional = true }
+serde = { version = "1", features = ["derive"] }
 serde_html_form = "0.2"
 serde_json = "1"
 thiserror = "2"
-tokio = {version = "1", optional = true}
-tokio-stream = {version = "0.1", features = ["net"], optional = true}
-tokio-tungstenite = {version = "0.27", optional = true}
+tokio = { version = "1", optional = true }
+tokio-stream = { version = "0.1", features = ["net"], optional = true }
+tokio-tungstenite = { version = "0.27", optional = true }
 tokio-util = "0.7"
 tracing = "0.1"
-tracing-subscriber = {version = "0.3", features = ["chrono", "env-filter"]}
+tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
-urlencoding = {version = "2", optional = true}
+urlencoding = { version = "2", optional = true }
 uuid = "1.17"
 
 # Scheduler
-cron = {version = "0.15", optional = true}
+cron = { version = "0.15", optional = true }
 
 # Multipart
-multer = {version = "3", optional = true}
-multimap = {version = "0.10", features = ["serde"], optional = true}
-tempfile = {version = "3", optional = true}
-textnonce = {version = "1", optional = true}
+multer = { version = "3", optional = true }
+multimap = { version = "0.10", features = ["serde"], optional = true }
+tempfile = { version = "3", optional = true }
+textnonce = { version = "1", optional = true }
 
 # Template
-tera = {version = "1", optional = true}
+tera = { version = "1", optional = true }
 
 # Session
-async-session = {version = "3", optional = true}
-cookie = {version = "0.18", features = ["secure", "percent-encode"], optional = true}
+async-session = { version = "3", optional = true }
+cookie = { version = "0.18", features = [
+    "secure",
+    "percent-encode",
+], optional = true }
 
 # Grpc
-tonic = {version = "0.14", optional = true}
+tonic = { version = "0.14", optional = true }
 
 # Security
-aes = {version = "0.8", optional = true}
-aes-gcm = {version = "0.10", optional = true}
-argon2 = {version = "0.5", optional = true}
+aes = { version = "0.8", optional = true }
+aes-gcm = { version = "0.10", optional = true }
+argon2 = { version = "0.5", optional = true }
 mime_guess = "2"
-pbkdf2 = {version = "0.12", features = ["simple"], optional = true}
-rsa = {version = "0.9", optional = true}
+pbkdf2 = { version = "0.12", features = ["simple"], optional = true }
+rsa = { version = "0.9", optional = true }
 
 # tls
-tokio-rustls = {version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"]}
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = [
+    "logging",
+    "tls12",
+] }
+
+# Cloudflare Workers
+worker = { version = "0.6", optional = true }
