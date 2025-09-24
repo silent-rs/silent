@@ -39,7 +39,7 @@ version.workspace = true
 [features]
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
-default = ["server", "test"]
+default = ["server"]
 full = [
     "admin",
     "server",
@@ -53,9 +53,9 @@ full = [
     "template",
     "test",
     "scheduler",
-    "grpc",
     "tls",
 ]
+grpc = []
 multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["dep:hyper-util"]
@@ -94,7 +94,10 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["server-auto", "tokio"], optional = true }
+hyper-util = { version = "0.1", features = [
+    "server-auto",
+    "tokio",
+], optional = true }
 mime = "0.3"
 futures = "0.3"
 pin-project = { version = "1", optional = true }
