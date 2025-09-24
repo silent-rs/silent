@@ -49,16 +49,18 @@ pub fn get_route() -> WorkRoute {
 - 任何“数据值”的修改都不会在后续请求中保持；不要把 `Arc<Mutex<T>>` 等作为跨请求状态管理手段。
 - 如需跨请求可变状态，请使用 Cloudflare 的持久化能力：KV、Durable Objects、D1、R2、Queues 等。
 
-## 使用 Env 获取绑定（KV/DO/D1 等）
-在 `#[worker::event(fetch)]` 的入口可获得 `Env`，可通过它获取绑定，并将只读句柄注入到 `Configs` 中，供路由/处理器使用。
+## 使用 Env 与 Context
+在 `#[worker::event(fetch)]` 的入口可获得 `Env` 与 `Context`：
+- `Env`：用于获取绑定（KV/DO/D1/R2/Queues 等），建议将只读句柄注入到 `Configs` 中供处理器使用。
+- `Context`：用于调度后台任务（`ctx.wait_until(fut)`），该任务可以在响应返回后继续执行。Context 是每次请求的执行上下文，不建议放入 `Configs`，如需在处理链上传递，可考虑在中间件中放入 `Request.extensions`。
 
-示例：在入口处注入 KV 句柄（只读句柄本身可用于读写持久化存储）
+示例：在入口处注入 KV 句柄（只读句柄本身可用于读写持久化存储），并使用 Context 调度后台任务
 ```rust
 use worker::{Context, Env, Request, Response, Result};
 use silent::prelude::*;
 
 #[worker::event(fetch)]
-pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
+pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
     // 1) 获取绑定（例如：KV）
@@ -70,6 +72,12 @@ pub async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     // 3) 构建 WorkRoute 并注入只读 Configs
     let wr = WorkRoute::new(get_route()).with_configs(cfg);
+
+    // 3.1) 使用 Context 调度后台任务（响应返回后执行）
+    ctx.wait_until(async move {
+        // 例如：写入日志、异步清理、异步持久化等
+        Ok(())
+    });
 
     // 4) 调用路由
     Ok(wr.call(req).await)
