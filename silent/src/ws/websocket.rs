@@ -12,7 +12,7 @@ use async_tungstenite::tungstenite::protocol;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
-use hyper_util::rt::TokioIo;
+// hyper OnUpgrade 路径已移除，仅保留 futures-io 升级
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -34,11 +34,7 @@ impl WebSocket {
         config: Option<protocol::WebSocketConfig>,
     ) -> Self {
         let (parts, upgraded_io) = upgraded.into_parts();
-        // 统一在 Hyper 路径进行 tokio -> futures 的适配
-        let io: Box<dyn crate::core::connection::Connection + Send> = match upgraded_io {
-            UpgradedIo::Hyper(up) => Box::new(TokioAsFutures(TokioIo::new(up))),
-            UpgradedIo::Futures(futs) => futs,
-        };
+        let UpgradedIo::Futures(io) = upgraded_io;
         Self {
             parts: Arc::new(RwLock::new(parts)),
             upgrade: WebSocketStream::from_raw_socket(io, role, config).await,
@@ -75,47 +71,7 @@ impl WebSocket {
     }
 }
 
-// 自实现 tokio-io -> futures-io 适配器
-struct TokioAsFutures<T>(T);
-
-impl<T> futures::io::AsyncRead for TokioAsFutures<T>
-where
-    T: tokio::io::AsyncRead + Unpin + Send,
-{
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let mut rb = tokio::io::ReadBuf::new(buf);
-        match Pin::new(&mut self.0).poll_read(cx, &mut rb) {
-            Poll::Ready(Ok(())) => Poll::Ready(Ok(rb.filled().len())),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl<T> futures::io::AsyncWrite for TokioAsFutures<T>
-where
-    T: tokio::io::AsyncWrite + Unpin + Send,
-{
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.0).poll_write(cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.0).poll_flush(cx)
-    }
-
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.0).poll_shutdown(cx)
-    }
-}
+// 无需 tokio 适配
 
 impl Sink<Message> for WebSocket {
     type Error = SilentError;

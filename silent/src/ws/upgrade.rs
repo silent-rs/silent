@@ -4,8 +4,6 @@ use crate::prelude::PathParam;
 use crate::{Request, Result, SilentError};
 use futures::channel::oneshot;
 use http::Extensions;
-use hyper::upgrade;
-use hyper::upgrade::OnUpgrade;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -51,7 +49,6 @@ impl WebSocketParts {
 }
 
 pub enum UpgradedIo {
-    Hyper(upgrade::Upgraded),
     Futures(Box<dyn Connection + Send>),
 }
 
@@ -113,22 +110,7 @@ pub(crate) async fn on(mut req: Request) -> Result<Upgraded> {
             upgrade: UpgradedIo::Futures(stream),
         });
     }
-    // 回退到 Hyper 的 OnUpgrade
-    let on_upgrade = extensions
-        .remove::<OnUpgrade>()
-        .ok_or(SilentError::WsError(
-            "No OnUpgrade in Extensions".to_string(),
-        ))?;
-    let upgrade = on_upgrade.await?;
-    Ok(Upgraded {
-        head: WebSocketParts {
-            path_params,
-            params,
-            headers,
-            extensions,
-        },
-        upgrade: UpgradedIo::Hyper(upgrade),
-    })
+    Err(SilentError::WsError("No upgrade channel available".into()))
 }
 
 // AsyncIoTransport 注入的升级接收器类型

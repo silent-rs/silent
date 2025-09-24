@@ -13,6 +13,7 @@ use crate::SilentError;
 use crate::core::req_body::ReqBody;
 use crate::{Request, Response};
 
+#[allow(dead_code)]
 pub trait RequestAdapt {
     fn tran_to_request(self) -> Request;
 }
@@ -24,6 +25,7 @@ pub trait ResponseAdapt {
 
 #[allow(clippy::result_large_err)]
 #[cfg(feature = "cookie")]
+#[allow(dead_code)]
 fn get_cookie(req: &HyperRequest<ReqBody>) -> Result<CookieJar, SilentError> {
     let mut jar = CookieJar::new();
     if let Some(cookies) = req.headers().get(header::COOKIE) {

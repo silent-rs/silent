@@ -1,6 +1,13 @@
 [workspace]
 default-members = ["silent", "silent-openapi", "silent-openapi-macros"]
 members = ["silent", "silent-openapi", "silent-openapi-macros", "examples/*", "benchmark", "xtask"]
+exclude = [
+  "examples/grpc",
+  "examples/grpc_h2c",
+  "examples/grpc_streaming",
+  "examples/custom_tokio_listener",
+  "examples/custom_tokio_unix_listener",
+]
 resolver = "2"
 
 [workspace.package]

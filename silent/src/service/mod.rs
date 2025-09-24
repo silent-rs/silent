@@ -1,9 +1,9 @@
-use crate::core::listener::ListenersBuilder;
-mod hyper_service;
-mod serve;
+// Tokio 后端已移除，仅保留 async-io 接入
+// mod hyper_service;
+// mod serve;
 
 use crate::Configs;
-use crate::prelude::Listen;
+// Tokio Listener trait removed
 use crate::route::RouteService;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::{SCHEDULER, Scheduler, middleware::SchedulerMiddleware};
@@ -13,16 +13,14 @@ use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::sync::Arc;
-use tokio::signal;
 use transport::HttpTransport;
-use transport::HyperTokioTransport;
 // 使用运行时中立的 spawn，而不强依赖 tokio JoinSet
 
 #[cfg(feature = "tls")]
 type AsyncTlsAcceptor = futures_rustls::TlsAcceptor;
 
 pub struct Server {
-    listeners_builder: ListenersBuilder,
+    // tokio listeners removed
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     configs: Option<Configs>,
     transport: Arc<dyn HttpTransport>,
@@ -40,10 +38,10 @@ impl Default for Server {
 impl Server {
     pub fn new() -> Self {
         Self {
-            listeners_builder: ListenersBuilder::new(),
+            // tokio listeners removed
             shutdown_callback: None,
             configs: None,
-            transport: Arc::new(HyperTokioTransport::new()),
+            transport: Arc::new(crate::service::transport::AsyncIoTransport::new()),
             bound_addrs: Vec::new(),
             #[cfg(feature = "tls")]
             async_tls: None,
@@ -101,26 +99,17 @@ impl Server {
 
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
-        if self.transport.requires_tokio() {
-            self.listeners_builder.bind(addr);
-        }
         self.bound_addrs.push(addr);
         self
     }
 
     #[cfg(not(target_os = "windows"))]
     #[inline]
-    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.listeners_builder.bind_unix(path);
+    pub fn bind_unix<P: AsRef<Path>>(self, _path: P) -> Self {
         self
     }
 
     #[inline]
-    pub fn listen<T: Listen + Send + Sync + 'static>(mut self, listener: T) -> Self {
-        self.listeners_builder.add_listener(Box::new(listener));
-        self
-    }
-
     pub fn set_shutdown_callback<F>(mut self, callback: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -134,7 +123,6 @@ impl Server {
         S: RouteService,
     {
         let Self {
-            listeners_builder,
             ref shutdown_callback,
             configs,
             transport,
@@ -161,54 +149,7 @@ impl Server {
             let scheduler = SCHEDULER.clone();
             Scheduler::schedule(scheduler).await;
         });
-        if transport.requires_tokio() {
-            let mut listener = listeners_builder.listen().expect("failed to listen");
-            for addr in listener.local_addrs().iter() {
-                tracing::info!("listening on: http://{:?}", addr);
-            }
-            loop {
-                #[cfg(unix)]
-                let terminate = async {
-                    signal::unix::signal(signal::unix::SignalKind::terminate())
-                        .expect("failed to install signal handler")
-                        .recv()
-                        .await;
-                };
-
-                #[cfg(not(unix))]
-                let terminate = async {
-                    let _ = std::future::pending::<()>().await;
-                };
-                tokio::select! {
-                    _ = signal::ctrl_c() => {
-                        if let Some(callback) = shutdown_callback { callback() };
-                        break;
-                    }
-                    _ = terminate => {
-                        if let Some(callback) = shutdown_callback { callback() };
-                        break;
-                    }
-                    Some(s) = listener.accept() =>{
-                        match s{
-                            Ok((stream, peer_addr)) => {
-                                tracing::info!("Accepting from: {}", peer_addr);
-                                let routes = root_route.clone().convert_to_route_tree();
-                                let transport = transport.clone();
-                                let handler = std::sync::Arc::new(routes) as std::sync::Arc<dyn crate::handler::Handler>;
-                                crate::runtime::spawn(async move {
-                                    if let Err(err) = transport.serve(stream, peer_addr, handler).await {
-                                        tracing::error!("Failed to serve connection: {:?}", err);
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                tracing::error!(error = ?e, "accept connection failed");
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
+        {
             // async-io 接入
             let addrs = if bound_addrs.is_empty() {
                 vec!["127.0.0.1:8000".parse().unwrap()]
@@ -318,10 +259,6 @@ impl Server {
     where
         S: RouteService,
     {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(self.serve(service));
+        async_global_executor::block_on(self.serve(service));
     }
 }

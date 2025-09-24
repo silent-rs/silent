@@ -5,8 +5,6 @@ mod cookie;
 mod core;
 mod error;
 pub mod extractor;
-#[cfg(feature = "grpc")]
-mod grpc;
 mod handler;
 mod log;
 pub mod middleware;
@@ -38,8 +36,6 @@ pub use crate::configs::Configs;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
 pub use crate::core::{next::Next, request::Request, response::Response};
-#[cfg(feature = "grpc")]
-pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
 pub use error::SilentError;
 pub use error::SilentResult as Result;

@@ -4,19 +4,10 @@ pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "multipart")]
 pub use crate::core::form::{FilePart, FormData};
 pub use crate::core::{
-    listener::{Listen, Listener},
-    next::Next,
-    path_param::PathParam,
-    req_body::ReqBody,
-    request::Request,
-    res_body::ResBody,
-    res_body::full,
-    res_body::stream_body,
-    response::Response,
+    next::Next, path_param::PathParam, req_body::ReqBody, request::Request, res_body::ResBody,
+    res_body::full, res_body::stream_body, response::Response,
 };
 pub use crate::error::{SilentError, SilentResult as Result};
-#[cfg(feature = "grpc")]
-pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::handler::Handler;
 pub use crate::handler::HandlerWrapper;
 #[cfg(feature = "static")]

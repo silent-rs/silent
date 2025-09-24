@@ -23,7 +23,5 @@ pub trait HttpTransport: Send + Sync + 'static {
     }
 }
 
-mod hyper_tokio;
-pub use hyper_tokio::HyperTokioTransport;
 pub mod async_io;
 pub use async_io::AsyncIoTransport;

@@ -2,10 +2,8 @@ use async_trait::async_trait;
 use silent::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
-use tokio::net::TcpListener;
-
-#[tokio::main]
-async fn main() {
+fn main() {
+    async_global_executor::block_on(async move {
     logger::fmt().with_max_level(Level::INFO).init();
     let route = Route::new("").handler(
         Method::GET,
@@ -13,8 +11,8 @@ async fn main() {
             count: AtomicUsize::new(0),
         }),
     );
-    let listener: Listener = TcpListener::bind("127.0.0.1:8000").await.unwrap().into();
-    Server::new().listen(listener).serve(route).await;
+    Server::new().bind("127.0.0.1:8000".parse().unwrap()).serve(route).await;
+    });
 }
 
 struct CustomHandler {
