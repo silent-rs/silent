@@ -17,3 +17,6 @@ out/
 .cargo-home
 .pre-commit-cache
 *.sock
+.codex
+.specify
+.windsurf
