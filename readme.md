@@ -25,6 +25,8 @@ Silent 是一个简单的基于Hyper的Web框架，它的目标是提供一个�
 - [Crates.io](https://crates.io/crates/silent)
 - [API 文档](https://docs.rs/silent)
 - [GitWiki 文档](https://deepwiki.com/silent-rs/silent)
+- [ZRead 文档](https://zread.ai/silent-rs/silent)
+- [Cloudflare Worker 使用指南](docs/cloudflare-worker.md)
 
 ### 目标
 
@@ -33,14 +35,12 @@ Silent 是一个简单的基于Hyper的Web框架，它的目标是提供一个�
 - [x] 静态文件
 - [x] WebSocket
 - [x] 模板
-- [ ] 数据库
 - [x] 日志 (使用了tracing)
 - [x] 配置
 - [x] 会话
 - [x] 安全
-- [ ] 测试
-- [ ] 文档
 - [x] GRPC
+- [x] Cloudflare Worker
 
 ## security
 

@@ -156,6 +156,17 @@ impl Configs {
     pub fn len(&self) -> usize {
         self.map.as_ref().map_or(0, |map| map.len())
     }
+
+    /// 将另一个 Configs 的内容合并进来（浅拷贝 Arc 值）
+    #[inline]
+    pub fn extend_from(&mut self, other: &Configs) {
+        if let Some(other_map) = other.map.as_ref() {
+            let dst = self.map.get_or_insert_with(Box::default);
+            for (k, v) in other_map.iter() {
+                dst.insert(*k, v.clone());
+            }
+        }
+    }
 }
 
 impl fmt::Debug for Configs {

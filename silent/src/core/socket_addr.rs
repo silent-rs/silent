@@ -7,7 +7,7 @@ pub enum SocketAddr {
     Tcp(std::net::SocketAddr),
     #[cfg(feature = "tls")]
     TlsTcp(std::net::SocketAddr),
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     Unix(std::os::unix::net::SocketAddr),
 }
 
@@ -27,7 +27,7 @@ impl Debug for SocketAddr {
             SocketAddr::Tcp(addr) => write!(f, "http://{addr}"),
             #[cfg(feature = "tls")]
             SocketAddr::TlsTcp(addr) => write!(f, "https://{addr}"),
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(unix)]
             SocketAddr::Unix(addr) => write!(f, "UnixSocketAddr({addr:?})"),
         }
     }
@@ -40,7 +40,7 @@ impl Display for SocketAddr {
             SocketAddr::Tcp(addr) => write!(f, "{addr}"),
             #[cfg(feature = "tls")]
             SocketAddr::TlsTcp(addr) => write!(f, "{addr}"),
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(unix)]
             SocketAddr::Unix(addr) => {
                 write!(f, "{:?}", addr.as_pathname())
             }
@@ -54,7 +54,7 @@ impl From<std::net::SocketAddr> for SocketAddr {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(unix)]
 impl From<std::os::unix::net::SocketAddr> for SocketAddr {
     fn from(addr: std::os::unix::net::SocketAddr) -> Self {
         SocketAddr::Unix(addr)
@@ -64,7 +64,7 @@ impl From<std::os::unix::net::SocketAddr> for SocketAddr {
 impl FromStr for SocketAddr {
     type Err = std::io::Error;
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     fn from_str(s: &str) -> Result<Self> {
         if let Ok(addr) = s.parse::<std::net::SocketAddr>() {
             Ok(SocketAddr::Tcp(addr))
@@ -77,7 +77,7 @@ impl FromStr for SocketAddr {
             ))
         }
     }
-    #[cfg(target_os = "windows")]
+    #[cfg(not(unix))]
     fn from_str(s: &str) -> Result<Self> {
         if let Ok(addr) = s.parse::<std::net::SocketAddr>() {
             Ok(SocketAddr::Tcp(addr))
@@ -101,7 +101,7 @@ mod tests {
         assert_eq!(format!("{socket_addr}"), "127.0.0.1:8080");
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(unix)]
     #[test]
     fn test_unix_socket_addr() {
         use std::path::Path;

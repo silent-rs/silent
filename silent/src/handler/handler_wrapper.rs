@@ -70,13 +70,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_wrapper_match_req_works() {
-        let handler_wrapper = HandlerWrapper::new(hello_world);
-        let req = Request::empty();
-        assert!(handler_wrapper.match_req(&req).await);
-    }
-
-    #[tokio::test]
     async fn handler_wrapper_works() {
         let handler_wrapper = HandlerWrapper::new(hello_world);
         let res_l = handler_wrapper

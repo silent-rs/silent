@@ -6,6 +6,12 @@ categories = [
     "network-programming",
     "asynchronous",
 ]
+categories = [
+    "web-programming::http-server",
+    "web-programming::websocket",
+    "network-programming",
+    "asynchronous",
+]
 description = """
 Silent Web Framework
 """
@@ -22,7 +28,7 @@ version.workspace = true
 [features]
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
-default = ["server"]
+default = ["server", "test"]
 full = [
     "admin",
     "server",
@@ -36,18 +42,31 @@ full = [
     "template",
     "test",
     "scheduler",
+    "grpc",
     "tls",
 ]
-grpc = []
-multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
+multipart = [
+    "tokio/fs",
+    "dep:multer",
+    "dep:multimap",
+    "dep:tempfile",
+    "dep:textnonce",
+]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["dep:hyper-util"]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project"]
 static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
-upgrade = ["dep:hyper-util"]
-#wasi = ["tokio/sync"]
+upgrade = ["dep:tokio-tungstenite"]
+worker = ["dep:worker", "tokio/sync"]
+grpc = [
+    "upgrade",
+    "dep:tonic",
+    "dep:pin-project-lite",
+    "dep:pin-project",
+    "dep:tokio-stream",
+]
 scheduler = ["dep:cron"]
 test = []
 tls = ["dep:futures-rustls"]
@@ -64,10 +83,7 @@ http = "1"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = [
-    "server-auto",
-    "tokio",
-], optional = true }
+hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 mime = "0.3"
 futures = "0.3"
 pin-project = { version = "1", optional = true }
@@ -78,6 +94,7 @@ serde_json = "1"
 thiserror = "2"
 async-tungstenite = "0.31"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }

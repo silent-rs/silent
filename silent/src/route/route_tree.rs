@@ -164,8 +164,8 @@ impl RouteTree {
         last_path: String,
     ) -> crate::error::SilentResult<Response> {
         // 当前结点已被匹配，合并配置
-        if let Some(configs) = self.get_configs().cloned() {
-            req.configs_mut().insert(configs);
+        if let Some(configs) = self.get_configs() {
+            req.configs_mut().extend_from(configs);
         }
 
         // 构建“继续向下匹配”的端点处理器，并按注册顺序包裹当前结点的中间件，形成真正的洋葱模型
