@@ -13,6 +13,7 @@ pub enum SocketAddr {
 
 impl SocketAddr {
     #[cfg(feature = "tls")]
+    #[allow(dead_code)]
     pub(crate) fn tls(self) -> Result<Self> {
         match self {
             SocketAddr::Tcp(addr) => Ok(SocketAddr::TlsTcp(addr)),

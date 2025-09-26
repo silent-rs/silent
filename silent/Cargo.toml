@@ -6,23 +6,6 @@ categories = [
     "network-programming",
     "asynchronous",
 ]
-categories = [
-    "web-programming::http-server",
-    "web-programming::websocket",
-    "network-programming",
-    "asynchronous",
-]
-categories = [
-    
-    "web-programming::http-server",
-   
-    "web-programming::websocket",
-   
-    "network-programming",
-   
-    "asynchronous",
-,
-]
 description = """
 Silent Web Framework
 """
@@ -65,19 +48,6 @@ static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
 upgrade = []
 worker = ["dep:worker", "tokio/sync"]
-grpc = [
-    
-    "upgrade",
-   
-    "dep:tonic",
-   
-    "dep:pin-project-lite",
-   
-    "dep:pin-project",
-   
-    "dep:tokio-stream",
-,
-]
 scheduler = ["dep:cron"]
 test = []
 tls = ["dep:futures-rustls"]
@@ -108,7 +78,6 @@ serde_json = "1"
 thiserror = "2"
 async-tungstenite = "0.31"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }
@@ -153,6 +122,9 @@ rsa = { version = "0.9", optional = true }
 
 futures-rustls = { version = "0.26", optional = true, default-features = true }
 rustls-pki-types = { version = "1", optional = true }
+
+# Cloudflare Workers SDK (only used when feature = "worker" on wasm32)
+worker = { version = "0.6.6", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

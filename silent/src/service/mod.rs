@@ -123,12 +123,12 @@ impl Server {
         S: RouteService,
     {
         let Self {
-            ref shutdown_callback,
+            shutdown_callback: _,
             configs,
             transport,
             bound_addrs,
             #[cfg(feature = "tls")]
-            async_tls,
+                async_tls: _,
         } = self;
 
         let mut root_route = service.route();
@@ -176,7 +176,7 @@ impl Server {
             let async_listener = listeners.remove(0);
 
             // 优雅退出：监听 Ctrl-C / SIGTERM
-            let shutdown = {
+            let _shutdown = {
                 Box::pin(async move {
                     let _ = async_ctrlc::CtrlC::new()
                         .expect("install ctrl-c handler failed")
@@ -184,7 +184,7 @@ impl Server {
                 })
                     as core::pin::Pin<Box<dyn core::future::Future<Output = ()> + Send>>
             };
-            futures_util::pin_mut!(shutdown);
+            futures_util::pin_mut!(_shutdown);
 
             loop {
                 let (stream, peer) = async_listener.accept().await.expect("accept failed");

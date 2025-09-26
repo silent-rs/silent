@@ -44,10 +44,6 @@ impl Handler for HashMap<Method, Arc<dyn Handler>> {
 // 让 Arc<dyn Handler> 也可直接作为 Handler 使用（转发到底层实现）
 #[async_trait]
 impl Handler for Arc<dyn Handler> {
-    async fn match_req(&self, req: &Request) -> bool {
-        (**self).match_req(req).await
-    }
-
     async fn call(&self, req: Request) -> Result<Response> {
         (**self).call(req).await
     }
