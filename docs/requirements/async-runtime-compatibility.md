@@ -14,7 +14,7 @@
 - 保留 Hyper/Tokio 兼容层作为可选特性，默认开启以避免破坏现有用户空间，同时允许显式关闭时实现完全无 Tokio 依赖的构建。
 
 ## 当前迭代范围（2025-02）
-- 拆分 `server` 特性，将 Hyper/Tokio 后端封装到独立的 `hyper-server`（暂名）特性，默认开启但可显式关闭。
+- 拆分 `server` 特性，将 Hyper/Tokio 后端封装到独立的 `hyper-server` 特性；默认仅启用 async-io `server`，Tokio 后端需显式 opt-in。
 - 清理核心模块对 `tokio::` 的直接引用，改用条件编译落在 `hyper-server` 特性下。
 - 为 gRPC / Cloudflare Worker 等依赖 Tokio 的扩展特性增加 `hyper-server` 依赖约束，防止在纯 async-io 构建时误启用。
 - 补充运行时中立文档，说明禁用 `hyper-server` 时的使用姿势与限制。

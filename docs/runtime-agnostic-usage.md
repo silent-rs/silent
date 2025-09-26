@@ -7,10 +7,10 @@
 - 框架内部已统一常用能力：spawn、timeout、定时器、RwLock、mpsc 通道。
 - `hyper-server` 特性默认开启，提供原有 Hyper + Tokio 后端；若禁用，可获得完全无 Tokio 依赖的 async-io 服务器实现（目前为实验状态）。
 
-## 特性与依赖建议
-- 默认：`default-features = true`（等价于启用 `server` + `hyper-server`）。适合保持与历史版本一致的行为。
-- 纯 async-io：`default-features = false`，显式启用 `features = ["server"]`。当前 HTTP 传输为实验实现，暂不支持 HTTP/2、WebSocket 升级。
-- gRPC / Cloudflare Worker：需要保留 `hyper-server`（或显式启用）；这些扩展依赖原有 Tokio/H2 栈。
+- 默认：`default-features = true` 仅启用 `server`（async-io 后端）。无需额外配置即可获得运行时中立的实现。
+- Tokio/Hyper 后端：显式启用 `features = ["hyper-server"]`，或在需要完整功能时使用 `features = ["full"]`。
+- 纯 async-io：`default-features = true` 已满足；若需要更瘦身，可在 `default-features = false` 后手动开启 `features = ["server"]`。
+- gRPC / Cloudflare Worker：仍需显式启用 `hyper-server`（或 `full`）；这些扩展依赖 Tokio/H2 栈。
 - 通用依赖：`async-compat`（当在非 Tokio 运行时中运行启用了 `hyper-server` 的构建时）
 - Tokio：`tokio = { version = "1", features = ["full"] }`
 - async-std：`async-std = { version = "1", features = ["attributes"] }`
