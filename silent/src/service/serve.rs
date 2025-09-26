@@ -1,3 +1,5 @@
+#![cfg(feature = "hyper-server")]
+
 #[allow(unused_imports)]
 use crate::core::connection::Connection;
 use crate::core::socket_addr::SocketAddr;

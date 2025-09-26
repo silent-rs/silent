@@ -22,10 +22,11 @@ version.workspace = true
 [features]
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
-default = ["server"]
+default = ["server", "hyper-server"]
 full = [
     "admin",
     "server",
+    "hyper-server",
     "multipart",
     "upgrade",
     "sse",
@@ -38,16 +39,17 @@ full = [
     "scheduler",
     "tls",
 ]
-grpc = []
+grpc = ["hyper-server"]
 multipart = ["dep:multer", "dep:multimap", "dep:tempfile", "dep:textnonce"]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
-server = ["dep:hyper-util"]
+server = ["dep:httparse", "dep:futures-timer"]
+hyper-server = ["server", "dep:hyper-util", "dep:tokio"]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project"]
 static = ["async-fs", "dep:urlencoding"]
 template = ["dep:tera"]
 upgrade = []
-worker = ["dep:worker", "tokio/sync"]
+worker = ["dep:worker"]
 scheduler = ["dep:cron"]
 test = []
 tls = ["dep:futures-rustls"]
@@ -59,6 +61,7 @@ async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = "0.3"
+futures-timer = { version = "3", optional = true }
 headers = "0.4"
 http = "1"
 http-body = "1"
@@ -89,6 +92,8 @@ memchr = "2"
 once_cell = { version = "1", default-features = true }
 async-fs = { version = "2", optional = true }
 async-ctrlc = "1.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"], optional = true }
+httparse = { version = "1.9", optional = true }
 
 # Scheduler
 cron = { version = "0.15", optional = true }

@@ -1,14 +1,17 @@
 # Silent 运行时中立使用指南（用户执行的 runtime 决定）
 
-本文档说明在不新增 feature 的前提下，如何在不同异步运行时下使用 Silent。
+本文档说明在不同异步运行时下使用 Silent 时的特性组合与启动方式。
 
 ## 要点
 - 运行时选择由“用户如何启动程序”决定（Tokio/async-std/smol 等）。
 - 框架内部已统一常用能力：spawn、timeout、定时器、RwLock、mpsc 通道。
-- 当前 HTTP 传输基于 Hyper + Tokio 后端；非 Tokio 场景可通过 `async-compat` 适配。
+- `hyper-server` 特性默认开启，提供原有 Hyper + Tokio 后端；若禁用，可获得完全无 Tokio 依赖的 async-io 服务器实现（目前为实验状态）。
 
-## 依赖建议
-- 通用：`async-compat`（当在非 Tokio 运行时中运行需要 Tokio 后端的代码时）
+## 特性与依赖建议
+- 默认：`default-features = true`（等价于启用 `server` + `hyper-server`）。适合保持与历史版本一致的行为。
+- 纯 async-io：`default-features = false`，显式启用 `features = ["server"]`。当前 HTTP 传输为实验实现，暂不支持 HTTP/2、WebSocket 升级。
+- gRPC / Cloudflare Worker：需要保留 `hyper-server`（或显式启用）；这些扩展依赖原有 Tokio/H2 栈。
+- 通用依赖：`async-compat`（当在非 Tokio 运行时中运行启用了 `hyper-server` 的构建时）
 - Tokio：`tokio = { version = "1", features = ["full"] }`
 - async-std：`async-std = { version = "1", features = ["attributes"] }`
 - smol：`smol = "2"`, `async-global-executor = "2"`
@@ -54,8 +57,9 @@ fn main() {
 ```
 
 ## 说明与限制
-- 传输层：当前仍使用 Hyper 的 Tokio I/O 适配（TokioIo）。非 Tokio 环境通过 `async-compat` 可正常运行；后续版本将继续推进更中立的传输层抽象。
-- 信号处理：默认依赖 tokio 的 ctrl_c/terminate 监听；非 Tokio 环境同样建议通过 `async-compat` 运行。
+- `hyper-server` 开启时：仍使用 Hyper 的 Tokio I/O 适配（TokioIo）。非 Tokio 环境通过 `async-compat` 可正常运行。
+- `hyper-server` 关闭时：提供基础 HTTP/1.1 支持，含 chunked 请求解码与 keep-alive（默认 32 次流水线 / 15 秒超时），暂不支持 WebSocket 升级、HTTP/2、TLS；该路径仍在迭代中，建议先行验证再用于生产。
+- 信号处理：默认使用 `async-ctrlc`，与运行时无关。
 - WebSocket/SSE/中间件/Session：已统一为运行时中立实现，不依赖 tokio 同步原语。
 
 ## 常见问题

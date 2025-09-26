@@ -1,3 +1,5 @@
+#![cfg(feature = "hyper-server")]
+
 use std::future::Future;
 use std::pin::Pin;
 

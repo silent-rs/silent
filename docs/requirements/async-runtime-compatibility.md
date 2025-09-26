@@ -11,6 +11,14 @@
 - 在不破坏核心 API 的前提下，隐藏具体 runtime 类型，稳定公共接口。
 - 不再新增 feature 控制运行时选择，由“用户所使用/启动的运行时”在执行时确定。
 - 对关键能力（网络、定时器、任务调度、信号、通道、同步）给出统一抽象。
+- 保留 Hyper/Tokio 兼容层作为可选特性，默认开启以避免破坏现有用户空间，同时允许显式关闭时实现完全无 Tokio 依赖的构建。
+
+## 当前迭代范围（2025-02）
+- 拆分 `server` 特性，将 Hyper/Tokio 后端封装到独立的 `hyper-server`（暂名）特性，默认开启但可显式关闭。
+- 清理核心模块对 `tokio::` 的直接引用，改用条件编译落在 `hyper-server` 特性下。
+- 为 gRPC / Cloudflare Worker 等依赖 Tokio 的扩展特性增加 `hyper-server` 依赖约束，防止在纯 async-io 构建时误启用。
+- 补充运行时中立文档，说明禁用 `hyper-server` 时的使用姿势与限制。
+- 在 async-io 传输后端中实现基础 HTTP/1.1 请求解析（含 chunked 解码、keep-alive 连接管理），为完全无 Tokio 构建打底。
 
 ## 不在本次范围
 - 不引入 nightly/不稳定特性。
