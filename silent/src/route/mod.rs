@@ -116,7 +116,7 @@ impl Route {
     }
     fn append_route(mut self, route: Route) -> Self {
         // 不再需要扩展中间件，因为我们移除了中间件传播机制
-        self.children.push(route);
+        Self::merge_child(&mut self.children, route);
         self
     }
     fn get_append_real_route(&mut self, create_path: &str) -> &mut Self {
@@ -137,14 +137,16 @@ impl Route {
     pub fn append<R: RouterAdapt>(mut self, route: R) -> Self {
         let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
-        real_route.children.push(route);
+        Self::merge_child(&mut real_route.children, route);
         self
     }
     pub fn extend<R: RouterAdapt>(&mut self, routes: Vec<R>) {
         let routes: Vec<Route> = routes.into_iter().map(|r| r.into_router()).collect();
 
         let real_route = self.get_append_real_route(&self.create_path.clone());
-        real_route.children.extend(routes);
+        for route in routes {
+            Self::merge_child(&mut real_route.children, route);
+        }
     }
     pub fn hook(mut self, handler: impl MiddleWareHandler + 'static) -> Self {
         self.middlewares.push(Arc::new(handler));
@@ -166,7 +168,7 @@ impl Route {
     pub fn push<R: RouterAdapt>(&mut self, route: R) {
         let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
-        real_route.children.push(route);
+        Self::merge_child(&mut real_route.children, route);
     }
 
     pub fn hook_first(&mut self, handler: impl MiddleWareHandler + 'static) {
@@ -209,6 +211,54 @@ impl Route {
         let handler = crate::templates::TemplateMiddleware::new(dir.into().as_str());
         self.middlewares.push(Arc::new(handler));
         self
+    }
+}
+
+impl Route {
+    fn merge_child(children: &mut Vec<Route>, route: Route) {
+        if let Some(existing) = children
+            .iter_mut()
+            .find(|child| child.path == route.path && child.special_match == route.special_match)
+        {
+            existing.merge_from(route);
+        } else {
+            children.push(route);
+        }
+    }
+
+    fn merge_from(&mut self, mut other: Route) {
+        for (method, handler) in other.handler.drain() {
+            self.handler.entry(method).or_insert(handler);
+        }
+
+        let middlewares = std::mem::take(&mut other.middlewares);
+        if !middlewares.is_empty() {
+            self.middlewares.extend(middlewares);
+        }
+
+        let children = std::mem::take(&mut other.children);
+        for child in children {
+            Self::merge_child(&mut self.children, child);
+        }
+
+        if let Some(other_configs) = other.configs {
+            if let Some(configs) = self.configs.as_mut() {
+                configs.extend_from(&other_configs);
+            } else {
+                self.configs = Some(other_configs);
+            }
+        }
+
+        debug_assert!(
+            self.special_match == other.special_match,
+            "尝试合并特殊匹配标记不一致的路由"
+        );
+        self.special_match |= other.special_match;
+
+        #[cfg(feature = "session")]
+        {
+            self.session_set |= other.session_set;
+        }
     }
 }
 

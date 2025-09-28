@@ -128,6 +128,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_static_hash_mode() {
+        let path = "test_static";
+        create_static(path);
+        let route = Route::new("test").with_static(path);
+        let route = Route::new_root()
+            .append(
+                Route::new("test").get(async move |_req: Request| Ok("Hello, world!".to_string())),
+            )
+            .append(route)
+            .with_static(path);
+        let mut req = Request::default();
+        *req.uri_mut() = "/test/#/hello?name=hubert".parse().unwrap();
+        let mut res = route.call(req).await.unwrap();
+        clean_static(path);
+        assert_eq!(res.status, StatusCode::OK);
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from(CONTENT)
+        );
+    }
+
+    #[tokio::test]
     async fn test_static_default() {
         let path = "test_static_default";
         create_static(path);
