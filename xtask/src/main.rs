@@ -124,8 +124,7 @@ fn run_bench(
         return Ok(());
     }
 
-    // Give the server a moment to boot
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    wait_until_ready(port, std::time::Duration::from_secs(60))?;
 
     // Prepare bombardier target URL
     let target = match scenario {
@@ -249,6 +248,33 @@ fn run_bench(
     let _ = child.wait();
 
     Ok(())
+}
+
+fn wait_until_ready(port: u16, timeout: std::time::Duration) -> io::Result<()> {
+    use std::net::TcpStream;
+    use std::time::{Duration, Instant};
+
+    let addr = format!("127.0.0.1:{}", port);
+    let start = Instant::now();
+    let mut backoff = Duration::from_millis(50);
+    let max_backoff = Duration::from_millis(500);
+
+    while start.elapsed() < timeout {
+        match TcpStream::connect(&addr) {
+            Ok(_) => {
+                return Ok(());
+            }
+            Err(_) => {
+                std::thread::sleep(backoff);
+                backoff = (backoff * 2).min(max_backoff);
+            }
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::TimedOut,
+        format!("服务器在 {:?} 内未在 {} 上就绪", timeout, addr),
+    ))
 }
 
 fn prune_bombardier_json(

@@ -129,7 +129,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_hash_mode() {
-        let path = "test_static";
+        let path = "test_static_hash_mode";
         create_static(path);
         let route = Route::new("test").with_static(path);
         let route = Route::new_root()
