@@ -17,7 +17,7 @@ pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::handler::Handler;
 pub use crate::handler::HandlerWrapper;
 #[cfg(feature = "static")]
-pub use crate::handler::static_handler;
+pub use crate::handler::{StaticOptions, static_handler, static_handler_with_options};
 pub use crate::log::*;
 pub use crate::middleware::MiddleWareHandler;
 pub use crate::route::handler_append::{HandlerAppend, HandlerGetter, IntoRouteHandler};

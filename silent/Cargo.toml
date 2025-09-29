@@ -50,7 +50,7 @@ security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
 server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project", "dep:tokio-stream"]
-static = ["tokio/fs", "dep:urlencoding"]
+static = ["tokio/fs", "dep:urlencoding", "dep:async-compression"]
 template = ["dep:tera"]
 upgrade = ["dep:tokio-tungstenite"]
 worker = ["dep:worker", "tokio/sync"]
@@ -94,6 +94,7 @@ tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }
 uuid = "1.17"
+async-compression = { version = "0.4", optional = true, features = ["tokio", "brotli", "gzip"] }
 
 # Scheduler
 cron = { version = "0.15", optional = true }
