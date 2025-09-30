@@ -16,26 +16,32 @@ pub(crate) enum NextInstance {
 }
 
 impl Next {
-    pub(crate) fn build(
+    pub(crate) fn build_from_slice(
         endpoint: Arc<dyn Handler>,
-        mut middlewares: Vec<Arc<dyn MiddleWareHandler>>,
+        middlewares: &[Arc<dyn MiddleWareHandler>],
     ) -> Self {
-        let end_point = Next {
+        let mut next = Next {
             inner: NextInstance::EndPoint(endpoint),
             next: None,
         };
         if middlewares.is_empty() {
-            end_point
-        } else {
-            let next = Next {
-                inner: NextInstance::Middleware(middlewares.pop().unwrap()),
-                next: Some(Arc::new(end_point)),
-            };
-            middlewares.into_iter().fold(next, |next, mw| Next {
-                inner: NextInstance::Middleware(mw),
-                next: Some(Arc::new(next)),
-            })
+            return next;
         }
+        for mw in middlewares.iter().rev() {
+            next = Next {
+                inner: NextInstance::Middleware(Arc::clone(mw)),
+                next: Some(Arc::new(next)),
+            };
+        }
+        next
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn build(
+        endpoint: Arc<dyn Handler>,
+        middlewares: Vec<Arc<dyn MiddleWareHandler>>,
+    ) -> Self {
+        Self::build_from_slice(endpoint, middlewares.as_slice())
     }
 }
 

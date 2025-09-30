@@ -94,7 +94,7 @@ mod tests {
         );
         req.set_path_params(
             "name".to_owned(),
-            crate::core::path_param::PathParam::String("bob".into()),
+            crate::core::path_param::PathParam::from("bob".to_string()),
         );
         #[derive(Deserialize)]
         struct U {
