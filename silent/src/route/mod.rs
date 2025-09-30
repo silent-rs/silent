@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::handler::Handler;
 #[cfg(feature = "static")]
-use crate::handler::static_handler;
+use crate::handler::{StaticOptions, static_handler_with_options};
 use crate::middleware::MiddleWareHandler;
 #[cfg(feature = "static")]
 use crate::prelude::HandlerGetter;
@@ -155,14 +155,23 @@ impl Route {
 
     #[cfg(feature = "static")]
     pub fn with_static(self, path: &str) -> Self {
-        self.append(
-            Route::new("<path:**>").insert_handler(Method::GET, Arc::new(static_handler(path))),
-        )
+        self.with_static_options(path, StaticOptions::default())
+    }
+
+    #[cfg(feature = "static")]
+    pub fn with_static_options(self, path: &str, options: StaticOptions) -> Self {
+        let handler = static_handler_with_options(path, options);
+        self.append(Route::new("<path:**>").insert_handler(Method::GET, Arc::new(handler)))
     }
 
     #[cfg(feature = "static")]
     pub fn with_static_in_url(self, url: &str, path: &str) -> Self {
-        self.append(Route::new(url).with_static(path))
+        self.with_static_in_url_options(url, path, StaticOptions::default())
+    }
+
+    #[cfg(feature = "static")]
+    pub fn with_static_in_url_options(self, url: &str, path: &str, options: StaticOptions) -> Self {
+        self.append(Route::new(url).with_static_options(path, options))
     }
 
     pub fn push<R: RouterAdapt>(&mut self, route: R) {

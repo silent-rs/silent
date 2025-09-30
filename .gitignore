@@ -20,3 +20,6 @@ out/
 .codex
 .specify
 .windsurf
+!/silent/src/handler/static
+static-advanced/
+docs/requirements/
