@@ -1,3 +1,4 @@
+use crate::route::route_tree::parse_special_seg;
 use crate::route::{Route, RouteTree};
 
 pub trait RouteService {
@@ -18,8 +19,8 @@ impl Route {
         let handler = self.handler;
         let middlewares = self.middlewares;
         let configs = self.configs;
-        let special_match = self.special_match;
         let path = self.path;
+        let segment = parse_special_seg(path);
         let has_handler = !handler.is_empty();
 
         // 递归处理子路由
@@ -33,9 +34,12 @@ impl Route {
             handler,
             middlewares,
             configs,
-            special_match,
-            path,
+            segment,
             has_handler,
         }
+    }
+
+    pub fn into_route_tree(self) -> RouteTree {
+        self.convert_to_route_tree()
     }
 }
