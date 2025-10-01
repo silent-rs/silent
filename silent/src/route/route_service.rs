@@ -1,6 +1,8 @@
 use crate::middleware::MiddleWareHandler;
 use crate::route::route_tree::parse_special_seg;
 use crate::route::{Route, RouteTree};
+use smallvec::SmallVec;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 pub trait RouteService {
@@ -52,10 +54,22 @@ impl Route {
             .map(|child| child.into_route_tree_with_chain(current_middlewares.clone()))
             .collect();
 
+        let mut static_children = HashMap::new();
+        let mut dynamic_children = SmallVec::<[usize; 4]>::new();
+        for (idx, child) in children.iter().enumerate() {
+            if let Some(key) = child.segment.as_static_key() {
+                static_children.insert(key.into(), idx);
+            } else {
+                dynamic_children.push(idx);
+            }
+        }
+
         RouteTree {
             children,
             handler,
             middlewares: current_middlewares,
+            static_children,
+            dynamic_children,
             middleware_start: parent_len,
             configs,
             segment,

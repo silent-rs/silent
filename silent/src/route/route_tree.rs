@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use http::StatusCode;
 use memchr::memchr;
+use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -29,6 +30,14 @@ pub(crate) enum SpecialSeg {
 impl SpecialSeg {
     fn is_full_path(&self) -> bool {
         matches!(self, SpecialSeg::FullPath { .. })
+    }
+
+    pub(crate) fn as_static_key(&self) -> Option<&str> {
+        if let SpecialSeg::Static(value) = self {
+            Some(value.as_str())
+        } else {
+            None
+        }
     }
 }
 
@@ -93,6 +102,8 @@ pub struct RouteTree {
     pub(crate) children: Vec<RouteTree>,
     pub(crate) handler: HashMap<Method, Arc<dyn Handler>>,
     pub(crate) middlewares: Arc<[Arc<dyn MiddleWareHandler>]>,
+    pub(crate) static_children: HashMap<Box<str>, usize>,
+    pub(crate) dynamic_children: SmallVec<[usize; 4]>,
     pub(crate) middleware_start: usize,
     pub(crate) configs: Option<crate::Configs>,
     pub(crate) segment: SpecialSeg,
@@ -274,36 +285,20 @@ impl RouteTree {
         let full_path = path.as_ref();
         let remain_slice = &full_path[offset..];
 
+        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
         if remain_slice.is_empty() {
-            for child in &self.children {
-                if let Some(candidate) = child.call_path_only(remain_slice, full_path) {
-                    let next_offset = remain_offset(full_path, candidate.remain);
-                    if !child.path_can_resolve(next_offset, full_path) {
-                        continue;
-                    }
-                    let mut real_req = req;
-                    if !child.bind_params(&mut real_req, &candidate, &path) {
-                        return Err(SilentError::business_error(
-                            StatusCode::NOT_FOUND,
-                            "not found".to_string(),
-                        ));
-                    }
-                    return child
-                        .call_with_path(real_req, next_offset, Arc::clone(&path))
-                        .await;
-                }
+            candidate_indices.extend(self.static_children.values().copied());
+            candidate_indices.extend(self.dynamic_children.iter().copied());
+        } else {
+            let (segment, _) = strip_one_segment(remain_slice);
+            if let Some(&idx) = self.static_children.get(segment) {
+                candidate_indices.push(idx);
             }
-            return if self.has_handler {
-                self.handler.call(req).await
-            } else {
-                Err(SilentError::business_error(
-                    StatusCode::NOT_FOUND,
-                    "not found".to_string(),
-                ))
-            };
+            candidate_indices.extend(self.dynamic_children.iter().copied());
         }
 
-        for child in &self.children {
+        for idx in candidate_indices {
+            let child = &self.children[idx];
             if let Some(candidate) = child.call_path_only(remain_slice, full_path) {
                 let next_offset = remain_offset(full_path, candidate.remain);
                 if !child.path_can_resolve(next_offset, full_path) {
@@ -322,6 +317,17 @@ impl RouteTree {
             }
         }
 
+        if remain_slice.is_empty() {
+            return if self.has_handler {
+                self.handler.call(req).await
+            } else {
+                Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ))
+            };
+        }
+
         if self.segment.is_full_path() && self.has_handler {
             return self.handler.call(req).await;
         }
@@ -334,20 +340,20 @@ impl RouteTree {
 
     fn path_can_resolve(&self, offset: usize, full_path: &str) -> bool {
         let remain = &full_path[offset..];
-
+        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
         if remain.is_empty() {
-            for child in &self.children {
-                if let Some(candidate) = child.call_path_only(remain, full_path) {
-                    let next_offset = remain_offset(full_path, candidate.remain);
-                    if child.path_can_resolve(next_offset, full_path) {
-                        return true;
-                    }
-                }
+            candidate_indices.extend(self.static_children.values().copied());
+            candidate_indices.extend(self.dynamic_children.iter().copied());
+        } else {
+            let (segment, _) = strip_one_segment(remain);
+            if let Some(&idx) = self.static_children.get(segment) {
+                candidate_indices.push(idx);
             }
-            return true;
+            candidate_indices.extend(self.dynamic_children.iter().copied());
         }
 
-        for child in &self.children {
+        for idx in candidate_indices {
+            let child = &self.children[idx];
             if let Some(candidate) = child.call_path_only(remain, full_path) {
                 let next_offset = remain_offset(full_path, candidate.remain);
                 if child.path_can_resolve(next_offset, full_path) {
@@ -356,7 +362,7 @@ impl RouteTree {
             }
         }
 
-        self.segment.is_full_path()
+        remain.is_empty() || self.segment.is_full_path()
     }
 }
 

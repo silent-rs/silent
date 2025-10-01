@@ -1,5 +1,7 @@
 use super::Route;
+use crate::error::SilentResult;
 use crate::extractor::{FromRequest, handler_from_extractor, handler_from_extractor_with_request};
+use crate::handler::HandlerFn;
 use crate::{Handler, HandlerWrapper, Method, Request, Response, Result};
 use std::collections::HashMap;
 use std::future::Future;
@@ -99,14 +101,44 @@ pub trait IntoRouteHandler<Args> {
     fn into_handler(self) -> std::sync::Arc<dyn Handler>;
 }
 
-impl<F, T, Fut> IntoRouteHandler<crate::Request> for F
+trait RouteDispatch: Sized {
+    fn into_arc_handler<F, Fut>(handler: F) -> std::sync::Arc<dyn Handler>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Self> + Send + 'static;
+}
+
+impl RouteDispatch for Response {
+    fn into_arc_handler<F, Fut>(handler: F) -> std::sync::Arc<dyn Handler>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Self> + Send + 'static,
+    {
+        HandlerFn::new(handler).arc()
+    }
+}
+
+impl<T> RouteDispatch for SilentResult<T>
 where
-    Fut: Future<Output = Result<T>> + Send + 'static,
+    T: Into<Response> + Send + 'static,
+{
+    fn into_arc_handler<F, Fut>(handler: F) -> std::sync::Arc<dyn Handler>
+    where
+        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Self> + Send + 'static,
+    {
+        std::sync::Arc::new(HandlerWrapper::new(handler))
+    }
+}
+
+impl<F, Fut> IntoRouteHandler<crate::Request> for F
+where
     F: Fn(Request) -> Fut + Send + Sync + 'static,
-    T: Into<Response>,
+    Fut: Future + Send + 'static,
+    Fut::Output: RouteDispatch,
 {
     fn into_handler(self) -> std::sync::Arc<dyn Handler> {
-        std::sync::Arc::new(HandlerWrapper::new(self))
+        <Fut::Output as RouteDispatch>::into_arc_handler(self)
     }
 }
 

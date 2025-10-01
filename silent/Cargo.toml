@@ -80,6 +80,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 memchr = "2.7"
 mime = "0.3"
+smallvec = "1.13"
 pin-project = { version = "1", optional = true }
 pin-project-lite = { version = "0.2", optional = true }
 serde = { version = "1", features = ["derive"] }
