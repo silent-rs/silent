@@ -47,9 +47,7 @@ pub use crate::service::connection::Connection;
 #[cfg(feature = "server")]
 pub use crate::service::listener::{Listen, Listener, Listeners, ListenersBuilder};
 #[cfg(feature = "server")]
-pub use crate::service::{
-    BoxError, BoxedConnection, ConnectionFuture, ConnectionService, NetServer, Server,
-};
+pub use crate::service::{BoxError, BoxedConnection, ConnectionFuture, ConnectionService, Server};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
 pub use handler::Handler;

@@ -4,7 +4,7 @@ fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
     let mut configs = Configs::default();
     configs.insert(1i32);
-    let route = Route::new("")
+    let mut route = Route::new("")
         .get(|req: Request| async move {
             let num = req.get_config::<i32>()?;
             Ok(*num)
@@ -17,5 +17,6 @@ fn main() {
             let num: &i32 = req.get_config_uncheck();
             Ok(*num)
         }));
-    Server::new().with_configs(configs).run(route);
+    route.set_configs(Some(configs));
+    Server::new().run(route);
 }
