@@ -1,8 +1,9 @@
-use super::socket_addr::SocketAddr;
+use super::connection::Connection;
 use super::stream::Stream;
-use crate::core::connection::Connection;
+use crate::core::socket_addr::SocketAddr;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
+use std::future::Future;
 use std::io::Result;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
@@ -129,7 +130,8 @@ impl Listen for TlsListener {
     }
 }
 
-pub(crate) struct ListenersBuilder {
+#[derive(Default)]
+pub struct ListenersBuilder {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
 }
 
@@ -173,13 +175,13 @@ impl ListenersBuilder {
     }
 }
 
-pub(crate) struct Listeners {
+pub struct Listeners {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
     local_addrs: Vec<SocketAddr>,
 }
 
 impl Listeners {
-    pub(crate) async fn accept(
+    pub async fn accept(
         &mut self,
     ) -> Option<Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> {
         let mut listener_futures: FuturesUnordered<AcceptFuture<'_>> = self
@@ -196,7 +198,7 @@ impl Listeners {
         listener_futures.next().await
     }
 
-    pub(crate) fn local_addrs(&self) -> &Vec<SocketAddr> {
+    pub fn local_addrs(&self) -> &[SocketAddr] {
         &self.local_addrs
     }
 }
