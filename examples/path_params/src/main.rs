@@ -21,7 +21,7 @@ fn main() {
 async fn hello_world(req: Request) -> Result<String> {
     // let path_params = req.get_path_params::<String>("key")?;
     // match path_params {
-    //     PathParam::String(str) => Ok(format!("str {}", str)),
+    //     PathParam::Str(str) => Ok(format!("str {}", str)),
     //     PathParam::Int(int) => Ok(format!("int {}", int)),
     //     PathParam::Uuid(uuid) => Ok(format!("uuid {}", uuid)),
     //     PathParam::Path(path) => Ok(format!("path {}", path)),

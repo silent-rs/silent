@@ -183,7 +183,10 @@ mod tests {
         create_static(path);
         let handler = HandlerWrapperStatic::new(path, StaticOptions::default());
         let mut req = Request::default();
-        req.set_path_params("path".to_owned(), PathParam::Path("index.html".to_string()));
+        req.set_path_params(
+            "path".to_owned(),
+            PathParam::path_owned("index.html".to_string()),
+        );
         let mut res = handler.call(req).await.unwrap();
         clean_static(path);
         assert_eq!(res.status, StatusCode::OK);
@@ -199,7 +202,7 @@ mod tests {
         create_static(path);
         let handler = HandlerWrapperStatic::new(path, StaticOptions::default());
         let mut req = Request::default();
-        req.set_path_params("path".to_owned(), PathParam::Path("".to_string()));
+        req.set_path_params("path".to_owned(), PathParam::path_owned(String::new()));
         let mut res = handler.call(req).await.unwrap();
         clean_static(path);
         assert_eq!(res.status, StatusCode::OK);
@@ -217,7 +220,7 @@ mod tests {
         let mut req = Request::default();
         req.set_path_params(
             "path".to_owned(),
-            PathParam::Path("not_found.html".to_string()),
+            PathParam::path_owned("not_found.html".to_string()),
         );
         let res = handler.call(req).await.unwrap_err();
         clean_static(path);
@@ -235,7 +238,7 @@ mod tests {
         let options = StaticOptions::default().with_directory_listing();
         let handler = HandlerWrapperStatic::new(path, options);
         let mut req = Request::default();
-        req.set_path_params("path".to_owned(), PathParam::Path("".to_string()));
+        req.set_path_params("path".to_owned(), PathParam::path_owned(String::new()));
         let mut res = handler.call(req).await.unwrap();
         let body = res
             .body
@@ -262,7 +265,10 @@ mod tests {
         let mut req = Request::default();
         req.headers_mut()
             .insert(ACCEPT_ENCODING, "gzip".parse().unwrap());
-        req.set_path_params("path".to_owned(), PathParam::Path("hello.txt".to_string()));
+        req.set_path_params(
+            "path".to_owned(),
+            PathParam::path_owned("hello.txt".to_string()),
+        );
         let res = handler.call(req).await.unwrap();
         clean_static(path);
         assert_eq!(
@@ -282,7 +288,10 @@ mod tests {
         let options = StaticOptions::default().with_directory_listing();
         let handler = HandlerWrapperStatic::new(path, options);
         let mut req = Request::default();
-        req.set_path_params("path".to_owned(), PathParam::Path("docs/".to_string()));
+        req.set_path_params(
+            "path".to_owned(),
+            PathParam::path_owned("docs/".to_string()),
+        );
         let mut res = handler.call(req).await.unwrap();
         let body = res
             .body
@@ -304,7 +313,10 @@ mod tests {
         create_static(path);
         let handler = HandlerWrapperStatic::new(path, StaticOptions::default());
         let mut req = Request::default();
-        req.set_path_params("path".to_owned(), PathParam::Path("hello.txt".to_string()));
+        req.set_path_params(
+            "path".to_owned(),
+            PathParam::path_owned("hello.txt".to_string()),
+        );
         let res = handler.call(req).await.unwrap();
         clean_static(path);
         let header = res.headers().get(CONTENT_TYPE).unwrap().to_str().unwrap();

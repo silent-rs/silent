@@ -1,0 +1,20 @@
+# Criterion 配置文件
+
+# 每个基准测试运行的采样次数（默认 100）
+# 提高采样次数能减少噪声，但运行时间会更长
+sample_size = 200
+
+# 单次测量的运行时长（默认 5s）
+# 时间越长，结果越稳定
+measurement_time = 10
+
+# Warming up 的时间（默认 3s）
+# 让 CPU 频率/缓存进入稳定状态
+warm_up_time = 5
+
+# 保存基准测试历史数据（默认 true）
+# 方便对比不同 commit 之间的变化
+save_baseline = true
+
+# 控制统计精度，99% 置信区间（默认 95）
+confidence_level = 0.99

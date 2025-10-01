@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use http::StatusCode;
+use memchr::memchr;
+use smallvec::SmallVec;
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::core::path_param::PathParam;
@@ -10,15 +13,100 @@ use crate::route::handler_match::SpecialPath;
 use crate::{Method, Next, Request, Response, SilentError};
 
 #[derive(Clone)]
-pub(crate) struct RouteTree {
+pub(crate) enum SpecialSeg {
+    Root,
+    Static(String),
+    String { key: String },
+    Int { key: String },
+    I64 { key: String },
+    I32 { key: String },
+    U64 { key: String },
+    U32 { key: String },
+    Uuid { key: String },
+    Path { key: String },
+    FullPath { key: String },
+}
+
+impl SpecialSeg {
+    fn is_full_path(&self) -> bool {
+        matches!(self, SpecialSeg::FullPath { .. })
+    }
+
+    pub(crate) fn as_static_key(&self) -> Option<&str> {
+        if let SpecialSeg::Static(value) = self {
+            Some(value.as_str())
+        } else {
+            None
+        }
+    }
+}
+
+pub(crate) fn parse_special_seg(raw: String) -> SpecialSeg {
+    if raw.is_empty() {
+        return SpecialSeg::Root;
+    }
+
+    if raw.starts_with('<') && raw.ends_with('>') {
+        match SpecialPath::from(raw.as_str()) {
+            SpecialPath::String(key) => SpecialSeg::String { key },
+            SpecialPath::Int(key) => SpecialSeg::Int { key },
+            SpecialPath::I64(key) => SpecialSeg::I64 { key },
+            SpecialPath::I32(key) => SpecialSeg::I32 { key },
+            SpecialPath::U64(key) => SpecialSeg::U64 { key },
+            SpecialPath::U32(key) => SpecialSeg::U32 { key },
+            SpecialPath::UUid(key) => SpecialSeg::Uuid { key },
+            SpecialPath::Path(key) => SpecialSeg::Path { key },
+            SpecialPath::FullPath(key) => SpecialSeg::FullPath { key },
+        }
+    } else {
+        SpecialSeg::Static(raw)
+    }
+}
+
+struct CapturedStr {
+    range: Range<usize>,
+}
+
+impl CapturedStr {
+    fn new(value: &str, full: &str) -> Self {
+        CapturedStr {
+            range: slice_range(full, value),
+        }
+    }
+}
+
+struct PathMatch<'a> {
+    remain: &'a str,
+    capture: Option<PathMatchCapture>,
+}
+
+impl<'a> PathMatch<'a> {
+    fn new(remain: &'a str, capture: Option<PathMatchCapture>) -> Self {
+        Self { remain, capture }
+    }
+}
+
+enum PathMatchCapture {
+    Str(CapturedStr),
+    Path(CapturedStr),
+    Full(CapturedStr),
+    I32(i32),
+    I64(i64),
+    U64(u64),
+    U32(u32),
+    Uuid(uuid::Uuid),
+}
+
+#[derive(Clone)]
+pub struct RouteTree {
     pub(crate) children: Vec<RouteTree>,
-    // 原先预构建的 Next 改为在调用时动态构建，以支持层级中间件
-    pub(crate) handler: HashMap<Method, Arc<dyn Handler>>, // 当前结点的处理器集合
-    pub(crate) middlewares: Vec<Arc<dyn MiddleWareHandler>>, // 当前结点的中间件集合
+    pub(crate) handler: HashMap<Method, Arc<dyn Handler>>,
+    pub(crate) middlewares: Arc<[Arc<dyn MiddleWareHandler>]>,
+    pub(crate) static_children: HashMap<Box<str>, usize>,
+    pub(crate) dynamic_children: SmallVec<[usize; 4]>,
+    pub(crate) middleware_start: usize,
     pub(crate) configs: Option<crate::Configs>,
-    pub(crate) special_match: bool,
-    pub(crate) path: String,
-    // 是否存在处理器（用于在子路由不匹配时回退到父路由处理器）
+    pub(crate) segment: SpecialSeg,
     pub(crate) has_handler: bool,
 }
 
@@ -27,125 +115,285 @@ impl RouteTree {
         self.configs.as_ref()
     }
 
-    fn split_once(path: &str) -> (&str, &str) {
-        let p = path.strip_prefix('/').unwrap_or(path);
-        p.split_once('/').unwrap_or((p, ""))
-    }
-
-    // 匹配当前结点：返回是否匹配以及剩余路径
-    fn match_current<'p>(&self, req: &mut Request, path: &'p str) -> (bool, &'p str) {
-        // 空路径（根结点）特殊处理
-        if self.path.is_empty() {
-            let normalized_path = if path == "/" { "" } else { path };
-            if !normalized_path.is_empty() && self.children.is_empty() {
-                return (false, "");
-            }
-            return (true, normalized_path);
-        }
-
-        let (local_path, last_path) = Self::split_once(path);
-
-        if !self.special_match {
-            // 支持节点 path 含有多段（例如 "api/v1"）
-            let p = path.strip_prefix('/').unwrap_or(path);
-            let node_path = self.path.as_str();
-            if p == node_path {
-                return (true, "");
-            }
-            if let Some(rem) = p.strip_prefix(node_path) {
-                // 需要严格的段边界：要么完全相等，要么后面是 '/'
-                if let Some(rem) = rem.strip_prefix('/') {
-                    return (true, rem);
+    fn call_path_only<'p>(&self, path: &'p str, full_path: &'p str) -> Option<PathMatch<'p>> {
+        match &self.segment {
+            SpecialSeg::Root => {
+                let normalized = if path == "/" { "" } else { path };
+                if !normalized.is_empty() && self.children.is_empty() {
+                    None
+                } else {
+                    Some(PathMatch::new(normalized, None))
                 }
             }
-            (false, "")
+            SpecialSeg::Static(value) => {
+                match_static_segment(value, path).map(|remain| PathMatch::new(remain, None))
+            }
+            SpecialSeg::String { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    None
+                } else {
+                    Some(PathMatch::new(
+                        remain,
+                        Some(PathMatchCapture::Str(CapturedStr::new(segment, full_path))),
+                    ))
+                }
+            }
+            SpecialSeg::Int { .. } | SpecialSeg::I32 { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
+                match segment.parse::<i32>() {
+                    Ok(v) => Some(PathMatch::new(remain, Some(PathMatchCapture::I32(v)))),
+                    Err(_) => None,
+                }
+            }
+            SpecialSeg::I64 { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
+                match segment.parse::<i64>() {
+                    Ok(v) => Some(PathMatch::new(remain, Some(PathMatchCapture::I64(v)))),
+                    Err(_) => None,
+                }
+            }
+            SpecialSeg::U64 { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
+                match segment.parse::<u64>() {
+                    Ok(v) => Some(PathMatch::new(remain, Some(PathMatchCapture::U64(v)))),
+                    Err(_) => None,
+                }
+            }
+            SpecialSeg::U32 { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
+                match segment.parse::<u32>() {
+                    Ok(v) => Some(PathMatch::new(remain, Some(PathMatchCapture::U32(v)))),
+                    Err(_) => None,
+                }
+            }
+            SpecialSeg::Uuid { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
+                match uuid::Uuid::parse_str(segment) {
+                    Ok(v) => Some(PathMatch::new(remain, Some(PathMatchCapture::Uuid(v)))),
+                    Err(_) => None,
+                }
+            }
+            SpecialSeg::Path { .. } => {
+                let (segment, remain) = strip_one_segment(path);
+                Some(PathMatch::new(
+                    remain,
+                    Some(PathMatchCapture::Path(CapturedStr::new(segment, full_path))),
+                ))
+            }
+            SpecialSeg::FullPath { .. } => {
+                let trimmed = strip_leading_slash(path);
+                let (_, remain) = strip_one_segment(path);
+                Some(PathMatch::new(
+                    remain,
+                    Some(PathMatchCapture::Full(CapturedStr::new(trimmed, full_path))),
+                ))
+            }
+        }
+    }
+
+    fn bind_params(&self, req: &mut Request, matched: &PathMatch<'_>, source: &Arc<str>) -> bool {
+        match (&self.segment, &matched.capture) {
+            (SpecialSeg::Root | SpecialSeg::Static(_), _) => true,
+            (SpecialSeg::String { key }, Some(PathMatchCapture::Str(captured))) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_str(Arc::clone(source), captured.range.clone()),
+                );
+                true
+            }
+            (SpecialSeg::Int { key }, Some(PathMatchCapture::I32(value)))
+            | (SpecialSeg::I32 { key }, Some(PathMatchCapture::I32(value))) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::I64 { key }, Some(PathMatchCapture::I64(value))) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::U64 { key }, Some(PathMatchCapture::U64(value))) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::U32 { key }, Some(PathMatchCapture::U32(value))) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::Uuid { key }, Some(PathMatchCapture::Uuid(value))) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::Path { key }, Some(PathMatchCapture::Path(captured))) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_path(Arc::clone(source), captured.range.clone()),
+                );
+                true
+            }
+            (SpecialSeg::FullPath { key }, Some(PathMatchCapture::Full(captured))) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_path(Arc::clone(source), captured.range.clone()),
+                );
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) async fn call_with_path(
+        &self,
+        mut req: Request,
+        offset: usize,
+        path: Arc<str>,
+    ) -> crate::error::SilentResult<Response> {
+        if let Some(configs) = self.get_configs() {
+            req.configs_mut().extend_from(configs);
+        }
+
+        let endpoint: Arc<dyn Handler> = Arc::new(ContinuationHandler::new(
+            Arc::new(self.clone()),
+            offset,
+            Arc::clone(&path),
+        ));
+        let middleware_slice = &self.middlewares[self.middleware_start..];
+        let next = Next::build_from_slice(endpoint, middleware_slice);
+        next.call(req).await
+    }
+
+    async fn call_children(
+        &self,
+        req: Request,
+        offset: usize,
+        path: Arc<str>,
+    ) -> crate::error::SilentResult<Response> {
+        let full_path = path.as_ref();
+        let remain_slice = &full_path[offset..];
+
+        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
+        if remain_slice.is_empty() {
+            candidate_indices.extend(self.static_children.values().copied());
+            candidate_indices.extend(self.dynamic_children.iter().copied());
         } else {
-            match self.path.as_str().into() {
-                SpecialPath::String(key) => {
-                    // 必须存在实际的路径段，空字符串不匹配
-                    if local_path.is_empty() {
-                        (false, "")
-                    } else {
-                        req.set_path_params(key, local_path.to_string().into());
-                        (true, last_path)
-                    }
+            let (segment, _) = strip_one_segment(remain_slice);
+            if let Some(&idx) = self.static_children.get(segment) {
+                candidate_indices.push(idx);
+            }
+            candidate_indices.extend(self.dynamic_children.iter().copied());
+        }
+
+        for idx in candidate_indices {
+            let child = &self.children[idx];
+            if let Some(candidate) = child.call_path_only(remain_slice, full_path) {
+                let next_offset = remain_offset(full_path, candidate.remain);
+                if !child.path_can_resolve(next_offset, full_path) {
+                    continue;
                 }
-                SpecialPath::Int(key) => match local_path.parse::<i32>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::I64(key) => match local_path.parse::<i64>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::I32(key) => match local_path.parse::<i32>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::U64(key) => match local_path.parse::<u64>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::U32(key) => match local_path.parse::<u32>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::UUid(key) => match local_path.parse::<uuid::Uuid>() {
-                    Ok(v) => {
-                        req.set_path_params(key, v.into());
-                        (true, last_path)
-                    }
-                    Err(_) => (false, ""),
-                },
-                SpecialPath::Path(key) => {
-                    req.set_path_params(key, PathParam::Path(local_path.to_string()));
-                    (true, last_path)
+                let mut real_req = req;
+                if !child.bind_params(&mut real_req, &candidate, &path) {
+                    return Err(SilentError::business_error(
+                        StatusCode::NOT_FOUND,
+                        "not found".to_string(),
+                    ));
                 }
-                SpecialPath::FullPath(key) => {
-                    // ** 通配符：记录完整剩余路径，且允许继续尝试子结点匹配。
-                    // 若后续子结点无法匹配，dfs_match 中会在有处理器时回退到当前结点。
-                    let p = path.strip_prefix('/').unwrap_or(path);
-                    req.set_path_params(key, PathParam::Path(p.to_string()));
-                    (true, last_path)
+                return child
+                    .call_with_path(real_req, next_offset, Arc::clone(&path))
+                    .await;
+            }
+        }
+
+        if remain_slice.is_empty() {
+            return if self.has_handler {
+                self.handler.call(req).await
+            } else {
+                Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ))
+            };
+        }
+
+        if self.segment.is_full_path() && self.has_handler {
+            return self.handler.call(req).await;
+        }
+
+        Err(SilentError::business_error(
+            StatusCode::NOT_FOUND,
+            "not found".to_string(),
+        ))
+    }
+
+    fn path_can_resolve(&self, offset: usize, full_path: &str) -> bool {
+        let remain = &full_path[offset..];
+        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
+        if remain.is_empty() {
+            candidate_indices.extend(self.static_children.values().copied());
+            candidate_indices.extend(self.dynamic_children.iter().copied());
+        } else {
+            let (segment, _) = strip_one_segment(remain);
+            if let Some(&idx) = self.static_children.get(segment) {
+                candidate_indices.push(idx);
+            }
+            candidate_indices.extend(self.dynamic_children.iter().copied());
+        }
+
+        for idx in candidate_indices {
+            let child = &self.children[idx];
+            if let Some(candidate) = child.call_path_only(remain, full_path) {
+                let next_offset = remain_offset(full_path, candidate.remain);
+                if child.path_can_resolve(next_offset, full_path) {
+                    return true;
                 }
             }
         }
-    }
 
-    // 旧的 DFS 收集中间件逻辑已移除
+        remain.is_empty() || self.segment.is_full_path()
+    }
 }
 
 #[async_trait]
 impl Handler for RouteTree {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
-        let (mut req, last_path) = req.split_url();
+        let mut req = req;
         if let Some(configs) = self.get_configs().cloned() {
             *req.configs_mut() = configs;
         }
-        // 入口处匹配当前结点一次
-        let (matched, remain) = self.match_current(&mut req, last_path.as_str());
-        if !matched {
+
+        let path_source = Arc::<str>::from(req.uri().path().to_string());
+        let full_path = &*path_source;
+        req.set_path_source(path_source.clone());
+
+        let Some(candidate) = self.call_path_only(full_path, full_path) else {
+            return Err(SilentError::business_error(
+                StatusCode::NOT_FOUND,
+                "not found".to_string(),
+            ));
+        };
+
+        if !self.bind_params(&mut req, &candidate, &path_source) {
             return Err(SilentError::business_error(
                 StatusCode::NOT_FOUND,
                 "not found".to_string(),
             ));
         }
-        self.call_with_path(req, remain.to_string()).await
+
+        let offset = remain_offset(full_path, candidate.remain);
+        self.call_with_path(req, offset, path_source).await
     }
 }
 
@@ -157,134 +405,76 @@ impl Handler for Arc<RouteTree> {
     }
 }
 
-impl RouteTree {
-    pub(crate) async fn call_with_path(
-        &self,
-        mut req: Request,
-        last_path: String,
-    ) -> crate::error::SilentResult<Response> {
-        // 当前结点已被匹配，合并配置
-        if let Some(configs) = self.get_configs() {
-            req.configs_mut().extend_from(configs);
-        }
-
-        // 构建“继续向下匹配”的端点处理器，并按注册顺序包裹当前结点的中间件，形成真正的洋葱模型
-        let endpoint: Arc<dyn Handler> =
-            Arc::new(ContinuationHandler::new(Arc::new(self.clone()), last_path));
-        let middlewares: Vec<Arc<dyn MiddleWareHandler>> = self.middlewares.clone();
-        let next = Next::build(endpoint, middlewares);
-        next.call(req).await
-    }
-
-    // 仅在当前结点已匹配后调用：尝试子路由，必要时回退到当前处理器
-    async fn call_children(
-        &self,
-        req: Request,
-        last_path: String,
-    ) -> crate::error::SilentResult<Response> {
-        if last_path.is_empty() {
-            // 空路径：优先让子结点有机会处理（例如特殊路径）
-            for child in &self.children {
-                // 先用临时请求做预判
-                let (pre_matched, rem) = child.match_current(&mut Request::empty(), "");
-                // 仅按路径进行预判，允许中间件先运行（例如 CORS 预检）
-                if pre_matched && child.path_can_resolve(rem) {
-                    // 再用真实请求执行一次匹配以写入路径参数
-                    let mut real_req = req;
-                    let (matched, rem2) = child.match_current(&mut real_req, "");
-                    debug_assert!(matched);
-                    return child.call_with_path(real_req, rem2.to_string()).await;
-                }
-            }
-            // 子结点均不可处理：若当前结点有处理器则尝试调用；否则 404
-            return if self.has_handler {
-                // handler中已经完整包含method_allowed，无需重复判断
-                self.handler.call(req).await
-            } else {
-                Err(SilentError::business_error(
-                    StatusCode::NOT_FOUND,
-                    "not found".to_string(),
-                ))
-            };
-        }
-
-        // 仍有剩余路径：在兄弟结点间尝试回溯
-        for child in &self.children {
-            // 先用临时 Request 进行预匹配
-            let (pre_matched, rem) = child.match_current(&mut Request::empty(), last_path.as_str());
-            // 仅按路径进行预判，允许中间件先运行（例如 CORS 预检）
-            if pre_matched && child.path_can_resolve(rem) {
-                // 再用真实请求执行一次匹配以写入路径参数
-                let mut real_req = req;
-                let (matched, rem2) = child.match_current(&mut real_req, last_path.as_str());
-                debug_assert!(matched);
-                return child.call_with_path(real_req, rem2.to_string()).await;
-            }
-        }
-
-        // 子路由未匹配：仅当当前为 **（FullPath）并且存在处理器时可回退到当前处理器
-        let is_full_path = if self.special_match {
-            matches!(self.path.as_str().into(), SpecialPath::FullPath(_))
-        } else {
-            false
-        };
-        if is_full_path && self.has_handler {
-            // handler中已经完整包含method_allowed，无需重复判断
-            return self.handler.call(req).await;
-        }
-
-        Err(SilentError::business_error(
-            StatusCode::NOT_FOUND,
-            "not found".to_string(),
-        ))
-    }
-
-    // 仅使用路径做静态解析，判断该子树是否可能匹配（不关心方法）
-    fn path_can_resolve(&self, last_path: &str) -> bool {
-        // 优先尝试子结点
-        if !last_path.is_empty() {
-            for child in &self.children {
-                let (matched, rem) = child.match_current(&mut Request::empty(), last_path);
-                if matched && child.path_can_resolve(rem) {
-                    return true;
-                }
-            }
-            // 子结点未匹配：若当前为 ** 可吞掉剩余路径
-            if self.special_match && matches!(self.path.as_str().into(), SpecialPath::FullPath(_)) {
-                return true;
-            }
-            return false;
-        }
-
-        // 空路径：子结点也许仍可处理（如特殊路径）
-        for child in &self.children {
-            let (matched, rem) = child.match_current(&mut Request::empty(), last_path);
-            if matched && child.path_can_resolve(rem) {
-                return true;
-            }
-        }
-        // 到达当前结点：是否存在处理器并不影响路径匹配结果
-        true
-    }
-}
-
-// 继续匹配的端点处理器：在某结点的中间件执行完毕后，进入此处理器继续对子路由/当前处理器进行匹配与调用
 struct ContinuationHandler {
     node: Arc<RouteTree>,
-    last_path: String,
+    offset: usize,
+    path: Arc<str>,
 }
 
 impl ContinuationHandler {
-    fn new(node: Arc<RouteTree>, last_path: String) -> Self {
-        Self { node, last_path }
+    fn new(node: Arc<RouteTree>, offset: usize, path: Arc<str>) -> Self {
+        Self { node, offset, path }
     }
 }
 
 #[async_trait]
 impl Handler for ContinuationHandler {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
-        self.node.call_children(req, self.last_path.clone()).await
+        self.node
+            .call_children(req, self.offset, Arc::clone(&self.path))
+            .await
     }
+}
+
+fn strip_leading_slash(path: &str) -> &str {
+    path.strip_prefix('/').unwrap_or(path)
+}
+
+fn strip_one_segment(path: &str) -> (&str, &str) {
+    let trimmed = strip_leading_slash(path);
+    if trimmed.is_empty() {
+        return ("", "");
+    }
+
+    let bytes = trimmed.as_bytes();
+    if let Some(idx) = memchr(b'/', bytes) {
+        (&trimmed[..idx], &trimmed[idx + 1..])
+    } else {
+        (trimmed, "")
+    }
+}
+
+fn match_static_segment<'a>(value: &str, path: &'a str) -> Option<&'a str> {
+    if value.is_empty() {
+        return Some(path);
+    }
+
+    let trimmed = strip_leading_slash(path);
+    if trimmed == value {
+        return Some("");
+    }
+
+    if trimmed.len() > value.len() && trimmed.starts_with(value) {
+        let rest = &trimmed[value.len()..];
+        if let Some(rem) = rest.strip_prefix('/') {
+            return Some(rem);
+        }
+    }
+
+    None
+}
+
+fn slice_range(full: &str, slice: &str) -> Range<usize> {
+    let full_ptr = full.as_ptr() as usize;
+    let slice_ptr = slice.as_ptr() as usize;
+    let start = slice_ptr.saturating_sub(full_ptr);
+    let end = start + slice.len();
+    start..end
+}
+
+fn remain_offset(full: &str, remain: &str) -> usize {
+    debug_assert!(full.len() >= remain.len());
+    full.len() - remain.len()
 }
 
 #[cfg(test)]
@@ -301,6 +491,10 @@ mod tests {
 
     async fn world<'a>(_: Request) -> Result<&'a str, SilentError> {
         Ok("world")
+    }
+
+    fn make_path_arc(path: &str) -> Arc<str> {
+        Arc::<str>::from(path.to_owned())
     }
 
     #[tokio::test]
@@ -352,9 +546,10 @@ mod tests {
         let tree = route.convert_to_route_tree();
         let mut req = Request::empty();
         *req.uri_mut() = "/user/123".parse().unwrap();
-        let (req, _) = req.split_url();
-        // trigger param parse via call
-        let _ = tree.call_with_path(req, "/user/123".into()).await;
+        req.set_path_source(make_path_arc("/user/123"));
+        let _ = tree
+            .call_with_path(req, 0, make_path_arc("/user/123"))
+            .await;
     }
 
     #[tokio::test]

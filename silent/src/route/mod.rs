@@ -17,7 +17,7 @@ pub(crate) mod handler_append;
 mod handler_match;
 mod route_service;
 mod route_tree;
-pub(crate) use route_tree::RouteTree;
+pub use route_tree::RouteTree;
 #[cfg(all(feature = "worker", target_arch = "wasm32"))]
 pub mod worker;
 pub trait RouterAdapt {

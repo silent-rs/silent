@@ -17,6 +17,7 @@ use serde::Deserialize;
 use serde::de::StdError;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::OnceCell;
 use url::form_urlencoded;
 
@@ -32,6 +33,7 @@ pub struct Request {
     path_params: HashMap<String, PathParam>,
     params: HashMap<String, String>,
     body: ReqBody,
+    path_source: Option<Arc<str>>,
     #[cfg(feature = "multipart")]
     form_data: OnceCell<FormData>,
     json_data: OnceCell<Value>,
@@ -116,6 +118,7 @@ impl Request {
             path_params: HashMap::new(),
             params: HashMap::new(),
             body: ReqBody::Empty,
+            path_source: None,
             #[cfg(feature = "multipart")]
             form_data: OnceCell::new(),
             json_data: OnceCell::new(),
@@ -152,6 +155,10 @@ impl Request {
             self.headers_mut()
                 .insert("x-real-ip", remote_addr.to_string().parse().unwrap());
         }
+    }
+
+    pub(crate) fn set_path_source(&mut self, source: Arc<str>) {
+        self.path_source = Some(source);
     }
 
     /// 获取请求方法
@@ -463,12 +470,6 @@ impl Request {
     #[inline]
     pub fn take_extensions(&mut self) -> Extensions {
         self.replace_extensions(Extensions::default())
-    }
-
-    /// 分割请求体与url
-    pub(crate) fn split_url(self) -> (Self, String) {
-        let url = self.uri().path().to_string();
-        (self, url)
     }
 }
 

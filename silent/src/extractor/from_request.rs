@@ -285,8 +285,7 @@ where
 #[inline]
 fn path_param_to_string(param: &PathParam) -> String {
     match param {
-        PathParam::String(s) => s.clone(),
-        PathParam::Path(s) => s.clone(),
+        PathParam::Str(s) | PathParam::Path(s) => s.as_str().to_string(),
         PathParam::Int(v) => v.to_string(),
         PathParam::Int32(v) => v.to_string(),
         PathParam::Int64(v) => v.to_string(),

@@ -1,4 +1,9 @@
+use crate::middleware::MiddleWareHandler;
+use crate::route::route_tree::parse_special_seg;
 use crate::route::{Route, RouteTree};
+use smallvec::SmallVec;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 pub trait RouteService {
     fn route(self) -> Route;
@@ -13,29 +18,66 @@ impl RouteService for Route {
 impl Route {
     /// 递归将Route转换为RouteTree
     pub(crate) fn convert_to_route_tree(self) -> RouteTree {
-        // 先克隆需要的数据，避免移动问题
-        let children = self.children;
-        let handler = self.handler;
-        let middlewares = self.middlewares;
-        let configs = self.configs;
-        let special_match = self.special_match;
-        let path = self.path;
+        let empty: Arc<[Arc<dyn MiddleWareHandler>]> = Arc::from(Vec::new());
+        self.into_route_tree_with_chain(empty)
+    }
+
+    fn into_route_tree_with_chain(
+        self,
+        inherited_middlewares: Arc<[Arc<dyn MiddleWareHandler>]>,
+    ) -> RouteTree {
+        let Route {
+            path,
+            handler,
+            children,
+            middlewares,
+            configs,
+            ..
+        } = self;
+
+        let segment = parse_special_seg(path);
         let has_handler = !handler.is_empty();
 
-        // 递归处理子路由
+        let parent_len = inherited_middlewares.len();
+
+        let current_middlewares = if middlewares.is_empty() {
+            inherited_middlewares.clone()
+        } else {
+            let mut merged = Vec::with_capacity(inherited_middlewares.len() + middlewares.len());
+            merged.extend(inherited_middlewares.iter().cloned());
+            merged.extend(middlewares);
+            Arc::from(merged)
+        };
+
         let children: Vec<RouteTree> = children
             .into_iter()
-            .map(|child| child.convert_to_route_tree())
+            .map(|child| child.into_route_tree_with_chain(current_middlewares.clone()))
             .collect();
+
+        let mut static_children = HashMap::new();
+        let mut dynamic_children = SmallVec::<[usize; 4]>::new();
+        for (idx, child) in children.iter().enumerate() {
+            if let Some(key) = child.segment.as_static_key() {
+                static_children.insert(key.into(), idx);
+            } else {
+                dynamic_children.push(idx);
+            }
+        }
 
         RouteTree {
             children,
             handler,
-            middlewares,
+            middlewares: current_middlewares,
+            static_children,
+            dynamic_children,
+            middleware_start: parent_len,
             configs,
-            special_match,
-            path,
+            segment,
             has_handler,
         }
+    }
+
+    pub fn into_route_tree(self) -> RouteTree {
+        self.convert_to_route_tree()
     }
 }

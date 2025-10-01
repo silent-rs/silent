@@ -78,7 +78,9 @@ http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+memchr = "2.7"
 mime = "0.3"
+smallvec = "1.13"
 pin-project = { version = "1", optional = true }
 pin-project-lite = { version = "0.2", optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -134,3 +136,8 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
 
 # Cloudflare Workers
 worker = { version = "0.6", optional = true }
+
+# Benchmarks
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async", "async_tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
