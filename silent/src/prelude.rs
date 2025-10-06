@@ -3,10 +3,6 @@ pub use crate::configs::Configs;
 pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "multipart")]
 pub use crate::core::form::{FilePart, FormData};
-#[cfg(feature = "server")]
-pub use crate::core::listener::{Listen, Listener};
-#[cfg(feature = "server")]
-pub use crate::core::stream::Stream;
 pub use crate::core::{
     next::Next, path_param::PathParam, req_body::ReqBody, request::Request, res_body::ResBody,
     res_body::full, res_body::stream_body, response::Response,
@@ -30,6 +26,10 @@ pub use crate::scheduler::{SCHEDULER, SchedulerExt, Task};
 pub use crate::security::{argon2, pbkdf2};
 #[cfg(feature = "server")]
 pub use crate::service::Server;
+#[cfg(feature = "server")]
+pub use crate::service::listener::{Listen, Listener};
+#[cfg(feature = "server")]
+pub use crate::service::stream::Stream;
 #[cfg(feature = "session")]
 pub use crate::session::session_ext::SessionExt;
 #[cfg(feature = "sse")]

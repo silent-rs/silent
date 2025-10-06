@@ -11,6 +11,8 @@ mod handler;
 mod log;
 pub mod middleware;
 pub mod prelude;
+#[cfg(feature = "server")]
+pub mod protocol;
 mod route;
 #[cfg(feature = "scheduler")]
 mod scheduler;
@@ -36,10 +38,20 @@ use multer;
 pub use crate::configs::Configs;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
+#[cfg(feature = "server")]
+pub use crate::core::socket_addr::SocketAddr;
 pub use crate::core::{next::Next, request::Request, response::Response};
 #[cfg(feature = "grpc")]
 pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
+#[cfg(feature = "server")]
+pub use crate::protocol::Protocol;
+#[cfg(feature = "server")]
+pub use crate::service::connection::Connection;
+#[cfg(feature = "server")]
+pub use crate::service::listener::{Listen, Listener, Listeners, ListenersBuilder};
+#[cfg(feature = "server")]
+pub use crate::service::{BoxError, BoxedConnection, ConnectionFuture, ConnectionService, Server};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
 pub use handler::Handler;

@@ -22,7 +22,7 @@ version.workspace = true
 [features]
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
-default = ["server", "test"]
+default = ["server"]
 full = [
     "admin",
     "server",
@@ -34,7 +34,6 @@ full = [
     "session",
     "cookie",
     "template",
-    "test",
     "scheduler",
     "grpc",
     "tls",
@@ -96,7 +95,11 @@ tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }
 uuid = "1.17"
-async-compression = { version = "0.4", optional = true, features = ["tokio", "brotli", "gzip"] }
+async-compression = { version = "0.4", optional = true, features = [
+    "tokio",
+    "brotli",
+    "gzip",
+] }
 
 # Scheduler
 cron = { version = "0.15", optional = true }

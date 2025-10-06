@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
         SwaggerUiMiddleware::new("/docs", ApiDoc::openapi()).expect("创建Swagger UI中间件失败");
 
     // 构建路由
-    let routes = Route::new("")
+    let mut routes = Route::new("")
         .hook(swagger_middleware) // 使用 root_hook 添加全局中间件
         .append(
             Route::new("users")
@@ -184,11 +184,9 @@ async fn main() -> Result<()> {
     let mut configs = Configs::default();
     configs.insert(store);
 
-    Server::new()
-        .bind(addr)
-        .with_configs(configs)
-        .serve(routes)
-        .await;
+    routes.set_configs(Some(configs));
+
+    Server::new().bind(addr).serve(routes).await;
 
     Ok(())
 }

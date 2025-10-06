@@ -4,9 +4,11 @@ use std::pin::Pin;
 use hyper::service::Service as HyperService;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 
+use crate::core::res_body::ResBody;
 use crate::core::socket_addr::SocketAddr;
-use crate::core::{adapt::RequestAdapt, adapt::ResponseAdapt, res_body::ResBody};
 use crate::prelude::ReqBody;
+use crate::protocol::Protocol;
+use crate::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request, Response};
 
 #[doc(hidden)]
@@ -45,11 +47,12 @@ where
     #[inline]
     fn call(&self, req: HyperRequest<B>) -> Self::Future {
         let (parts, body) = req.into_parts();
-        let req = HyperRequest::from_parts(parts, body.into()).tran_to_request();
-        let response = self.handle(req);
+        let request = HyperRequest::from_parts(parts, body.into());
+        let request = HyperHttpProtocol::into_internal(request);
+        let response = self.handle(request);
         Box::pin(async move {
             let res = response.await;
-            Ok(ResponseAdapt::tran_from_response(res))
+            Ok(HyperHttpProtocol::from_internal(res))
         })
     }
 }

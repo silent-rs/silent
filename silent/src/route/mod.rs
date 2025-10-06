@@ -186,8 +186,7 @@ impl Route {
     }
 
     /// 设置配置（任何路由都可以使用）
-    #[cfg_attr(all(feature = "worker", target_arch = "wasm32"), allow(dead_code))]
-    pub(crate) fn set_configs(&mut self, configs: Option<crate::Configs>) {
+    pub fn set_configs(&mut self, configs: Option<crate::Configs>) {
         self.configs = configs;
     }
 

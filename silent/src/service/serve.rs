@@ -1,4 +1,4 @@
-use crate::core::connection::Connection;
+use super::connection::Connection;
 use crate::core::socket_addr::SocketAddr;
 use crate::route::RouteTree;
 use crate::service::hyper_service::HyperServiceHandler;
