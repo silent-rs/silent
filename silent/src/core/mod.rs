@@ -1,6 +1,3 @@
-#[cfg(feature = "server")]
-pub mod adapt;
-
 #[cfg(feature = "multipart")]
 pub(crate) mod form;
 pub(crate) mod next;

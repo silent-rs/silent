@@ -11,6 +11,8 @@ mod handler;
 mod log;
 pub mod middleware;
 pub mod prelude;
+#[cfg(feature = "server")]
+mod protocol;
 mod route;
 #[cfg(feature = "scheduler")]
 mod scheduler;
