@@ -12,7 +12,7 @@ mod log;
 pub mod middleware;
 pub mod prelude;
 #[cfg(feature = "server")]
-mod protocol;
+pub mod protocol;
 mod route;
 #[cfg(feature = "scheduler")]
 mod scheduler;
@@ -44,6 +44,8 @@ pub use crate::core::{next::Next, request::Request, response::Response};
 #[cfg(feature = "grpc")]
 pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
+#[cfg(feature = "server")]
+pub use crate::protocol::Protocol;
 #[cfg(feature = "server")]
 pub use crate::service::connection::Connection;
 #[cfg(feature = "server")]

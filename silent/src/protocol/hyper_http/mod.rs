@@ -22,8 +22,10 @@ impl Protocol for HyperHttpProtocol {
     type Incoming = HyperRequest<ReqBody>;
     type Outgoing = HyperResponse<ResBody>;
     type Body = ResBody;
+    type InternalRequest = Request;
+    type InternalResponse = Response<Self::Body>;
 
-    fn into_request(message: Self::Incoming) -> Request {
+    fn into_internal(message: Self::Incoming) -> Self::InternalRequest {
         #[cfg(feature = "cookie")]
         let cookies = get_cookie(&message).unwrap_or_default();
         let (parts, body) = message.into_parts();
@@ -34,7 +36,7 @@ impl Protocol for HyperHttpProtocol {
         request
     }
 
-    fn from_response(response: Response<Self::Body>) -> Self::Outgoing {
+    fn from_internal(response: Self::InternalResponse) -> Self::Outgoing {
         #[cfg(feature = "cookie")]
         let cookies = response.cookies();
         let Response {
