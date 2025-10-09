@@ -46,7 +46,7 @@ multipart = [
     "dep:textnonce",
 ]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
-server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
+server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal", "tokio/macros"]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project", "dep:tokio-stream"]
 static = ["tokio/fs", "dep:urlencoding", "dep:async-compression"]
