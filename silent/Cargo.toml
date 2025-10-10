@@ -46,7 +46,13 @@ multipart = [
     "dep:textnonce",
 ]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
-server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal", "tokio/macros"]
+server = [
+    "tokio/fs",
+    "tokio/net",
+    "tokio/rt-multi-thread",
+    "tokio/signal",
+    "tokio/macros",
+]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project", "dep:tokio-stream"]
 static = ["tokio/fs", "dep:urlencoding", "dep:async-compression"]
@@ -62,7 +68,13 @@ grpc = [
 ]
 scheduler = ["dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
-tls = ["dep:tokio-rustls"]
+tls = [
+    "dep:tokio-rustls",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:rustls-pki-types",
+    "server",
+]
 
 [dependencies]
 # Basic dependencies
@@ -121,7 +133,9 @@ cookie = { version = "0.18", features = [
 ], optional = true }
 
 # Grpc
-tonic = { version = "0.14", optional = true, default-features = false, features = ["codegen"] }
+tonic = { version = "0.14", optional = true, default-features = false, features = [
+    "codegen",
+] }
 
 # Security
 aes = { version = "0.8", optional = true }
@@ -136,6 +150,13 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
     "logging",
     "tls12",
 ] }
+rustls = { version = "0.23", optional = true, default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+] }
+rustls-pemfile = { version = "2", optional = true }
+rustls-pki-types = { version = "1", optional = true }
 
 # Cloudflare Workers
 worker = { version = "0.6", optional = true }

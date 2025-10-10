@@ -3,6 +3,10 @@ mod hyper_service;
 pub mod listener;
 mod serve;
 pub mod stream;
+#[cfg(feature = "tls")]
+pub mod tls;
+#[cfg(feature = "tls")]
+pub use tls::{CertificateStore, CertificateStoreBuilder};
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
