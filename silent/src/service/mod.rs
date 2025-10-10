@@ -12,8 +12,8 @@ use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
+use crate::service::connection::BoxedConnection;
 use crate::service::serve::Serve;
-use connection::Connection;
 use listener::{Listen, ListenersBuilder};
 use std::error::Error as StdError;
 use std::future::Future;
@@ -26,7 +26,6 @@ use std::sync::Arc;
 use tokio::signal;
 use tokio::task::JoinSet;
 
-pub type BoxedConnection = Box<dyn Connection + Send + Sync>;
 pub type BoxError = Box<dyn StdError + Send + Sync>;
 pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
