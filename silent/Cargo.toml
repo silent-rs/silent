@@ -37,6 +37,7 @@ full = [
     "scheduler",
     "grpc",
     "tls",
+    "quic",
 ]
 multipart = [
     "tokio/fs",
@@ -74,6 +75,14 @@ tls = [
     "dep:rustls-pemfile",
     "dep:rustls-pki-types",
     "server",
+]
+quic = [
+    "tls",
+    "dep:quinn",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:scru128",
+    "dep:rand",
 ]
 
 [dependencies]
@@ -157,6 +166,11 @@ rustls = { version = "0.23", optional = true, default-features = false, features
 ] }
 rustls-pemfile = { version = "2", optional = true }
 rustls-pki-types = { version = "1", optional = true }
+quinn = { version = "0.11", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+scru128 = { version = "4.0.0-beta.1", optional = true, package = "scru128" }
+rand = { version = "0.8", optional = true }
 
 # Cloudflare Workers
 worker = { version = "0.6", optional = true }
