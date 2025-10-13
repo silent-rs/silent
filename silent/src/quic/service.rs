@@ -28,7 +28,7 @@ pub(crate) async fn handle_quic_connection(
     info!(%remote, "客户端连接建立");
 
     // 默认的 WebTransport Handler
-    let handler = Arc::new(super::echo::EchoHandler::default());
+    let handler = Arc::new(super::echo::EchoHandler);
 
     let mut builder = h3::server::builder();
     builder

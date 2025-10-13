@@ -1,5 +1,3 @@
-#![cfg(feature = "quic")]
-
 pub(crate) mod connection;
 mod core;
 mod echo;

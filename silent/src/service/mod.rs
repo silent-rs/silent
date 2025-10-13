@@ -54,16 +54,16 @@ impl ConnectionService for Route {
                 Ok(quic) => {
                     // QUIC 连接处理
                     let routes = Arc::new(self.clone());
-                    return Box::pin(async move {
+                    Box::pin(async move {
                         let incoming = quic.into_incoming();
                         crate::quic::service::handle_quic_connection(incoming, routes)
                             .await
                             .map_err(BoxError::from)
-                    });
+                    })
                 }
                 Err(stream) => {
                     // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
-                    return Self::handle_http_connection(self.clone(), stream, peer);
+                    Self::handle_http_connection(self.clone(), stream, peer)
                 }
             }
         }

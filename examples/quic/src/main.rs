@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
-use silent::prelude::*;
 use silent::QuicEndpointListener;
+use silent::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
