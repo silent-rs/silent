@@ -22,6 +22,7 @@ impl KeyDer {
     }
 }
 
+#[derive(Clone)]
 pub struct CertificateStore {
     cert_chain: Vec<Vec<u8>>,
     key_der: KeyDer,

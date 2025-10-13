@@ -15,6 +15,7 @@ use std::net::{SocketAddr, TcpListener as StdTcpListener};
 
 pub struct QuicEndpointListener {
     endpoint: Endpoint,
+    store: CertificateStore,
 }
 
 impl QuicEndpointListener {
@@ -33,7 +34,10 @@ impl QuicEndpointListener {
                 e
             })
             .unwrap();
-        Self { endpoint }
+        Self {
+            endpoint,
+            store: store.clone(),
+        }
     }
 
     /// 创建带有 HTTP 降级的混合 listener
@@ -41,9 +45,6 @@ impl QuicEndpointListener {
     /// 此方法会自动在相同端口创建一个 TLS HTTP listener 作为降级，
     /// 当客户端不支持 QUIC 时可以使用 HTTP/1.1 或 HTTP/2。
     /// QUIC 使用 UDP，HTTP 使用 TCP，因此可以共享同一端口。
-    ///
-    /// # 参数
-    /// - `store`: 证书存储，用于创建 HTTP TLS listener
     ///
     /// # 示例
     /// ```no_run
@@ -55,20 +56,20 @@ impl QuicEndpointListener {
     /// let store = certificate_store().unwrap();
     ///
     /// Server::new()
-    ///     .listen(QuicEndpointListener::new(bind_addr, &store).with_http_fallback(&store))
+    ///     .listen(QuicEndpointListener::new(bind_addr, &store).with_http_fallback())
     ///     .serve(routes)
     ///     .await;
     /// # })
     /// ```
-    pub fn with_http_fallback(self, store: &CertificateStore) -> HybridListener {
+    pub fn with_http_fallback(self) -> HybridListener {
         let bind_addr = self.endpoint.local_addr().unwrap();
-        
+
         // 在同一端口创建 TCP listener（HTTP 降级）
-        let tcp_listener = StdTcpListener::bind(bind_addr)
-            .expect("Failed to bind TCP listener for HTTP fallback");
-        let http_listener = crate::service::listener::Listener::from(tcp_listener)
-            .tls_with_cert(store);
-        
+        let tcp_listener =
+            StdTcpListener::bind(bind_addr).expect("Failed to bind TCP listener for HTTP fallback");
+        let http_listener =
+            crate::service::listener::Listener::from(tcp_listener).tls_with_cert(&self.store);
+
         HybridListener {
             quic: self,
             http: http_listener,

@@ -12,10 +12,7 @@ use h3::server::{RequestResolver, RequestStream};
 use h3_quinn::Connection as H3QuinnConnection;
 use http::{Method, Request as HttpRequest, Response, StatusCode};
 use http_body_util::BodyExt;
-use std::{
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 /// 处理 QUIC 连接
 ///
@@ -50,10 +47,7 @@ pub(crate) async fn handle_quic_connection(
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
                 tokio::spawn(async move {
-                    if let Err(err) =
-                        handle_request(resolver, remote, routes, handler)
-                            .await
-                    {
+                    if let Err(err) = handle_request(resolver, remote, routes, handler).await {
                         error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
                     }
                 });
