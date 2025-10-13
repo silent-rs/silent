@@ -3,13 +3,17 @@ mod hyper_service;
 pub mod listener;
 mod serve;
 pub mod stream;
+#[cfg(feature = "tls")]
+pub mod tls;
+#[cfg(feature = "tls")]
+pub use tls::{CertificateStore, CertificateStoreBuilder};
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
+use crate::service::connection::BoxedConnection;
 use crate::service::serve::Serve;
-use connection::Connection;
 use listener::{Listen, ListenersBuilder};
 use std::error::Error as StdError;
 use std::future::Future;
@@ -22,7 +26,6 @@ use std::sync::Arc;
 use tokio::signal;
 use tokio::task::JoinSet;
 
-pub type BoxedConnection = Box<dyn Connection + Send + Sync>;
 pub type BoxError = Box<dyn StdError + Send + Sync>;
 pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
@@ -43,9 +46,42 @@ where
 
 impl ConnectionService for Route {
     fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        #[allow(unused_mut)]
-        let mut root_route = self.clone();
+        // 尝试将连接转换为 QuicConnection
+        #[cfg(feature = "quic")]
+        {
+            use crate::quic::connection::QuicConnection;
+            match stream.downcast::<QuicConnection>() {
+                Ok(quic) => {
+                    // QUIC 连接处理
+                    let routes = Arc::new(self.clone());
+                    Box::pin(async move {
+                        let incoming = quic.into_incoming();
+                        crate::quic::service::handle_quic_connection(incoming, routes)
+                            .await
+                            .map_err(BoxError::from)
+                    })
+                }
+                Err(stream) => {
+                    // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
+                    Self::handle_http_connection(self.clone(), stream, peer)
+                }
+            }
+        }
 
+        // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
+        #[cfg(not(feature = "quic"))]
+        Self::handle_http_connection(self.clone(), stream, peer)
+    }
+}
+
+impl Route {
+    fn handle_http_connection(
+        root_route: Route,
+        stream: BoxedConnection,
+        peer: CoreSocketAddr,
+    ) -> ConnectionFuture {
+        #[allow(unused_mut)]
+        let mut root_route = root_route;
         #[cfg(feature = "session")]
         root_route.check_session();
         #[cfg(feature = "cookie")]

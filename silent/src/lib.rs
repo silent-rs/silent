@@ -47,11 +47,13 @@ pub use crate::middleware::{MiddleWareHandler, middlewares};
 #[cfg(feature = "server")]
 pub use crate::protocol::Protocol;
 #[cfg(feature = "server")]
-pub use crate::service::connection::Connection;
+pub use crate::service::connection::{BoxedConnection, Connection};
 #[cfg(feature = "server")]
-pub use crate::service::listener::{Listen, Listener, Listeners, ListenersBuilder};
+pub use crate::service::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};
 #[cfg(feature = "server")]
-pub use crate::service::{BoxError, BoxedConnection, ConnectionFuture, ConnectionService, Server};
+pub use crate::service::{BoxError, ConnectionFuture, ConnectionService, Server};
+#[cfg(all(feature = "server", feature = "tls"))]
+pub use crate::service::{CertificateStore, CertificateStoreBuilder};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
 pub use handler::Handler;
@@ -60,3 +62,7 @@ pub use headers;
 pub use hyper::{Method, StatusCode, header};
 #[cfg(feature = "scheduler")]
 pub use scheduler::{ProcessTime, SCHEDULER, Scheduler, SchedulerExt, Task};
+#[cfg(feature = "quic")]
+pub mod quic;
+#[cfg(feature = "quic")]
+pub use quic::{HybridListener, QuicEndpointListener};

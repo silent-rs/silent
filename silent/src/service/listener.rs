@@ -1,5 +1,7 @@
 use super::connection::Connection;
 use super::stream::Stream;
+#[cfg(feature = "tls")]
+use crate::CertificateStore;
 use crate::core::socket_addr::SocketAddr;
 use futures_util::StreamExt;
 use futures_util::stream::FuturesUnordered;
@@ -102,6 +104,10 @@ impl Listener {
             listener: self,
             acceptor,
         }
+    }
+
+    pub fn tls_with_cert(self, cert: &CertificateStore) -> TlsListener {
+        self.tls(TlsAcceptor::from(cert.https_config().unwrap()))
     }
 }
 

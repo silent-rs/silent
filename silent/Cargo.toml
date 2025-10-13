@@ -37,6 +37,7 @@ full = [
     "scheduler",
     "grpc",
     "tls",
+    "quic",
 ]
 multipart = [
     "tokio/fs",
@@ -46,7 +47,13 @@ multipart = [
     "dep:textnonce",
 ]
 security = ["dep:argon2", "dep:pbkdf2", "dep:aes-gcm", "dep:aes", "dep:rsa"]
-server = ["tokio/fs", "tokio/net", "tokio/rt-multi-thread", "tokio/signal"]
+server = [
+    "tokio/fs",
+    "tokio/net",
+    "tokio/rt-multi-thread",
+    "tokio/signal",
+    "tokio/macros",
+]
 session = ["cookie", "dep:async-session"]
 sse = ["dep:pin-project", "dep:tokio-stream"]
 static = ["tokio/fs", "dep:urlencoding", "dep:async-compression"]
@@ -62,7 +69,21 @@ grpc = [
 ]
 scheduler = ["dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
-tls = ["dep:tokio-rustls"]
+tls = [
+    "dep:tokio-rustls",
+    "dep:rustls",
+    "dep:rustls-pemfile",
+    "dep:rustls-pki-types",
+    "server",
+]
+quic = [
+    "tls",
+    "dep:quinn",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:scru128",
+    "dep:rand",
+]
 
 [dependencies]
 # Basic dependencies
@@ -121,7 +142,9 @@ cookie = { version = "0.18", features = [
 ], optional = true }
 
 # Grpc
-tonic = { version = "0.14", optional = true, default-features = false, features = ["codegen"] }
+tonic = { version = "0.14", optional = true, default-features = false, features = [
+    "codegen",
+] }
 
 # Security
 aes = { version = "0.8", optional = true }
@@ -136,6 +159,18 @@ tokio-rustls = { version = "0.26", optional = true, default-features = false, fe
     "logging",
     "tls12",
 ] }
+rustls = { version = "0.23", optional = true, default-features = false, features = [
+    "logging",
+    "ring",
+    "std",
+] }
+rustls-pemfile = { version = "2", optional = true }
+rustls-pki-types = { version = "1", optional = true }
+quinn = { version = "0.11", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+scru128 = { version = "4.0.0-beta.1", optional = true, package = "scru128" }
+rand = { version = "0.8", optional = true }
 
 # Cloudflare Workers
 worker = { version = "0.6", optional = true }
