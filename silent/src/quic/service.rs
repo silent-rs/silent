@@ -3,10 +3,7 @@ use tracing::{error, info, warn};
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::protocol::Protocol as _;
 use crate::protocol::hyper_http::HyperHttpProtocol;
-use crate::{
-    BoxError, BoxedConnection, ConnectionFuture, ConnectionService,
-    quic::connection::QuicConnection, route::Route,
-};
+use crate::route::Route;
 use crate::{Handler, Request};
 use anyhow::{Context, Result, anyhow};
 use bytes::{Buf, Bytes, BytesMut};
@@ -20,51 +17,21 @@ use std::{
     sync::Arc,
 };
 
-pub(crate) struct HybridService {
-    routes: Arc<Route>,
-    handler: Arc<dyn WebTransportHandler>,
-    quic_port: u16,
-}
-
-impl HybridService {
-    pub(crate) fn new(routes: Arc<Route>, quic_port: u16) -> Self {
-        Self {
-            routes,
-            handler: Arc::new(super::echo::EchoHandler::default()),
-            quic_port,
-        }
-    }
-}
-
-impl ConnectionService for HybridService {
-    fn call(&self, stream: BoxedConnection, peer: crate::SocketAddr) -> ConnectionFuture {
-        let routes = Arc::clone(&self.routes);
-        let handler = Arc::clone(&self.handler);
-        let quic_port = self.quic_port;
-        match stream.downcast::<QuicConnection>() {
-            Ok(quic) => Box::pin(async move {
-                let incoming = quic.into_incoming();
-                handle_quic_connection(incoming, routes, handler, quic_port)
-                    .await
-                    .map_err(BoxError::from)
-            }),
-            Err(stream) => {
-                Box::pin(async move { ConnectionService::call(&*routes, stream, peer).await })
-            }
-        }
-    }
-}
-
-async fn handle_quic_connection(
+/// 处理 QUIC 连接
+///
+/// 此函数处理 QUIC 连接并建立 HTTP/3 会话。
+/// 它会接受多个 HTTP/3 请求并为每个请求生成一个处理任务。
+pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
     routes: Arc<Route>,
-    handler: Arc<dyn WebTransportHandler>,
-    quic_port: u16,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
     let remote = connection.remote_address();
     info!(%remote, "客户端连接建立");
+
+    // 默认的 WebTransport Handler
+    let handler = Arc::new(super::echo::EchoHandler::default());
 
     let mut builder = h3::server::builder();
     builder
@@ -82,10 +49,9 @@ async fn handle_quic_connection(
             Ok(Some(resolver)) => {
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
-                let quic_port = quic_port;
                 tokio::spawn(async move {
                     if let Err(err) =
-                        handle_request(resolver, remote, routes, handler, quic_port)
+                        handle_request(resolver, remote, routes, handler)
                             .await
                     {
                         error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
@@ -109,7 +75,6 @@ async fn handle_request(
     remote: SocketAddr,
     routes: Arc<Route>,
     handler: Arc<dyn WebTransportHandler>,
-    quic_port: u16,
 ) -> Result<()> {
     let (request, stream) = resolver
         .resolve_request()
@@ -117,7 +82,7 @@ async fn handle_request(
         .map_err(|err| anyhow!("解析 HTTP/3 请求失败: {err}"))?;
     let protocol = request.extensions().get::<H3Protocol>().cloned();
     if request.method() == Method::CONNECT && matches!(protocol, Some(H3Protocol::WEB_TRANSPORT)) {
-        handle_webtransport_request(request, stream, remote, handler, quic_port).await
+        handle_webtransport_request(request, stream, remote, handler).await
     } else {
         handle_http3_request(request, stream, remote, routes).await
     }
@@ -181,7 +146,6 @@ async fn handle_webtransport_request(
     mut stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
     handler: Arc<dyn WebTransportHandler>,
-    quic_port: u16,
 ) -> Result<()> {
     let draft_header = request
         .headers()
@@ -190,11 +154,6 @@ async fn handle_webtransport_request(
     let mut response_builder = Response::builder().status(StatusCode::OK);
     if let Some(value) = draft_header {
         response_builder = response_builder.header("sec-webtransport-http3-draft", value);
-    }
-    let port = quic_port;
-    if port != 0 {
-        let v = format!("h3=\":{}\"; ma=86400", port);
-        response_builder = response_builder.header("alt-svc", v);
     }
     stream
         .send_response(response_builder.body(()).unwrap())

@@ -46,9 +46,42 @@ where
 
 impl ConnectionService for Route {
     fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        #[allow(unused_mut)]
-        let mut root_route = self.clone();
+        // 尝试将连接转换为 QuicConnection
+        #[cfg(feature = "quic")]
+        {
+            use crate::quic::connection::QuicConnection;
+            match stream.downcast::<QuicConnection>() {
+                Ok(quic) => {
+                    // QUIC 连接处理
+                    let routes = Arc::new(self.clone());
+                    return Box::pin(async move {
+                        let incoming = quic.into_incoming();
+                        crate::quic::service::handle_quic_connection(incoming, routes)
+                            .await
+                            .map_err(BoxError::from)
+                    });
+                }
+                Err(stream) => {
+                    // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
+                    return Self::handle_http_connection(self.clone(), stream, peer);
+                }
+            }
+        }
 
+        // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
+        #[cfg(not(feature = "quic"))]
+        Self::handle_http_connection(self.clone(), stream, peer)
+    }
+}
+
+impl Route {
+    fn handle_http_connection(
+        root_route: Route,
+        stream: BoxedConnection,
+        peer: CoreSocketAddr,
+    ) -> ConnectionFuture {
+        #[allow(unused_mut)]
+        let mut root_route = root_route;
         #[cfg(feature = "session")]
         root_route.check_session();
         #[cfg(feature = "cookie")]

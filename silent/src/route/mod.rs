@@ -153,6 +153,26 @@ impl Route {
         self
     }
 
+    /// 配置 QUIC 端口并自动添加 Alt-Svc 中间件
+    ///
+    /// 此方法会自动添加 `AltSvcMiddleware` 来通知客户端可以使用 HTTP/3。
+    /// 如果需要更灵活的控制，可以手动使用 `hook(AltSvcMiddleware::new(port))`。
+    ///
+    /// # 参数
+    /// - `port`: QUIC 服务监听的端口号
+    ///
+    /// # 示例
+    /// ```no_run
+    /// use silent::prelude::*;
+    ///
+    /// let routes = Route::new("")
+    ///     .with_quic_port(4433);
+    /// ```
+    #[cfg(feature = "quic")]
+    pub fn with_quic_port(self, port: u16) -> Self {
+        self.hook(crate::quic::AltSvcMiddleware::new(port))
+    }
+
     #[cfg(feature = "static")]
     pub fn with_static(self, path: &str) -> Self {
         self.with_static_options(path, StaticOptions::default())
