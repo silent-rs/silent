@@ -65,7 +65,4 @@ pub use scheduler::{ProcessTime, SCHEDULER, Scheduler, SchedulerExt, Task};
 #[cfg(feature = "quic")]
 pub mod quic;
 #[cfg(feature = "quic")]
-pub use quic::{
-    run_server as quic_run_server, EchoHandler as QuicEchoHandler,
-    WebTransportHandler as QuicWebTransportHandler, WebTransportStream as QuicWebTransportStream,
-};
+pub use quic::QuicEndpointListener;
