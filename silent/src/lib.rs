@@ -65,4 +65,4 @@ pub use scheduler::{ProcessTime, SCHEDULER, Scheduler, SchedulerExt, Task};
 #[cfg(feature = "quic")]
 pub mod quic;
 #[cfg(feature = "quic")]
-pub use quic::QuicEndpointListener;
+pub use quic::{HybridListener, QuicEndpointListener};

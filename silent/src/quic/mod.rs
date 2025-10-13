@@ -7,5 +7,5 @@ mod listener;
 pub mod middleware;
 pub(crate) mod service;
 
-pub use listener::QuicEndpointListener;
+pub use listener::{HybridListener, QuicEndpointListener};
 pub use middleware::AltSvcMiddleware;
