@@ -170,7 +170,7 @@ quinn = { version = "0.11", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
 scru128 = { version = "4.0.0-beta.1", optional = true, package = "scru128" }
-rand = { version = "0.8", optional = true }
+rand = { version = "0.9", optional = true }
 
 # Cloudflare Workers
 worker = { version = "0.6", optional = true }
