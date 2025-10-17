@@ -17,7 +17,6 @@ silent = { path = "../silent", version = "2" }
 
 # OpenAPI相关依赖
 utoipa = { version = "5", features = ["chrono", "uuid"] }
-utoipa-swagger-ui = "9"
 
 # 基础依赖
 async-trait = "0.1"
