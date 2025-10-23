@@ -206,6 +206,14 @@ impl Server {
             tracing::info!("listening on: {:?}", addr);
         }
 
+        // Start the scheduler if the feature is enabled
+        #[cfg(feature = "scheduler")]
+        tokio::spawn(async move {
+            use crate::scheduler::{SCHEDULER, Scheduler};
+            let scheduler = SCHEDULER.clone();
+            Scheduler::schedule(scheduler).await;
+        });
+
         let shutdown_callback = shutdown_callback.as_ref();
         let handler: Arc<dyn ConnectionService> = Arc::new(handler);
         let mut join_set = JoinSet::new();
