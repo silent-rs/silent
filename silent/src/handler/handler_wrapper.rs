@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 /// 处理器包装结构体
 /// 包含
-/// 请求类型: Option<Method>
-/// 请求方法: Handler
+/// 请求类型: `Option<Method>`
+/// 请求方法: `Handler`
 /// 其中请求类型可为空，用来定义中间件
 /// 请求方法不可为空，用来定义处理器
-/// 处理器为返回值为 Into<Bytes> + From<Bytes>的异步函数或者闭包函数
+/// 处理器为返回值为 `Into<Bytes>` + `From<Bytes>` 的异步函数或者闭包函数
 pub struct HandlerWrapper<F> {
     handler: F,
 }
