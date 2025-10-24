@@ -3,6 +3,7 @@ use std::pin::Pin;
 
 use hyper::service::Service as HyperService;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
+use tracing::debug;
 
 use crate::core::res_body::ResBody;
 use crate::core::socket_addr::SocketAddr;
@@ -49,9 +50,11 @@ where
         let (parts, body) = req.into_parts();
         let request = HyperRequest::from_parts(parts, body.into());
         let request = HyperHttpProtocol::into_internal(request);
+        debug!("Request: \n{:#?}", request);
         let response = self.handle(request);
         Box::pin(async move {
             let res = response.await;
+            debug!("Response: \n{:?}", res);
             Ok(HyperHttpProtocol::from_internal(res))
         })
     }
