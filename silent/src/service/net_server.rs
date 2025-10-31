@@ -15,7 +15,58 @@ type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
 /// 与协议无关的通用网络服务器。
 ///
-/// 负责监听、接受连接并将连接分发给 ConnectionService 处理。
+/// `NetServer` 提供底层网络监听和连接分发能力，支持任意协议的自定义处理逻辑。
+/// 它负责：
+/// - 监听一个或多个网络地址（TCP/Unix Socket）
+/// - 接受新连接并分发给用户提供的 `ConnectionService` 处理器
+/// - 可选的连接限流（令牌桶算法）
+/// - 优雅关停（等待活动连接完成或超时强制取消）
+///
+/// # Examples
+///
+/// 基本的 TCP 回显服务器：
+///
+/// ```no_run
+/// use silent::{NetServer, BoxedConnection, SocketAddr};
+/// use std::time::Duration;
+/// use tokio::io::{AsyncReadExt, AsyncWriteExt};
+///
+/// #[tokio::main]
+/// async fn main() {
+///     let handler = |mut stream: BoxedConnection, peer: SocketAddr| async move {
+///         let mut buf = vec![0u8; 1024];
+///         let n = stream.read(&mut buf).await?;
+///         stream.write_all(&buf[..n]).await?;
+///         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+///     };
+///
+///     NetServer::new()
+///         .bind("127.0.0.1:8080".parse().unwrap())
+///         .with_rate_limiter(100, Duration::from_millis(10), Duration::from_secs(1))
+///         .with_shutdown(Duration::from_secs(30))
+///         .serve(handler)
+///         .await;
+/// }
+/// ```
+///
+/// # 限流
+///
+/// 使用 [`with_rate_limiter`](Self::with_rate_limiter) 配置令牌桶限流器：
+/// - `capacity`: 令牌桶容量（允许的最大突发连接数）
+/// - `refill_every`: 补充间隔（每次补充 1 个令牌）
+/// - `max_wait`: 获取令牌的最大等待时间
+///
+/// # 优雅关停
+///
+/// 使用 [`with_shutdown`](Self::with_shutdown) 配置关停行为：
+/// - 收到 Ctrl-C 或 SIGTERM 信号后停止接受新连接
+/// - 等待活动连接在指定时间内完成
+/// - 超时后强制取消剩余连接
+///
+/// # 错误处理
+///
+/// 连接处理器返回的错误会被记录到日志，但不会影响服务器主循环。
+/// 服务器会继续接受新连接，除非收到关停信号或遇到严重的监听器错误。
 pub struct NetServer {
     listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
@@ -31,6 +82,20 @@ impl Default for NetServer {
 }
 
 impl NetServer {
+    /// 创建一个新的 NetServer 实例。
+    ///
+    /// 默认配置：
+    /// - 无监听器（需要调用 [`bind`](Self::bind) 或 [`listen`](Self::listen) 添加）
+    /// - 无限流限制
+    /// - 立即强制关停（graceful_wait = 0）
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use silent::NetServer;
+    ///
+    /// let server = NetServer::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             listeners_builder: ListenersBuilder::new(),
@@ -55,12 +120,38 @@ impl NetServer {
         }
     }
 
+    /// 绑定 TCP 监听地址。
+    ///
+    /// 可以多次调用以监听多个地址。
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use silent::NetServer;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .bind("127.0.0.1:8081".parse().unwrap());
+    /// ```
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
         self.listeners_builder.bind(addr);
         self
     }
 
+    /// 绑定 Unix Domain Socket 监听路径（仅非 Windows 平台）。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[cfg(not(target_os = "windows"))]
+    /// # {
+    /// use silent::NetServer;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind_unix("/tmp/my_service.sock");
+    /// # }
+    /// ```
     #[cfg(not(target_os = "windows"))]
     #[inline]
     pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
@@ -68,12 +159,44 @@ impl NetServer {
         self
     }
 
+    /// 添加自定义监听器。
+    ///
+    /// 用于高级场景，允许使用自定义的监听器实现。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::NetServer;
+    /// use tokio::net::TcpListener;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() {
+    /// let custom_listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
+    /// let server = NetServer::new()
+    ///     .listen(custom_listener);
+    /// # }
+    /// ```
     #[inline]
     pub fn listen<T: Listen + Send + Sync + 'static>(mut self, listener: T) -> Self {
         self.listeners_builder.add_listener(Box::new(listener));
         self
     }
 
+    /// 设置监听成功后的回调函数。
+    ///
+    /// 回调函数会在所有监听器成功绑定后被调用，接收实际监听的地址列表。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::NetServer;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:0".parse().unwrap())  // 随机端口
+    ///     .on_listen(|addrs| {
+    ///         println!("Server listening on: {:?}", addrs);
+    ///     });
+    /// ```
     pub fn on_listen<F>(mut self, callback: F) -> Self
     where
         F: Fn(&[CoreSocketAddr]) + Send + Sync + 'static,
@@ -82,6 +205,21 @@ impl NetServer {
         self
     }
 
+    /// 设置关停时的回调函数。
+    ///
+    /// 回调函数会在收到关停信号后、开始关停流程前被调用。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::NetServer;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .set_shutdown_callback(|| {
+    ///         println!("Server is shutting down...");
+    ///     });
+    /// ```
     pub fn set_shutdown_callback<F>(mut self, callback: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -90,10 +228,32 @@ impl NetServer {
         self
     }
 
-    /// 配置令牌桶限流（简单版）
-    /// capacity: 令牌容量（突发允许的最大并发接入数）
-    /// refill_every: 令牌补充间隔（每次+1，直到达到容量）
-    /// max_wait: 获取令牌的最大等待时间，超时则丢弃该连接
+    /// 配置连接限流器（令牌桶算法）。
+    ///
+    /// 限流器用于控制连接接受速率，防止服务器过载。
+    ///
+    /// # 参数
+    ///
+    /// - `capacity`: 令牌桶容量（允许的最大突发连接数）
+    /// - `refill_every`: 令牌补充间隔（每次补充 1 个令牌）
+    /// - `max_wait`: 获取令牌的最大等待时间，超时则拒绝连接
+    ///
+    /// # Examples
+    ///
+    /// 限制为每秒最多 100 个连接，允许 10 个突发：
+    ///
+    /// ```no_run
+    /// use silent::NetServer;
+    /// use std::time::Duration;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .with_rate_limiter(
+    ///         10,                           // 容量：10 个突发
+    ///         Duration::from_millis(10),    // 每 10ms 补充 1 个（~100 QPS）
+    ///         Duration::from_secs(2),       // 最多等待 2 秒获取令牌
+    ///     );
+    /// ```
     pub fn with_rate_limiter(
         mut self,
         capacity: usize,
@@ -104,12 +264,69 @@ impl NetServer {
         self
     }
 
-    /// 配置优雅关停参数：graceful_wait 表示在收到关停信号后，等待活动任务完成的最长时间
+    /// 配置优雅关停等待时间。
+    ///
+    /// 当收到关停信号（Ctrl-C 或 SIGTERM）时：
+    /// 1. 停止接受新连接
+    /// 2. 等待活动连接在 `graceful_wait` 时间内完成
+    /// 3. 超时后强制取消剩余连接
+    ///
+    /// 默认值为 0，表示立即强制关停。
+    ///
+    /// # Examples
+    ///
+    /// 等待最多 30 秒让连接优雅完成：
+    ///
+    /// ```no_run
+    /// use silent::NetServer;
+    /// use std::time::Duration;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .with_shutdown(Duration::from_secs(30));
+    /// ```
     pub fn with_shutdown(mut self, graceful_wait: Duration) -> Self {
         self.shutdown_cfg.graceful_wait = graceful_wait;
         self
     }
 
+    /// 启动服务器（异步版本）。
+    ///
+    /// 此方法会阻塞当前任务，直到收到关停信号（Ctrl-C 或 SIGTERM）。
+    ///
+    /// # 行为
+    ///
+    /// 1. 绑定所有配置的监听器
+    /// 2. 调用 `on_listen` 回调（如果设置）
+    /// 3. 进入主事件循环：
+    ///    - 接受新连接（受限流器控制）
+    ///    - 为每个连接调用 `handler`
+    ///    - 监听关停信号（Ctrl-C 或 SIGTERM）
+    /// 4. 收到信号后执行优雅关停
+    ///
+    /// # Panics
+    ///
+    /// 如果服务器循环内部发生错误，将 panic。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::{NetServer, prelude::*};
+    /// use std::time::Duration;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let server = NetServer::new()
+    ///         .bind("127.0.0.1:8080".parse().unwrap())
+    ///         .with_rate_limiter(10, Duration::from_millis(10), Duration::from_secs(2))
+    ///         .with_shutdown(Duration::from_secs(5));
+    ///
+    ///     server.serve(|stream, peer| async move {
+    ///         println!("Connection from: {}", peer);
+    ///         Ok(())
+    ///     }).await;
+    /// }
+    /// ```
     pub async fn serve<H>(self, handler: H)
     where
         H: ConnectionService,
@@ -133,6 +350,31 @@ impl NetServer {
         .expect("server loop failed");
     }
 
+    /// 启动服务器（阻塞版本）。
+    ///
+    /// 此方法会创建 tokio 多线程运行时并阻塞当前线程，直到服务器关停。
+    /// 等价于在 `#[tokio::main]` 中调用 `serve()`。
+    ///
+    /// # Panics
+    ///
+    /// 如果创建运行时失败或服务器循环内部发生错误，将 panic。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::{NetServer, prelude::*};
+    /// use std::time::Duration;
+    ///
+    /// let server = NetServer::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .with_shutdown(Duration::from_secs(5));
+    ///
+    /// // 阻塞主线程直到服务器关停
+    /// server.run(|stream, peer| async move {
+    ///     println!("Connection from: {}", peer);
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn run<H>(self, handler: H)
     where
         H: ConnectionService,
