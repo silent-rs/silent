@@ -336,3 +336,89 @@ impl Default for ShutdownConfig {
 fn self_rate_limiter(rate: Option<&RateLimiter>) -> Option<RateLimiter> {
     rate.cloned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rate_limiter_capacity_limit() {
+        // 测试容量限制：初始容量为 2，应能获取 2 个令牌
+        let limiter = RateLimiter::new(2, Duration::from_secs(60), Duration::from_secs(1));
+
+        // 获取前 2 个令牌应该成功
+        let _permit1 = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("first permit should be available");
+
+        let _permit2 = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("second permit should be available");
+
+        // 验证容量限制：可用令牌数应为 0
+        assert_eq!(
+            limiter.semaphore.available_permits(),
+            0,
+            "no permits should be available after acquiring capacity"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_release_and_reacquire() {
+        // 测试令牌释放后重新获取
+        let limiter = RateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(1));
+
+        let permit = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("should acquire first permit");
+
+        assert_eq!(limiter.semaphore.available_permits(), 0);
+
+        // 释放令牌
+        drop(permit);
+
+        // 应能立即重新获取
+        let _permit2 = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("should reacquire after release");
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_refill_mechanism() {
+        // 测试令牌自动补充机制
+        let limiter = RateLimiter::new(1, Duration::from_millis(50), Duration::from_secs(1));
+
+        // 获取令牌并持有
+        let _permit = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("should acquire permit");
+
+        // 等待至少 2 个补充周期
+        tokio::time::sleep(Duration::from_millis(120)).await;
+
+        // 由于补充任务检查 available == 0 才补充，且 permit 未释放，
+        // 补充任务应该已经添加了令牌（因为available == 0时会 add_permits(1)）
+        // 验证可用许可数 >= 1 (补充任务可能已执行)
+        let available = limiter.semaphore.available_permits();
+        assert!(
+            available >= 1,
+            "refill task should have added permits when available was 0, got {}",
+            available
+        );
+    }
+}
