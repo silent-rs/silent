@@ -23,7 +23,10 @@ async fn custom_response(_req: Request) -> Result<Response> {
     </body>
     </html>"#;
     res.set_body(full(html));
-    res.cookies_mut()
-        .add(Cookie::build(("hello", "world")).max_age(CookieTime::Duration::hours(2)));
+    res.cookies_mut().add(
+        Cookie::build(("hello", "world"))
+            .max_age(CookieTime::Duration::hours(2))
+            .secure(true),
+    );
     Ok(res)
 }
