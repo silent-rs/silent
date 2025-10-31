@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod connection_service;
 mod hyper_service;
 pub mod listener;
 pub mod net_server;
@@ -15,35 +16,16 @@ use crate::route::Route;
 use crate::scheduler::middleware::SchedulerMiddleware;
 use crate::service::connection::BoxedConnection;
 use crate::service::serve::Serve;
+pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
 use listener::{Listen, ListenersBuilder};
-use std::error::Error as StdError;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::task::JoinSet;
-
-pub type BoxError = Box<dyn StdError + Send + Sync>;
-pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
-
-pub trait ConnectionService: Send + Sync + 'static {
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture;
-}
-
-impl<F, Fut> ConnectionService for F
-where
-    F: Send + Sync + 'static + Fn(BoxedConnection, CoreSocketAddr) -> Fut,
-    Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
-{
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        Box::pin((self)(stream, peer))
-    }
-}
 
 impl ConnectionService for Route {
     fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
