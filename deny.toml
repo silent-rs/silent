@@ -76,6 +76,19 @@ ignore = [
     # Upstream has no safe upgrade yet (RUSTSEC-2024-0370). We rely on utoipa
     # for OpenAPI generation only; risk is limited to build-time proc-macro diagnostics.
     "RUSTSEC-2024-0370",
+    # The following advisories are "unmaintained" for the rust-unic family,
+    # pulled transitively via tera = 1.20.0 (unic-segment and friends).
+    # Upstream Tera has not provided a safe upgrade path at this time.
+    # We track this and will remove ignores once Tera replaces rust-unic with
+    # icu/unicode-segmentation per RustSec recommendations.
+    # Context: https://github.com/open-i18n/rust-unic (archived)
+    # Affected: unic-char-property / unic-char-range / unic-common / unic-segment / unic-ucd-*
+    "RUSTSEC-2025-0081", # unic-char-property unmaintained
+    "RUSTSEC-2025-0075", # unic-char-range unmaintained
+    "RUSTSEC-2025-0080", # unic-common unmaintained
+    "RUSTSEC-2025-0074", # unic-segment unmaintained
+    "RUSTSEC-2025-0104", # unic-ucd-segment unmaintained
+    "RUSTSEC-2025-0098", # unic-ucd-version unmaintained
     #"RUSTSEC-0000-0000",
     #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
     #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish

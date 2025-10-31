@@ -1,113 +1,27 @@
-pub mod connection;
-mod hyper_service;
-pub mod listener;
-pub mod net_server;
-mod serve;
-pub mod stream;
-#[cfg(feature = "tls")]
-pub mod tls;
-#[cfg(feature = "tls")]
-pub use tls::{CertificateStore, CertificateStoreBuilder};
-
+use super::ConnectionService;
+use super::listener::{Listen, ListenersBuilder};
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
-use crate::route::Route;
-#[cfg(feature = "scheduler")]
-use crate::scheduler::middleware::SchedulerMiddleware;
-use crate::service::connection::BoxedConnection;
-use crate::service::serve::Serve;
-use listener::{Listen, ListenersBuilder};
-use std::error::Error as StdError;
-use std::future::Future;
 use std::io;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
-use std::pin::Pin;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::task::JoinSet;
 
-pub type BoxError = Box<dyn StdError + Send + Sync>;
-pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send>>;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
-pub trait ConnectionService: Send + Sync + 'static {
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture;
-}
-
-impl<F, Fut> ConnectionService for F
-where
-    F: Send + Sync + 'static + Fn(BoxedConnection, CoreSocketAddr) -> Fut,
-    Fut: Future<Output = Result<(), BoxError>> + Send + 'static,
-{
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        Box::pin((self)(stream, peer))
-    }
-}
-
-impl ConnectionService for Route {
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        // 尝试将连接转换为 QuicConnection
-        #[cfg(feature = "quic")]
-        {
-            use crate::quic::connection::QuicConnection;
-            match stream.downcast::<QuicConnection>() {
-                Ok(quic) => {
-                    // QUIC 连接处理
-                    let routes = Arc::new(self.clone());
-                    Box::pin(async move {
-                        let incoming = quic.into_incoming();
-                        crate::quic::service::handle_quic_connection(incoming, routes)
-                            .await
-                            .map_err(BoxError::from)
-                    })
-                }
-                Err(stream) => {
-                    // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
-                    Self::handle_http_connection(self.clone(), stream, peer)
-                }
-            }
-        }
-
-        // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
-        #[cfg(not(feature = "quic"))]
-        Self::handle_http_connection(self.clone(), stream, peer)
-    }
-}
-
-impl Route {
-    fn handle_http_connection(
-        root_route: Route,
-        stream: BoxedConnection,
-        peer: CoreSocketAddr,
-    ) -> ConnectionFuture {
-        #[allow(unused_mut)]
-        let mut root_route = root_route;
-        #[cfg(feature = "session")]
-        root_route.check_session();
-        #[cfg(feature = "cookie")]
-        root_route.check_cookie();
-        #[cfg(feature = "scheduler")]
-        root_route.hook_first(SchedulerMiddleware::new());
-
-        let routes = root_route.convert_to_route_tree();
-        Box::pin(async move { Serve::new(routes).call(stream, peer).await })
-    }
-}
-
-pub struct Server {
+/// 与协议无关的通用网络服务器。
+///
+/// 负责监听、接受连接并将连接分发给 ConnectionService 处理。
+pub struct NetServer {
     listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     listen_callback: Option<ListenCallback>,
 }
 
-impl Default for Server {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Server {
+impl NetServer {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             listeners_builder: ListenersBuilder::new(),
@@ -116,12 +30,26 @@ impl Server {
         }
     }
 
+    pub(crate) fn from_parts(
+        listeners_builder: ListenersBuilder,
+        shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
+        listen_callback: Option<ListenCallback>,
+    ) -> Self {
+        Self {
+            listeners_builder,
+            shutdown_callback,
+            listen_callback,
+        }
+    }
+
+    #[allow(dead_code)]
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
         self.listeners_builder.bind(addr);
         self
     }
 
+    #[allow(dead_code)]
     #[cfg(not(target_os = "windows"))]
     #[inline]
     pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
@@ -129,20 +57,14 @@ impl Server {
         self
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn listen<T: Listen + Send + Sync + 'static>(mut self, listener: T) -> Self {
         self.listeners_builder.add_listener(Box::new(listener));
         self
     }
 
-    pub fn set_shutdown_callback<F>(mut self, callback: F) -> Self
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
-        self.shutdown_callback = Some(Box::new(callback));
-        self
-    }
-
+    #[allow(dead_code)]
     pub fn on_listen<F>(mut self, callback: F) -> Self
     where
         F: Fn(&[CoreSocketAddr]) + Send + Sync + 'static,
@@ -151,42 +73,24 @@ impl Server {
         self
     }
 
+    #[allow(dead_code)]
+    pub fn set_shutdown_callback<F>(mut self, callback: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.shutdown_callback = Some(Box::new(callback));
+        self
+    }
+
     pub async fn serve<H>(self, handler: H)
     where
         H: ConnectionService,
     {
-        // 将网络层职责委托给通用 NetServer，保持行为一致
-        let net = net_server::NetServer::from_parts(
-            self.listeners_builder,
-            self.shutdown_callback,
-            self.listen_callback,
-        );
-        net.serve(handler).await
-    }
-
-    pub fn run<H>(self, handler: H)
-    where
-        H: ConnectionService,
-    {
-        net_server::NetServer::from_parts(
-            self.listeners_builder,
-            self.shutdown_callback,
-            self.listen_callback,
-        )
-        .run(handler)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn serve_with_connection_handler<H>(self, handler: H)
-    where
-        H: ConnectionService,
-    {
-        let Server {
+        let NetServer {
             listeners_builder,
             shutdown_callback,
             listen_callback,
         } = self;
-
         Self::serve_connection_loop(
             listeners_builder,
             shutdown_callback,
@@ -197,8 +101,18 @@ impl Server {
         .expect("server loop failed");
     }
 
-    #[allow(dead_code)]
-    pub(crate) async fn serve_connection_loop<H>(
+    pub fn run<H>(self, handler: H)
+    where
+        H: ConnectionService,
+    {
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(self.serve(handler));
+    }
+
+    async fn serve_connection_loop<H>(
         listeners_builder: ListenersBuilder,
         shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
         listen_callback: Option<ListenCallback>,
@@ -244,15 +158,11 @@ impl Server {
 
             tokio::select! {
                 _ = signal::ctrl_c() => {
-                    if let Some(callback) = shutdown_callback {
-                        callback();
-                    }
+                    if let Some(callback) = shutdown_callback { callback(); }
                     break;
                 }
                 _ = terminate => {
-                    if let Some(callback) = shutdown_callback {
-                        callback();
-                    }
+                    if let Some(callback) = shutdown_callback { callback(); }
                     break;
                 }
                 Some(result) = listeners.accept() => {
