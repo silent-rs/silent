@@ -290,7 +290,6 @@ impl NetServer {
 #[derive(Clone)]
 struct RateLimiter {
     semaphore: Arc<Semaphore>,
-    refill_every: Duration,
     max_wait: Duration,
 }
 
@@ -316,7 +315,6 @@ impl RateLimiter {
 
         Self {
             semaphore,
-            refill_every,
             max_wait,
         }
     }
