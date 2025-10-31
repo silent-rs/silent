@@ -2,7 +2,8 @@
 
 - 日期：2025-10-01
 - 作者：silent-mqtt 团队
-- 状态：Draft
+- 状态：Implemented
+- 实现版本：v2.11.0
 
 ## 背景
 
@@ -70,3 +71,60 @@
 
 - `silent-mqtt` 项目能够完全依赖 `silent::NetServer` 启动服务，无需直接访问 `core::listener`。
 - 现有 `silent` HTTP 服务行为保持一致，`cargo check` 与集成测试全部通过。
+
+## 实施总结
+
+### 已完成功能
+
+1. **ConnectionService 抽象** (`silent/src/service/connection_service.rs`):
+   - 定义 `ConnectionService` trait，提供 `call(stream, peer)` 接口
+   - 自动为闭包实现 blanket impl，简化业务代码
+   - 类型别名：`BoxError`、`BoxedConnection`、`ConnectionFuture`
+
+2. **NetServer 核心实现** (`silent/src/service/net_server.rs`):
+   - 基于 `ListenersBuilder` 的通用网络服务器
+   - 配置方法：`bind()`、`bind_unix()`、`listen()`
+   - 回调方法：`on_listen()`、`set_shutdown_callback()`
+   - 限流支持：`with_rate_limiter(capacity, refill_every, max_wait)`
+   - 优雅关停：`with_shutdown(graceful_wait)`
+   - 启动方法：`serve()` (异步) 和 `run()` (阻塞)
+
+3. **令牌桶限流器**:
+   - 基于 `tokio::sync::Semaphore` 实现
+   - 后台任务定期补充令牌
+   - 可配置容量、补充间隔、最大等待时间
+
+4. **优雅关停机制**:
+   - 监听 Ctrl-C 和 SIGTERM 信号
+   - 停止接受新连接
+   - 等待活动连接在超时时间内完成
+   - 超时后强制取消剩余任务
+
+5. **示例与文档**:
+   - `examples/net_server_basic`: TCP echo 服务器
+   - `examples/net_server_custom_protocol`: 自定义命令协议
+   - 完整的 Rustdoc 文档，包含示例代码
+
+6. **测试**:
+   - RateLimiter 单元测试（容量、释放、补充）
+   - ShutdownConfig 单元测试（默认值、配置）
+   - ConnectionService 集成测试框架
+
+### 实施状态
+
+- ✅ 所有计划功能已完成实现
+- ✅ API 设计与 RFC 保持一致
+- ✅ 通过所有 pre-commit hooks（fmt、clippy -D warnings、deny、test）
+- ✅ 提供可运行示例和完整文档
+- ⬜ 待 silent-mqtt 项目验证集成
+
+### 实施偏差
+
+无重大偏差。所有设计目标均已实现，API 符合预期规范。
+
+### 后续工作
+
+1. 在 silent-mqtt 项目中集成 NetServer，验证实际使用效果
+2. 根据使用反馈优化 API 和错误处理
+3. 添加可观测性指标（连接数、限流统计等）
+4. 完善 API 文档中的最佳实践建议
