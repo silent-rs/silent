@@ -51,6 +51,8 @@ pub use crate::service::connection::{BoxedConnection, Connection};
 #[cfg(feature = "server")]
 pub use crate::service::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};
 #[cfg(feature = "server")]
+pub use crate::service::net_server::NetServer;
+#[cfg(feature = "server")]
 pub use crate::service::{BoxError, ConnectionFuture, ConnectionService, Server};
 #[cfg(all(feature = "server", feature = "tls"))]
 pub use crate::service::{CertificateStore, CertificateStoreBuilder};

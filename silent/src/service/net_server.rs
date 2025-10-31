@@ -24,6 +24,12 @@ pub struct NetServer {
     shutdown_cfg: ShutdownConfig,
 }
 
+impl Default for NetServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetServer {
     #[allow(dead_code)]
     pub fn new() -> Self {
