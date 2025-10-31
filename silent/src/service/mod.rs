@@ -18,13 +18,10 @@ use crate::service::connection::BoxedConnection;
 use crate::service::serve::Serve;
 pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
 use listener::{Listen, ListenersBuilder};
-use std::io;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::sync::Arc;
-use tokio::signal;
-use tokio::task::JoinSet;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
 impl ConnectionService for Route {
@@ -137,140 +134,46 @@ impl Server {
     where
         H: ConnectionService,
     {
-        // 将网络层职责委托给通用 NetServer，保持行为一致
-        let net = net_server::NetServer::from_parts(
+        // 启动调度器（如果启用了 scheduler feature）
+        #[cfg(feature = "scheduler")]
+        {
+            use crate::scheduler::{SCHEDULER, Scheduler};
+            tokio::spawn(async move {
+                let scheduler = SCHEDULER.clone();
+                Scheduler::schedule(scheduler).await;
+            });
+        }
+
+        // 将网络层职责完全委托给通用 NetServer
+        net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
-        );
-        net.serve(handler).await
+        )
+        .serve(handler)
+        .await
     }
 
     pub fn run<H>(self, handler: H)
     where
         H: ConnectionService,
     {
+        // 启动调度器（如果启用了 scheduler feature）
+        #[cfg(feature = "scheduler")]
+        {
+            use crate::scheduler::{SCHEDULER, Scheduler};
+            tokio::spawn(async move {
+                let scheduler = SCHEDULER.clone();
+                Scheduler::schedule(scheduler).await;
+            });
+        }
+
+        // 将网络层职责完全委托给通用 NetServer
         net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
         )
         .run(handler)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn serve_with_connection_handler<H>(self, handler: H)
-    where
-        H: ConnectionService,
-    {
-        let Server {
-            listeners_builder,
-            shutdown_callback,
-            listen_callback,
-        } = self;
-
-        Self::serve_connection_loop(
-            listeners_builder,
-            shutdown_callback,
-            listen_callback,
-            handler,
-        )
-        .await
-        .expect("server loop failed");
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn serve_connection_loop<H>(
-        listeners_builder: ListenersBuilder,
-        shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
-        listen_callback: Option<ListenCallback>,
-        handler: H,
-    ) -> io::Result<()>
-    where
-        H: ConnectionService,
-    {
-        let mut listeners = listeners_builder.listen()?;
-        let local_addrs = listeners.local_addrs();
-        if let Some(callback) = listen_callback.as_ref() {
-            callback(local_addrs);
-        }
-        for addr in local_addrs {
-            tracing::info!("listening on: {:?}", addr);
-        }
-
-        // Start the scheduler if the feature is enabled
-        #[cfg(feature = "scheduler")]
-        tokio::spawn(async move {
-            use crate::scheduler::{SCHEDULER, Scheduler};
-            let scheduler = SCHEDULER.clone();
-            Scheduler::schedule(scheduler).await;
-        });
-
-        let shutdown_callback = shutdown_callback.as_ref();
-        let handler: Arc<dyn ConnectionService> = Arc::new(handler);
-        let mut join_set = JoinSet::new();
-
-        loop {
-            #[cfg(unix)]
-            let terminate = async {
-                signal::unix::signal(signal::unix::SignalKind::terminate())
-                    .expect("failed to install signal handler")
-                    .recv()
-                    .await;
-            };
-
-            #[cfg(not(unix))]
-            let terminate = async {
-                let _ = std::future::pending::<()>().await;
-            };
-
-            tokio::select! {
-                _ = signal::ctrl_c() => {
-                    if let Some(callback) = shutdown_callback {
-                        callback();
-                    }
-                    break;
-                }
-                _ = terminate => {
-                    if let Some(callback) = shutdown_callback {
-                        callback();
-                    }
-                    break;
-                }
-                Some(result) = listeners.accept() => {
-                    match result {
-                        Ok((stream, peer_addr)) => {
-                            tracing::info!("Accepting from: {}", peer_addr);
-                            let handler = handler.clone();
-                            join_set.spawn(async move {
-                                if let Err(err) = handler.call(stream, peer_addr).await {
-                                    tracing::error!("Failed to serve connection: {:?}", err);
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            tracing::error!(error = ?e, "accept connection failed");
-                        }
-                    }
-                }
-                Some(join_result) = join_set.join_next() => {
-                    if let Err(err) = join_result {
-                        tracing::error!(error = ?err, "connection task panicked");
-                    }
-                }
-            }
-        }
-
-        join_set.abort_all();
-
-        while let Some(join_result) = join_set.join_next().await {
-            if let Err(err) = join_result
-                && err.is_panic()
-            {
-                tracing::error!(error = ?err, "connection task panicked");
-            }
-        }
-
-        Ok(())
     }
 }
