@@ -10,7 +10,10 @@ use crate::route::Route;
 use crate::scheduler::middleware::SchedulerMiddleware;
 use crate::service::connection::BoxedConnection;
 use crate::service::connection_service::{ConnectionFuture, ConnectionService};
-use crate::service::serve::Serve;
+use crate::service::hyper_service::HyperServiceHandler;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder;
+#[cfg(feature = "quic")]
 use std::sync::Arc;
 
 /// RouteConnectionService 适配器
@@ -58,6 +61,8 @@ impl RouteConnectionService {
     }
 
     /// 处理 HTTP 连接（HTTP/1.1 或 HTTP/2）
+    ///
+    /// 直接使用 hyper 的 auto builder 处理连接，无需额外的 Serve 中间层。
     fn handle_http_connection(
         root_route: Route,
         stream: BoxedConnection,
@@ -73,7 +78,13 @@ impl RouteConnectionService {
         root_route.hook_first(SchedulerMiddleware::new());
 
         let routes = root_route.convert_to_route_tree();
-        Box::pin(async move { Serve::new(routes).call(stream, peer).await })
+        Box::pin(async move {
+            let io = TokioIo::new(stream);
+            let builder = Builder::new(TokioExecutor::new());
+            builder
+                .serve_connection_with_upgrades(io, HyperServiceHandler::new(peer, routes))
+                .await
+        })
     }
 }
 

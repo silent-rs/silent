@@ -4,7 +4,6 @@ mod hyper_service;
 pub mod listener;
 pub mod net_server;
 pub mod route_service;
-mod serve;
 pub mod stream;
 #[cfg(feature = "tls")]
 pub mod tls;
