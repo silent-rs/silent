@@ -46,25 +46,25 @@
 ## 🧩 任务分解
 
 ### 1) 设计对齐（文档）
-- [ ] 细化 `ConnectionService` trait 签名与别名（`BoxError`、`ConnectionFuture`）。
-- [ ] `NetServer` 构造参数与运行接口（监听源、限流器、关停句柄）。
-- [ ] 迁移/公开 `ListenersBuilder`、`Listeners` 的最小集合与 `local_addrs()` 返回 `&[SocketAddr]`。
-- [ ] 最小 PoC 时序图（接入 → 分发 → 关停）。
+- [x] 细化 `ConnectionService` trait 签名与别名（`BoxError`、`ConnectionFuture`）。
+- [x] `NetServer` 构造参数与运行接口（监听源、限流器、关停句柄）。
+- [x] 迁移/公开 `ListenersBuilder`、`Listeners` 的最小集合与 `local_addrs()` 返回 `&[SocketAddr]`。
+- [x] 最小 PoC 时序图（接入 → 分发 → 关停）。
 
 ### 2) 实现（service 模块）
-- [ ] `service/net_server.rs`：
-  - [ ] `NetServer` 结构体、`run()`/`serve()` 主循环（tokio::spawn 分发）。
+- [x] `service/net_server.rs`：
+  - [x] `NetServer` 结构体、`run()`/`serve()` 主循环（tokio::spawn 分发）。
   - [ ] `with_rate_limiter()` / `with_shutdown()` / 构造器。
-  - [ ] 错误处理与 `tracing` 记录。
+  - [ ] 错误处理与 `tracing` 记录（细化错误语义与文档）。
 - [ ] `service/connection_service.rs`：
   - [ ] `ConnectionService` trait + blanket impl（闭包 → 服务）。
   - [ ] 别名类型：`BoxError`、`ConnectionFuture`。
 - [ ] `service/listener.rs`：
   - [ ] 收敛监听能力，公开必要类型，`local_addrs() -> &[SocketAddr]`。
   - [ ] 更新内部依赖处的调用点。
-- [ ] `service/server.rs`：
-  - [ ] `Server::serve` 内部改为复用 `NetServer`。
-  - [ ] 新增 `serve_with_connection_handler()`。
+- [x] `service/server.rs`：
+  - [x] `Server::serve` 内部改为复用 `NetServer`。
+  - [ ] 新增/整理 `serve_with_connection_handler()`（与可见性一致）。
 - [ ] `lib.rs` re-export：`NetServer` / `ConnectionService` / 相关别名。
 
 ### 3) 限流与关停
