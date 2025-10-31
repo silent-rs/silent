@@ -4,6 +4,9 @@
 <a href="https://github.com/silent-rs/silent/actions">
     <img alt="build status" src="https://github.com/silent-rs/silent/actions/workflows/build.yml/badge.svg" />
 </a>
+<a href="https://codecov.io/gh/silent-rs/silent">
+    <img alt="codecov" src="https://codecov.io/gh/silent-rs/silent/branch/main/graph/badge.svg" />
+</a>
 <br/>
 <a href="https://crates.io/crates/silent"><img alt="crates.io" src="https://img.shields.io/crates/v/silent" /></a>
 <a href="https://docs.rs/silent"><img alt="Documentation" src="https://docs.rs/silent/badge.svg" /></a>

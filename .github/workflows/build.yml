@@ -28,5 +28,11 @@ jobs:
       #        run: cargo check --all
       - name: Lint rust sources
         run: cargo clippy --all-targets --all-features --tests --benches -- -D warnings
-      - name: Execute rust tests
-        run: cargo nextest run --all-features
+      - name: Execute rust tests with coverage
+        run: cargo llvm-cov nextest --all-features --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
