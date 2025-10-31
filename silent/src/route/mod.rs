@@ -307,6 +307,18 @@ impl Handler for Route {
 
 // RouteTree 已移动到 route_tree.rs
 
+// 为 Route 实现 ConnectionService，委托给 RouteConnectionService
+// 这保持了向后兼容性，用户可以继续使用 Server::new().run(route)
+impl crate::service::ConnectionService for Route {
+    fn call(
+        &self,
+        stream: crate::service::connection::BoxedConnection,
+        peer: crate::core::socket_addr::SocketAddr,
+    ) -> crate::service::ConnectionFuture {
+        crate::service::RouteConnectionService::from(self.clone()).call(stream, peer)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;

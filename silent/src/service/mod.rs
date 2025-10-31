@@ -3,6 +3,7 @@ pub mod connection_service;
 mod hyper_service;
 pub mod listener;
 pub mod net_server;
+pub mod route_service;
 mod serve;
 pub mod stream;
 #[cfg(feature = "tls")]
@@ -10,69 +11,15 @@ pub mod tls;
 #[cfg(feature = "tls")]
 pub use tls::{CertificateStore, CertificateStoreBuilder};
 
+pub use route_service::RouteConnectionService;
+
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
-use crate::route::Route;
-#[cfg(feature = "scheduler")]
-use crate::scheduler::middleware::SchedulerMiddleware;
-use crate::service::connection::BoxedConnection;
-use crate::service::serve::Serve;
 pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
 use listener::{Listen, ListenersBuilder};
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
-use std::sync::Arc;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
-
-impl ConnectionService for Route {
-    fn call(&self, stream: BoxedConnection, peer: CoreSocketAddr) -> ConnectionFuture {
-        // 尝试将连接转换为 QuicConnection
-        #[cfg(feature = "quic")]
-        {
-            use crate::quic::connection::QuicConnection;
-            match stream.downcast::<QuicConnection>() {
-                Ok(quic) => {
-                    // QUIC 连接处理
-                    let routes = Arc::new(self.clone());
-                    Box::pin(async move {
-                        let incoming = quic.into_incoming();
-                        crate::quic::service::handle_quic_connection(incoming, routes)
-                            .await
-                            .map_err(BoxError::from)
-                    })
-                }
-                Err(stream) => {
-                    // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
-                    Self::handle_http_connection(self.clone(), stream, peer)
-                }
-            }
-        }
-
-        // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
-        #[cfg(not(feature = "quic"))]
-        Self::handle_http_connection(self.clone(), stream, peer)
-    }
-}
-
-impl Route {
-    fn handle_http_connection(
-        root_route: Route,
-        stream: BoxedConnection,
-        peer: CoreSocketAddr,
-    ) -> ConnectionFuture {
-        #[allow(unused_mut)]
-        let mut root_route = root_route;
-        #[cfg(feature = "session")]
-        root_route.check_session();
-        #[cfg(feature = "cookie")]
-        root_route.check_cookie();
-        #[cfg(feature = "scheduler")]
-        root_route.hook_first(SchedulerMiddleware::new());
-
-        let routes = root_route.convert_to_route_tree();
-        Box::pin(async move { Serve::new(routes).call(stream, peer).await })
-    }
-}
 
 pub struct Server {
     listeners_builder: ListenersBuilder,
