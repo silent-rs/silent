@@ -31,7 +31,6 @@ impl Default for NetServer {
 }
 
 impl NetServer {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             listeners_builder: ListenersBuilder::new(),
@@ -56,14 +55,12 @@ impl NetServer {
         }
     }
 
-    #[allow(dead_code)]
     #[inline]
     pub fn bind(mut self, addr: SocketAddr) -> Self {
         self.listeners_builder.bind(addr);
         self
     }
 
-    #[allow(dead_code)]
     #[cfg(not(target_os = "windows"))]
     #[inline]
     pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
@@ -71,14 +68,12 @@ impl NetServer {
         self
     }
 
-    #[allow(dead_code)]
     #[inline]
     pub fn listen<T: Listen + Send + Sync + 'static>(mut self, listener: T) -> Self {
         self.listeners_builder.add_listener(Box::new(listener));
         self
     }
 
-    #[allow(dead_code)]
     pub fn on_listen<F>(mut self, callback: F) -> Self
     where
         F: Fn(&[CoreSocketAddr]) + Send + Sync + 'static,
@@ -87,7 +82,6 @@ impl NetServer {
         self
     }
 
-    #[allow(dead_code)]
     pub fn set_shutdown_callback<F>(mut self, callback: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -100,7 +94,6 @@ impl NetServer {
     /// capacity: 令牌容量（突发允许的最大并发接入数）
     /// refill_every: 令牌补充间隔（每次+1，直到达到容量）
     /// max_wait: 获取令牌的最大等待时间，超时则丢弃该连接
-    #[allow(dead_code)]
     pub fn with_rate_limiter(
         mut self,
         capacity: usize,
@@ -112,7 +105,6 @@ impl NetServer {
     }
 
     /// 配置优雅关停参数：graceful_wait 表示在收到关停信号后，等待活动任务完成的最长时间
-    #[allow(dead_code)]
     pub fn with_shutdown(mut self, graceful_wait: Duration) -> Self {
         self.shutdown_cfg.graceful_wait = graceful_wait;
         self
@@ -295,7 +287,6 @@ impl NetServer {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 struct RateLimiter {
     semaphore: Arc<Semaphore>,
@@ -303,7 +294,6 @@ struct RateLimiter {
     max_wait: Duration,
 }
 
-#[allow(dead_code)]
 impl RateLimiter {
     fn new(capacity: usize, refill_every: Duration, max_wait: Duration) -> Self {
         let semaphore = Arc::new(Semaphore::new(capacity));
