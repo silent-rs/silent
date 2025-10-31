@@ -421,4 +421,18 @@ mod tests {
             available
         );
     }
+
+    #[test]
+    fn test_shutdown_config_default() {
+        // 测试 ShutdownConfig 默认值
+        let config = ShutdownConfig::default();
+        assert_eq!(config.graceful_wait, Duration::from_secs(0));
+    }
+
+    #[test]
+    fn test_net_server_with_shutdown() {
+        // 测试 with_shutdown 方法
+        let server = NetServer::new().with_shutdown(Duration::from_secs(10));
+        assert_eq!(server.shutdown_cfg.graceful_wait, Duration::from_secs(10));
+    }
 }
