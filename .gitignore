@@ -23,3 +23,5 @@ out/
 !/silent/src/handler/static
 static-advanced/
 docs/requirements/
+coverage-*
+coverage.json
