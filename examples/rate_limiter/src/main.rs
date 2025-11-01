@@ -1,4 +1,4 @@
-use silent::{prelude::*, RateLimiterConfig};
+use silent::{RateLimiterConfig, prelude::*};
 use std::time::Duration;
 
 fn main() {

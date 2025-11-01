@@ -137,17 +137,8 @@ impl Server {
     where
         H: ConnectionService,
     {
-        // 启动调度器（如果启用了 scheduler feature）
-        #[cfg(feature = "scheduler")]
-        {
-            use crate::scheduler::{SCHEDULER, Scheduler};
-            tokio::spawn(async move {
-                let scheduler = SCHEDULER.clone();
-                Scheduler::schedule(scheduler).await;
-            });
-        }
-
         // 将网络层职责完全委托给通用 NetServer
+        // 注意: 调度器会在 NetServer::serve_connection_loop 中启动
         let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
@@ -171,17 +162,8 @@ impl Server {
     where
         H: ConnectionService,
     {
-        // 启动调度器（如果启用了 scheduler feature）
-        #[cfg(feature = "scheduler")]
-        {
-            use crate::scheduler::{SCHEDULER, Scheduler};
-            tokio::spawn(async move {
-                let scheduler = SCHEDULER.clone();
-                Scheduler::schedule(scheduler).await;
-            });
-        }
-
         // 将网络层职责完全委托给通用 NetServer
+        // 注意: 调度器会在 NetServer::serve_connection_loop 中启动
         let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,

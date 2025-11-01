@@ -57,7 +57,7 @@ pub struct RateLimiterConfig {
 /// 基本的 TCP 回显服务器：
 ///
 /// ```no_run
-/// use silent::{NetServer, BoxedConnection, SocketAddr};
+/// use silent::{NetServer, RateLimiterConfig, BoxedConnection, SocketAddr};
 /// use std::time::Duration;
 /// use tokio::io::{AsyncReadExt, AsyncWriteExt};
 ///
@@ -70,9 +70,15 @@ pub struct RateLimiterConfig {
 ///         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
 ///     };
 ///
+///     let rate_config = RateLimiterConfig {
+///         capacity: 100,
+///         refill_every: Duration::from_millis(10),
+///         max_wait: Duration::from_secs(1),
+///     };
+///
 ///     NetServer::new()
 ///         .bind("127.0.0.1:8080".parse().unwrap())
-///         .with_rate_limiter(100, Duration::from_millis(10), Duration::from_secs(1))
+///         .with_rate_limiter(rate_config)
 ///         .with_shutdown(Duration::from_secs(30))
 ///         .serve(handler)
 ///         .await;
@@ -334,14 +340,20 @@ impl NetServer {
     /// # Examples
     ///
     /// ```no_run
-    /// use silent::{NetServer, prelude::*};
+    /// use silent::{NetServer, RateLimiterConfig, prelude::*};
     /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
+    ///     let rate_config = RateLimiterConfig {
+    ///         capacity: 10,
+    ///         refill_every: Duration::from_millis(10),
+    ///         max_wait: Duration::from_secs(2),
+    ///     };
+    ///
     ///     let server = NetServer::new()
     ///         .bind("127.0.0.1:8080".parse().unwrap())
-    ///         .with_rate_limiter(10, Duration::from_millis(10), Duration::from_secs(2))
+    ///         .with_rate_limiter(rate_config)
     ///         .with_shutdown(Duration::from_secs(5));
     ///
     ///     server.serve(|stream, peer| async move {
@@ -511,40 +523,28 @@ impl NetServer {
             }
         }
 
-        // 优雅关停：先等待一段时间让活动任务自然结束，再强制取消
+        // 优雅关停：等待活动任务在指定时间内完成
         if shutdown_cfg.graceful_wait > Duration::from_millis(0) {
-            let deadline = tokio::time::Instant::now() + shutdown_cfg.graceful_wait;
-            loop {
-                if tokio::time::Instant::now() >= deadline {
-                    break;
-                }
-                match tokio::time::timeout(
-                    deadline - tokio::time::Instant::now(),
-                    join_set.join_next(),
-                )
-                .await
-                {
-                    Ok(Some(join_result)) => {
-                        if let Err(err) = join_result
-                            && err.is_panic()
-                        {
-                            tracing::error!(error = ?err, "connection task panicked");
-                        }
-                        continue;
+            // 使用 timeout 等待所有任务完成，超时后自动结束
+            let _ = tokio::time::timeout(shutdown_cfg.graceful_wait, async {
+                while let Some(join_result) = join_set.join_next().await {
+                    if let Err(err) = join_result
+                        && err.is_panic()
+                    {
+                        tracing::error!(error = ?err, "connection task panicked during graceful shutdown");
                     }
-                    Ok(None) => break, // 无任务
-                    Err(_) => break,   // 超时
                 }
-            }
+            })
+            .await;
         }
 
-        // 强制取消剩余任务并 drain
+        // 强制取消剩余任务并清理
         join_set.abort_all();
         while let Some(join_result) = join_set.join_next().await {
             if let Err(err) = join_result
                 && err.is_panic()
             {
-                tracing::error!(error = ?err, "connection task panicked");
+                tracing::error!(error = ?err, "connection task panicked during forced shutdown");
             }
         }
 
@@ -567,12 +567,9 @@ impl RateLimiter {
             let mut ticker = tokio::time::interval(refill_every);
             loop {
                 ticker.tick().await;
-                // 尝试增加 1 个许可，超过容量则忽略
-                let available = sem_clone.available_permits();
-                if available == 0 {
-                    // 无法直接“增加”，使用 add_permits(1) 但要确保不超过初始容量。
-                    // 这里通过记录发放总量来限制较复杂，改为：仅当已借出的数量小于 capacity 才补充。
-                    // 近似实现：如果当前可用为 0，则直接补 1，可能略微超过瞬时上限，但影响可接受。
+                // 正确的令牌补充机制：只有当可用许可数小于容量时才补充
+                // 通过 available_permits() < capacity 判断是否需要补充
+                if sem_clone.available_permits() < capacity {
                     sem_clone.add_permits(1);
                 }
             }

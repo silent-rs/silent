@@ -22,6 +22,17 @@ impl Stream {
             Stream::UnixStream(s) => Ok(SocketAddr::Unix(s.peer_addr()?.into())),
         }
     }
+
+    /// 判断是否为 TCP 流
+    pub fn is_tcp(&self) -> bool {
+        matches!(self, Stream::TcpStream(_))
+    }
+
+    /// 判断是否为 Unix Socket 流（仅非 Windows 平台）
+    #[cfg(not(target_os = "windows"))]
+    pub fn is_unix(&self) -> bool {
+        matches!(self, Stream::UnixStream(_))
+    }
 }
 
 impl AsyncRead for Stream {

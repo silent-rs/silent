@@ -49,9 +49,9 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let rate_limiter_config = RateLimiterConfig {
-        capacity: 5,                          // 容量：最多 5 个并发连接
+        capacity: 5,                              // 容量：最多 5 个并发连接
         refill_every: Duration::from_millis(200), // 每 200ms 补充 1 个令牌（~5 QPS）
-        max_wait: Duration::from_secs(3),     // 获取令牌最多等待 3 秒
+        max_wait: Duration::from_secs(3),         // 获取令牌最多等待 3 秒
     };
 
     let server = NetServer::new()

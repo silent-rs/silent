@@ -37,9 +37,9 @@ async fn main() {
 
     // 配置限流器
     let rate_limiter_config = RateLimiterConfig {
-        capacity: 10,                         // 容量：同时最多 10 个连接
+        capacity: 10,                             // 容量：同时最多 10 个连接
         refill_every: Duration::from_millis(100), // 每 100ms 补充 1 个令牌（~10 QPS）
-        max_wait: Duration::from_secs(2),     // 获取令牌最多等待 2 秒
+        max_wait: Duration::from_secs(2),         // 获取令牌最多等待 2 秒
     };
 
     // 配置 NetServer：限流 10 QPS，优雅关停等待 5 秒
