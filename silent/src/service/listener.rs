@@ -232,3 +232,119 @@ impl Listeners {
         &self.local_addrs
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_listener_from_tokio_tcp() {
+        // 测试从 tokio TcpListener 转换
+        let tokio_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = tokio_listener.local_addr().unwrap();
+
+        let listener = Listener::from(tokio_listener);
+
+        // 验证监听地址
+        let local_addr = listener.local_addr().unwrap();
+        match local_addr {
+            SocketAddr::Tcp(socket_addr) => {
+                assert_eq!(socket_addr, addr);
+            }
+            _ => panic!("Expected TCP socket address"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_listener_accept() {
+        // 测试 Listener 的 accept 功能
+        let tokio_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = tokio_listener.local_addr().unwrap();
+        let listener = Listener::from(tokio_listener);
+
+        // 启动一个客户端连接
+        let client_handle =
+            tokio::spawn(async move { tokio::net::TcpStream::connect(addr).await.unwrap() });
+
+        // 接受连接
+        let accept_result = listener.accept().await;
+        assert!(accept_result.is_ok());
+
+        let (_stream, peer_addr) = accept_result.unwrap();
+
+        match peer_addr {
+            SocketAddr::Tcp(_) => {}
+            _ => panic!("Expected TCP peer address"),
+        }
+        client_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_os = "windows"))]
+    async fn test_unix_listener() {
+        use std::fs;
+
+        let socket_path = "/tmp/test_silent_listener.sock";
+        let _ = fs::remove_file(socket_path);
+
+        // 测试 Unix Socket listener
+        let tokio_listener = tokio::net::UnixListener::bind(socket_path).unwrap();
+        let listener = Listener::from(tokio_listener);
+
+        // 验证监听地址
+        let local_addr = listener.local_addr().unwrap();
+        match local_addr {
+            SocketAddr::Unix(_) => {}
+            _ => panic!("Expected Unix socket address"),
+        }
+
+        // 清理
+        let _ = fs::remove_file(socket_path);
+    }
+
+    #[test]
+    fn test_listeners_builder_default() {
+        // 测试 ListenersBuilder 默认构造
+        let builder = ListenersBuilder::new();
+        assert_eq!(builder.listeners.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_listeners_builder_listen_with_default() {
+        // 测试空 builder 会自动绑定默认地址
+        let builder = ListenersBuilder::new();
+        let listeners = builder.listen().unwrap();
+
+        // 应该有一个默认的监听器
+        assert_eq!(listeners.local_addrs().len(), 1);
+
+        // 默认监听器应该是 TCP
+        match &listeners.local_addrs()[0] {
+            SocketAddr::Tcp(addr) => {
+                assert_eq!(addr.ip().to_string(), "127.0.0.1");
+            }
+            _ => panic!("Expected TCP address"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_listeners_builder_bind() {
+        // 测试绑定指定地址（使用随机端口避免冲突）
+        let mut builder = ListenersBuilder::new();
+        builder.bind("127.0.0.1:0".parse().unwrap());
+
+        assert_eq!(builder.listeners.len(), 1);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "tls")]
+    async fn test_listener_tls_method_exists() {
+        // 注意：这个测试仅验证 TLS 相关方法的存在性
+        // 实际的 TLS 功能测试需要有效的证书文件
+        let tokio_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let _listener = Listener::from(tokio_listener);
+
+        // 验证 tls 方法存在（通过类型检查即可）
+        let _: fn(Listener, tokio_rustls::TlsAcceptor) -> TlsListener = Listener::tls;
+    }
+}

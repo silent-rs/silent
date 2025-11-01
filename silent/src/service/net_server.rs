@@ -673,13 +673,66 @@ mod tests {
         // 等待至少 2 个补充周期
         tokio::time::sleep(Duration::from_millis(120)).await;
 
-        // 由于补充任务检查 available == 0 才补充，且 permit 未释放，
-        // 补充任务应该已经添加了令牌（因为available == 0时会 add_permits(1)）
+        // 由于补充任务检查 available < capacity 才补充，且 permit 未释放，
+        // 补充任务应该已经添加了令牌（因为 available < capacity 时会 add_permits(1)）
         // 验证可用许可数 >= 1 (补充任务可能已执行)
         let available = limiter.semaphore.available_permits();
         assert!(
             available >= 1,
             "refill task should have added permits when available was 0, got {}",
+            available
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_no_overfill() {
+        // 测试令牌不会超过容量
+        let capacity = 3;
+        let limiter = RateLimiter::new(capacity, Duration::from_millis(10), Duration::from_secs(1));
+
+        // 等待足够长的时间让补充任务执行多次
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // 验证可用令牌数不超过容量
+        let available = limiter.semaphore.available_permits();
+        assert!(
+            available <= capacity,
+            "available permits {} should not exceed capacity {}",
+            available,
+            capacity
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_gradual_refill() {
+        // 测试令牌逐步补充
+        let capacity = 5;
+        let refill_interval = Duration::from_millis(20);
+        let limiter = RateLimiter::new(capacity, refill_interval, Duration::from_secs(1));
+
+        // 消耗所有令牌
+        let mut permits = Vec::new();
+        for _ in 0..capacity {
+            let permit = limiter
+                .semaphore
+                .clone()
+                .acquire_owned()
+                .await
+                .expect("should acquire permit");
+            permits.push(permit);
+        }
+
+        // 验证所有令牌已被消耗
+        assert_eq!(limiter.semaphore.available_permits(), 0);
+
+        // 等待一个补充周期
+        tokio::time::sleep(refill_interval + Duration::from_millis(10)).await;
+
+        // 应该至少补充了 1 个令牌
+        let available = limiter.semaphore.available_permits();
+        assert!(
+            available >= 1,
+            "should have refilled at least 1 permit, got {}",
             available
         );
     }
@@ -696,5 +749,29 @@ mod tests {
         // 测试 with_shutdown 方法
         let server = NetServer::new().with_shutdown(Duration::from_secs(10));
         assert_eq!(server.shutdown_cfg.graceful_wait, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_graceful_shutdown_configuration() {
+        // 测试 ShutdownConfig 的配置
+        let config = ShutdownConfig {
+            graceful_wait: Duration::from_millis(200),
+        };
+
+        assert_eq!(config.graceful_wait, Duration::from_millis(200));
+
+        // 测试不同的等待时间
+        let config2 = ShutdownConfig {
+            graceful_wait: Duration::from_secs(5),
+        };
+        assert_eq!(config2.graceful_wait, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_shutdown_config_custom_duration() {
+        let config = ShutdownConfig {
+            graceful_wait: Duration::from_secs(30),
+        };
+        assert_eq!(config.graceful_wait, Duration::from_secs(30));
     }
 }
