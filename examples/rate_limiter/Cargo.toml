@@ -1,0 +1,8 @@
+[package]
+name = "example-rate-limiter"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+silent = { path = "../../silent", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }

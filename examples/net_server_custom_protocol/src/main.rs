@@ -1,4 +1,4 @@
-use silent::{BoxedConnection, NetServer, SocketAddr};
+use silent::{BoxedConnection, NetServer, RateLimiterConfig, SocketAddr};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -48,13 +48,15 @@ async fn handle_protocol(
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let rate_limiter_config = RateLimiterConfig {
+        capacity: 5,                          // 容量：最多 5 个并发连接
+        refill_every: Duration::from_millis(200), // 每 200ms 补充 1 个令牌（~5 QPS）
+        max_wait: Duration::from_secs(3),     // 获取令牌最多等待 3 秒
+    };
+
     let server = NetServer::new()
         .bind("127.0.0.1:18081".parse().unwrap())
-        .with_rate_limiter(
-            5,                          // 容量：最多 5 个并发连接
-            Duration::from_millis(200), // 每 200ms 补充 1 个令牌（~5 QPS）
-            Duration::from_secs(3),     // 获取令牌最多等待 3 秒
-        )
+        .with_rate_limiter(rate_limiter_config)
         .with_shutdown(Duration::from_secs(10)) // 关停时等待 10 秒
         .on_listen(|addrs| {
             tracing::info!("Custom protocol server listening on: {:?}", addrs);

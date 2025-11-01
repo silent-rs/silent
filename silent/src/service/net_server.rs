@@ -13,6 +13,36 @@ use tokio::task::JoinSet;
 
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
+/// 限流器配置（令牌桶算法）。
+///
+/// # 参数说明
+///
+/// - `capacity`: 令牌桶容量（允许的最大突发连接数）
+/// - `refill_every`: 令牌补充间隔（每次补充 1 个令牌）
+/// - `max_wait`: 获取令牌的最大等待时间，超时则拒绝连接
+///
+/// # Examples
+///
+/// ```
+/// use silent::RateLimiterConfig;
+/// use std::time::Duration;
+///
+/// let config = RateLimiterConfig {
+///     capacity: 10,
+///     refill_every: Duration::from_millis(10),
+///     max_wait: Duration::from_secs(2),
+/// };
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub struct RateLimiterConfig {
+    /// 令牌桶容量（允许的最大突发连接数）
+    pub capacity: usize,
+    /// 令牌补充间隔（每次补充 1 个令牌）
+    pub refill_every: Duration,
+    /// 获取令牌的最大等待时间，超时则拒绝连接
+    pub max_wait: Duration,
+}
+
 /// 与协议无关的通用网络服务器。
 ///
 /// `NetServer` 提供底层网络监听和连接分发能力，支持任意协议的自定义处理逻辑。
@@ -232,35 +262,28 @@ impl NetServer {
     ///
     /// 限流器用于控制连接接受速率，防止服务器过载。
     ///
-    /// # 参数
-    ///
-    /// - `capacity`: 令牌桶容量（允许的最大突发连接数）
-    /// - `refill_every`: 令牌补充间隔（每次补充 1 个令牌）
-    /// - `max_wait`: 获取令牌的最大等待时间，超时则拒绝连接
-    ///
     /// # Examples
     ///
-    /// 限制为每秒最多 100 个连接，允许 10 个突发：
-    ///
     /// ```no_run
-    /// use silent::NetServer;
+    /// use silent::{NetServer, RateLimiterConfig};
     /// use std::time::Duration;
+    ///
+    /// let config = RateLimiterConfig {
+    ///     capacity: 10,
+    ///     refill_every: Duration::from_millis(10),
+    ///     max_wait: Duration::from_secs(2),
+    /// };
     ///
     /// let server = NetServer::new()
     ///     .bind("127.0.0.1:8080".parse().unwrap())
-    ///     .with_rate_limiter(
-    ///         10,                           // 容量：10 个突发
-    ///         Duration::from_millis(10),    // 每 10ms 补充 1 个（~100 QPS）
-    ///         Duration::from_secs(2),       // 最多等待 2 秒获取令牌
-    ///     );
+    ///     .with_rate_limiter(config);
     /// ```
-    pub fn with_rate_limiter(
-        mut self,
-        capacity: usize,
-        refill_every: Duration,
-        max_wait: Duration,
-    ) -> Self {
-        self.rate_limiter = Some(RateLimiter::new(capacity, refill_every, max_wait));
+    pub fn with_rate_limiter(mut self, config: RateLimiterConfig) -> Self {
+        self.rate_limiter = Some(RateLimiter::new(
+            config.capacity,
+            config.refill_every,
+            config.max_wait,
+        ));
         self
     }
 

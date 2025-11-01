@@ -15,15 +15,19 @@ pub use route_service::RouteConnectionService;
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
 use listener::{Listen, ListenersBuilder};
+pub use net_server::RateLimiterConfig;
 use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
+use std::time::Duration;
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
 pub struct Server {
     listeners_builder: ListenersBuilder,
     shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
     listen_callback: Option<ListenCallback>,
+    rate_limiter_config: Option<RateLimiterConfig>,
+    graceful_shutdown_duration: Option<Duration>,
 }
 
 impl Default for Server {
@@ -38,6 +42,8 @@ impl Server {
             listeners_builder: ListenersBuilder::new(),
             shutdown_callback: None,
             listen_callback: None,
+            rate_limiter_config: None,
+            graceful_shutdown_duration: None,
         }
     }
 
@@ -76,6 +82,57 @@ impl Server {
         self
     }
 
+    /// 配置连接限流器（令牌桶算法）。
+    ///
+    /// 限流器用于控制连接接受速率，防止服务器过载。
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use silent::{Server, RateLimiterConfig};
+    /// use std::time::Duration;
+    ///
+    /// let config = RateLimiterConfig {
+    ///     capacity: 10,
+    ///     refill_every: Duration::from_millis(10),
+    ///     max_wait: Duration::from_secs(2),
+    /// };
+    ///
+    /// let server = Server::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .with_rate_limiter(config);
+    /// ```
+    pub fn with_rate_limiter(mut self, config: RateLimiterConfig) -> Self {
+        self.rate_limiter_config = Some(config);
+        self
+    }
+
+    /// 配置优雅关停等待时间。
+    ///
+    /// 当收到关停信号（Ctrl-C 或 SIGTERM）时：
+    /// 1. 停止接受新连接
+    /// 2. 等待活动连接在 `graceful_wait` 时间内完成
+    /// 3. 超时后强制取消剩余连接
+    ///
+    /// 默认值为 0，表示立即强制关停。
+    ///
+    /// # Examples
+    ///
+    /// 等待最多 30 秒让连接优雅完成：
+    ///
+    /// ```no_run
+    /// use silent::Server;
+    /// use std::time::Duration;
+    ///
+    /// let server = Server::new()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .with_shutdown(Duration::from_secs(30));
+    /// ```
+    pub fn with_shutdown(mut self, graceful_wait: Duration) -> Self {
+        self.graceful_shutdown_duration = Some(graceful_wait);
+        self
+    }
+
     pub async fn serve<H>(self, handler: H)
     where
         H: ConnectionService,
@@ -91,13 +148,23 @@ impl Server {
         }
 
         // 将网络层职责完全委托给通用 NetServer
-        net_server::NetServer::from_parts(
+        let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
-        )
-        .serve(handler)
-        .await
+        );
+
+        // 应用限流配置
+        if let Some(config) = self.rate_limiter_config {
+            net_server = net_server.with_rate_limiter(config);
+        }
+
+        // 应用优雅关停配置
+        if let Some(duration) = self.graceful_shutdown_duration {
+            net_server = net_server.with_shutdown(duration);
+        }
+
+        net_server.serve(handler).await
     }
 
     pub fn run<H>(self, handler: H)
@@ -115,11 +182,22 @@ impl Server {
         }
 
         // 将网络层职责完全委托给通用 NetServer
-        net_server::NetServer::from_parts(
+        let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
-        )
-        .run(handler)
+        );
+
+        // 应用限流配置
+        if let Some(config) = self.rate_limiter_config {
+            net_server = net_server.with_rate_limiter(config);
+        }
+
+        // 应用优雅关停配置
+        if let Some(duration) = self.graceful_shutdown_duration {
+            net_server = net_server.with_shutdown(duration);
+        }
+
+        net_server.run(handler)
     }
 }
