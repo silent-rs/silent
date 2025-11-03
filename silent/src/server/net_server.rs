@@ -734,4 +734,128 @@ mod tests {
         jh.abort();
         let _ = jh.await;
     }
+
+    struct TestErrListener {
+        addr: std::net::SocketAddr,
+        sent_err: Arc<AtomicBool>,
+    }
+
+    impl TestErrListener {
+        fn new(addr: std::net::SocketAddr) -> Self {
+            Self {
+                addr,
+                sent_err: Arc::new(AtomicBool::new(false)),
+            }
+        }
+    }
+
+    impl Listen for TestErrListener {
+        fn accept(&self) -> AcceptFuture<'_> {
+            let sent = self.sent_err.clone();
+            Box::pin(async move {
+                if !sent.swap(true, Ordering::SeqCst) {
+                    Err(std::io::Error::other("accept failed (test)"))
+                } else {
+                    futures_util::future::pending::<
+                        std::io::Result<(
+                            Box<dyn connection::Connection + Send + Sync>,
+                            crate::core::socket_addr::SocketAddr,
+                        )>,
+                    >()
+                    .await
+                }
+            })
+        }
+
+        fn local_addr(&self) -> std::io::Result<crate::core::socket_addr::SocketAddr> {
+            Ok(crate::core::socket_addr::SocketAddr::from(self.addr))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_net_server_accept_error_path() {
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestErrListener::new(addr);
+        let on_listen_called = Arc::new(AtomicBool::new(false));
+        let flag = on_listen_called.clone();
+        let handler_calls = Arc::new(AtomicUsize::new(0));
+        let hc = handler_calls.clone();
+
+        let handler = move |_s: BoxedConnection, _p: CoreSocketAddr| {
+            let hc = hc.clone();
+            async move {
+                hc.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), BoxError>(())
+            }
+        };
+
+        let server = NetServer::new().listen(listener).on_listen(move |_addrs| {
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(on_listen_called.load(Ordering::SeqCst));
+        assert_eq!(handler_calls.load(Ordering::SeqCst), 0);
+        jh.abort();
+        let _ = jh.await;
+    }
+
+    #[tokio::test]
+    async fn test_net_server_rate_limiter_timeout_drops_connection() {
+        // 连接一次：由于容量=0 且 max_wait 极短，应超时丢弃，不调用处理器
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_cl = calls.clone();
+        let handler = move |_s: BoxedConnection, _p: CoreSocketAddr| {
+            let calls_cl = calls_cl.clone();
+            async move {
+                calls_cl.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), BoxError>(())
+            }
+        };
+
+        let server = NetServer::new()
+            .with_rate_limiter(RateLimiterConfig {
+                capacity: 0,
+                refill_every: Duration::from_millis(100),
+                max_wait: Duration::from_millis(5),
+            })
+            .listen(listener);
+
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "handler should not be called due to timeout"
+        );
+        jh.abort();
+        let _ = jh.await;
+    }
+
+    #[tokio::test]
+    async fn test_net_server_handler_panic_logged() {
+        // 任务内部 panic，join_next 分支应被驱动（仅覆盖，不断言日志）
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        let handler = |_s: BoxedConnection, _p: CoreSocketAddr| async move {
+            panic!("panic in handler (test)");
+            #[allow(unreachable_code)]
+            Ok::<(), BoxError>(())
+        };
+
+        let server = NetServer::new().listen(listener);
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        jh.abort();
+        let _ = jh.await;
+    }
 }
