@@ -153,3 +153,11 @@ async fn handle_webtransport_request(
     let mut channel = WebTransportStream::new(stream);
     handler.handle(session, &mut channel).await
 }
+
+#[cfg(all(test, feature = "quic"))]
+mod tests {
+    #[tokio::test]
+    async fn test_quic_service_smoke() {
+        // 不进行真实连接，仅占位确保模块在测试时被执行
+    }
+}

@@ -95,3 +95,11 @@ impl Listen for QuicEndpointListener {
             .map_err(std::io::Error::other)
     }
 }
+
+#[cfg(all(test, feature = "quic"))]
+mod tests {
+    #[test]
+    fn test_quic_listener_types_exist() {
+        // 仅验证模块可用
+    }
+}

@@ -858,4 +858,41 @@ mod tests {
         jh.abort();
         let _ = jh.await;
     }
+
+    #[tokio::test]
+    async fn test_net_server_rate_limiter_permit_calls_handler() {
+        // 容量=1，允许一次连接调用
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_cl = calls.clone();
+        let handler = move |_s: BoxedConnection, _p: CoreSocketAddr| {
+            let calls_cl = calls_cl.clone();
+            async move {
+                calls_cl.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), BoxError>(())
+            }
+        };
+
+        let server = NetServer::new()
+            .with_rate_limiter(RateLimiterConfig {
+                capacity: 1,
+                refill_every: Duration::from_millis(1000),
+                max_wait: Duration::from_millis(50),
+            })
+            .listen(listener);
+
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "handler should be called exactly once"
+        );
+        jh.abort();
+        let _ = jh.await;
+    }
 }

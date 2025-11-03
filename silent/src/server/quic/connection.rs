@@ -48,3 +48,13 @@ impl tokio::io::AsyncWrite for QuicConnection {
     }
 }
 impl Unpin for QuicConnection {}
+
+#[cfg(all(test, feature = "quic"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_quic_connection_type_link() {
+        // 仅验证类型可用（不构造实际值）
+        let _ = std::mem::size_of::<QuicConnection>();
+    }
+}
