@@ -127,7 +127,7 @@ impl NetServer {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use silent::NetServer;
     ///
     /// let server = NetServer::new();
@@ -162,7 +162,7 @@ impl NetServer {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use silent::NetServer;
     ///
     /// let server = NetServer::new()
@@ -209,7 +209,7 @@ impl NetServer {
     /// # async fn main() {
     /// let custom_listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
     /// let server = NetServer::new()
-    ///     .listen(custom_listener);
+    ///     .listen(silent::Listener::from(custom_listener));
     /// # }
     /// ```
     #[inline]
@@ -310,7 +310,7 @@ impl NetServer {
     /// use silent::NetServer;
     /// use std::time::Duration;
     ///
-    /// let server = NetServer::new()
+    /// let _server = NetServer::new()
     ///     .bind("127.0.0.1:8080".parse().unwrap())
     ///     .with_shutdown(Duration::from_secs(30));
     /// ```
@@ -340,13 +340,13 @@ impl NetServer {
     /// # Examples
     ///
     /// ```no_run
-    /// use silent::{NetServer, RateLimiterConfig, prelude::*};
+    /// use silent::{NetServer, BoxedConnection, SocketAddr};
     /// use std::time::Duration;
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let handler = |mut req: Request| async move {
-    ///         Response::ok().body("hello")
+    ///     let handler = |_s: BoxedConnection, _p: SocketAddr| async move {
+    ///         Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
     ///     };
     ///
     ///     NetServer::new()
@@ -605,6 +605,11 @@ impl ShutdownHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::connection;
+    use crate::server::connection::BoxedConnection;
+    use crate::server::listener::Listen;
+    use crate::{AcceptFuture, BoxError};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[tokio::test]
     async fn test_rate_limiter_capacity_limit() {
@@ -650,5 +655,83 @@ mod tests {
         assert!(limiter.semaphore.available_permits() >= 1);
         handle.abort();
         let _ = handle.await;
+    }
+
+    struct TestListener {
+        addr: std::net::SocketAddr,
+        accepts: Arc<AtomicUsize>,
+        once_conn: tokio::sync::Mutex<Option<BoxedConnection>>,
+    }
+
+    impl TestListener {
+        fn new(conn: BoxedConnection, addr: std::net::SocketAddr) -> Self {
+            Self {
+                addr,
+                accepts: Arc::new(AtomicUsize::new(0)),
+                once_conn: tokio::sync::Mutex::new(Some(conn)),
+            }
+        }
+    }
+
+    impl Listen for TestListener {
+        fn accept(&self) -> AcceptFuture<'_> {
+            let accepts = self.accepts.clone();
+            let addr = self.addr;
+            let once = self.once_conn.try_lock();
+            // 第一次返回一个连接，之后挂起（避免忙等）
+            if let Ok(mut guard) = once
+                && let Some(conn) = guard.take()
+            {
+                accepts.fetch_add(1, Ordering::SeqCst);
+                return Box::pin(async move {
+                    Ok((conn, crate::core::socket_addr::SocketAddr::from(addr)))
+                });
+            }
+            Box::pin(async move {
+                futures_util::future::pending::<
+                    std::io::Result<(
+                        Box<dyn connection::Connection + Send + Sync>,
+                        crate::core::socket_addr::SocketAddr,
+                    )>,
+                >()
+                .await
+            })
+        }
+
+        fn local_addr(&self) -> std::io::Result<crate::core::socket_addr::SocketAddr> {
+            Ok(crate::core::socket_addr::SocketAddr::from(self.addr))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_net_server_on_listen_and_handler_called_then_abort() {
+        // 构造一个一次性连接（不会真正读写）
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        // 标记 on_listen 是否被调用
+        let on_listen_called = Arc::new(AtomicBool::new(false));
+        let flag = on_listen_called.clone();
+
+        // 处理器：什么都不做，直接返回 Ok
+        let handler =
+            |_s: BoxedConnection, _p: CoreSocketAddr| async move { Ok::<(), BoxError>(()) };
+
+        // 启动 NetServer（在后台任务中），短暂等待回调触发后中止
+        let server = NetServer::new().listen(listener).on_listen(move |_addrs| {
+            flag.store(true, Ordering::SeqCst);
+        });
+
+        let jh = tokio::spawn(async move {
+            server.serve(handler).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(on_listen_called.load(Ordering::SeqCst));
+        // 中止后台任务，避免等待关停信号
+        jh.abort();
+        let _ = jh.await;
     }
 }

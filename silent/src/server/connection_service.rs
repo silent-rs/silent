@@ -14,14 +14,17 @@
 //! 实现一个简单的 echo 服务：
 //!
 //! ```no_run
-//! use silent::prelude::*;
-//! use silent::server::connection_service::ConnectionService;
+//! use silent::ConnectionService;
 //! use tokio::io::{AsyncReadExt, AsyncWriteExt};
 //!
 //! struct EchoService;
 //!
 //! impl ConnectionService for EchoService {
-//!     fn call(&self, mut stream, peer) -> silent::server::connection_service::ConnectionFuture {
+//!     fn call(
+//!         &self,
+//!         mut stream: silent::BoxedConnection,
+//!         _peer: silent::SocketAddr,
+//!     ) -> silent::ConnectionFuture {
 //!         Box::pin(async move {
 //!             let mut buf = vec![0u8; 1024];
 //!             loop {
@@ -46,7 +49,7 @@
 //! # async fn example() {
 //! NetServer::new()
 //!     .bind("127.0.0.1:8080".parse().unwrap())
-//!     .serve(|mut stream, peer| async move {
+//!     .serve(|mut stream: silent::BoxedConnection, peer: silent::SocketAddr| async move {
 //!         println!("Connection from: {}", peer);
 //!         let mut buf = vec![0u8; 1024];
 //!         let n = stream.read(&mut buf).await?;
@@ -83,9 +86,7 @@ pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + 
 /// 结构体实现：
 ///
 /// ```no_run
-/// use silent::server::connection_service::{ConnectionService, ConnectionFuture};
-/// use silent::server::connection::BoxedConnection;
-/// use silent::core::socket_addr::SocketAddr;
+/// use silent::{ConnectionService, ConnectionFuture, BoxedConnection, SocketAddr};
 ///
 /// struct MyService {
 ///     config: String,
@@ -110,7 +111,7 @@ pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + 
 /// # async fn example() {
 /// NetServer::new()
 ///     .bind("127.0.0.1:8080".parse().unwrap())
-///     .serve(|stream, peer| async move {
+///     .serve(|stream: silent::BoxedConnection, _peer: silent::SocketAddr| async move {
 ///         // 直接处理连接
 ///         Ok(())
 ///     })

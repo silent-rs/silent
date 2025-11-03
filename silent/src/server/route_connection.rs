@@ -30,15 +30,8 @@ use std::sync::Arc;
 ///
 /// ```rust,no_run
 /// use silent::prelude::*;
-/// use silent::server::RouteConnectionService;
-///
 /// let route = Route::new("").get(|_req: Request| async { Ok("hello world") });
-///
-/// // 方式 1: 显式创建 RouteConnectionService
-/// let service = RouteConnectionService::from(route.clone());
-/// // 通常不需要显式使用，Route 自动实现 ConnectionService
-///
-/// // 方式 2: 直接使用 Route（推荐）
+/// // 直接使用 Route（推荐）
 /// Server::new().run(route);
 /// ```
 #[derive(Clone)]
