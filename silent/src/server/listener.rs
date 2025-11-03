@@ -13,6 +13,12 @@ use std::pin::Pin;
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
 
+/// 接受连接的 Future。
+///
+/// 约定：
+/// - `Ok((conn, peer))` 表示成功接受到一个连接；
+/// - `Err(e)` 表示本次接受失败（可继续下一次 `accept()`）；
+/// - `Listeners::accept()` 返回 `None` 表示所有监听器已关闭，应结束主循环。
 pub type AcceptFuture<'a> = Pin<
     Box<dyn Future<Output = Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> + Send + 'a>,
 >;
@@ -211,6 +217,12 @@ pub struct Listeners {
 }
 
 impl Listeners {
+    /// 等待任意一个底层监听器返回连接。
+    ///
+    /// 返回：
+    /// - `Some(Ok((conn, peer)))`：成功接受连接；
+    /// - `Some(Err(e))`：单次接受失败，调用者可记录日志后继续；
+    /// - `None`：所有监听器已关闭，建议上层退出循环并进入关停阶段。
     pub async fn accept(
         &mut self,
     ) -> Option<Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> {

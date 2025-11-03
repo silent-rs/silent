@@ -355,6 +355,9 @@ impl NetServer {
     ///         .await;
     /// }
     /// ```
+    ///
+    /// 提示：若处理器包含状态或不易 `Clone`，可使用 [`serve_arc`](Self::serve_arc)
+    /// 或 [`serve_dyn`](Self::serve_dyn) 传入 `Arc` 包装。
     pub async fn serve<H>(self, handler: H)
     where
         H: ConnectionService + 'static,
@@ -365,6 +368,9 @@ impl NetServer {
     }
 
     /// 启动服务器（阻塞版本），内部创建多线程 Tokio 运行时。
+    ///
+    /// 同 [`serve`](Self::serve)。若处理器不易 `Clone`，推荐使用
+    /// [`serve_arc`](Self::serve_arc) 或 [`serve_dyn`](Self::serve_dyn)。
     pub fn run<H>(self, handler: H)
     where
         H: ConnectionService + 'static,
@@ -380,7 +386,9 @@ impl NetServer {
         })
     }
 
-    /// 使用 Arc 包装的处理器（泛型版）
+    /// 使用 Arc 包装的处理器（泛型版）。
+    ///
+    /// 适用于携带共享状态的处理器，实现 `ConnectionService` 即可。
     pub async fn serve_arc<H>(self, handler: std::sync::Arc<H>) -> io::Result<()>
     where
         H: ConnectionService + 'static,
@@ -390,7 +398,9 @@ impl NetServer {
             .await
     }
 
-    /// 使用 Arc<dyn ConnectionService> 的处理器
+    /// 使用 `Arc<dyn ConnectionService>` 的处理器。
+    ///
+    /// 适用于动态分发场景或需要跨 crate 以 trait 对象形式传递处理器的情况。
     pub async fn serve_dyn(self, handler: std::sync::Arc<dyn ConnectionService>) -> io::Result<()> {
         self.serve_connection_loop(handler).await
     }
