@@ -7,7 +7,7 @@ use http::{StatusCode, header};
 
 use crate::core::req_body::ReqBody;
 use crate::core::res_body::ResBody;
-use crate::protocol::Protocol;
+use crate::server::protocol::Protocol;
 use crate::{Request, Response};
 
 #[cfg(feature = "cookie")]

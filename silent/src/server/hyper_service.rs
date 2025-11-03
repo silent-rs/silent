@@ -8,8 +8,8 @@ use tracing::debug;
 use crate::core::res_body::ResBody;
 use crate::core::socket_addr::SocketAddr;
 use crate::prelude::ReqBody;
-use crate::protocol::Protocol;
-use crate::protocol::hyper_http::HyperHttpProtocol;
+use crate::server::protocol::Protocol;
+use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request, Response};
 
 #[doc(hidden)]

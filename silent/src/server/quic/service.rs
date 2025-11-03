@@ -1,9 +1,9 @@
 use tracing::{error, info, warn};
 
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
-use crate::protocol::Protocol as _;
-use crate::protocol::hyper_http::HyperHttpProtocol;
 use crate::route::Route;
+use crate::server::protocol::Protocol as _;
+use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request};
 use anyhow::{Context, Result, anyhow};
 use bytes::{Buf, Bytes, BytesMut};
@@ -14,10 +14,6 @@ use http::{Method, Request as HttpRequest, Response, StatusCode};
 use http_body_util::BodyExt;
 use std::{net::SocketAddr, sync::Arc};
 
-/// 处理 QUIC 连接
-///
-/// 此函数处理 QUIC 连接并建立 HTTP/3 会话。
-/// 它会接受多个 HTTP/3 请求并为每个请求生成一个处理任务。
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
     routes: Arc<Route>,
@@ -27,7 +23,6 @@ pub(crate) async fn handle_quic_connection(
     let remote = connection.remote_address();
     info!(%remote, "客户端连接建立");
 
-    // 默认的 WebTransport Handler
     let handler = Arc::new(super::echo::EchoHandler);
 
     let mut builder = h3::server::builder();

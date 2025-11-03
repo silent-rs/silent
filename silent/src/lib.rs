@@ -12,7 +12,7 @@ mod log;
 pub mod middleware;
 pub mod prelude;
 #[cfg(feature = "server")]
-pub mod protocol;
+pub use crate::server::protocol;
 mod route;
 #[cfg(feature = "scheduler")]
 mod scheduler;
@@ -45,13 +45,17 @@ pub use crate::core::{next::Next, request::Request, response::Response};
 pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
 #[cfg(feature = "server")]
-pub use crate::protocol::Protocol;
-#[cfg(feature = "server")]
 pub use crate::server::connection::{BoxedConnection, Connection};
 #[cfg(feature = "server")]
 pub use crate::server::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};
 #[cfg(feature = "server")]
 pub use crate::server::net_server::{NetServer, RateLimiterConfig};
+#[cfg(feature = "server")]
+pub use crate::server::protocol::Protocol;
+#[cfg(feature = "quic")]
+pub use crate::server::quic;
+#[cfg(feature = "quic")]
+pub use crate::server::quic::{HybridListener, QuicEndpointListener};
 #[cfg(feature = "server")]
 pub use crate::server::{BoxError, ConnectionFuture, ConnectionService, Server};
 #[cfg(all(feature = "server", feature = "tls"))]
@@ -64,7 +68,3 @@ pub use headers;
 pub use hyper::{Method, StatusCode, header};
 #[cfg(feature = "scheduler")]
 pub use scheduler::{ProcessTime, SCHEDULER, Scheduler, SchedulerExt, Task};
-#[cfg(feature = "quic")]
-pub mod quic;
-#[cfg(feature = "quic")]
-pub use quic::{HybridListener, QuicEndpointListener};

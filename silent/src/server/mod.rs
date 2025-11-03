@@ -3,6 +3,9 @@ pub mod connection_service;
 mod hyper_service;
 pub mod listener;
 pub mod net_server;
+pub mod protocol;
+#[cfg(feature = "quic")]
+pub mod quic;
 pub mod route_service;
 pub mod stream;
 #[cfg(feature = "tls")]
