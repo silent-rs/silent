@@ -5,14 +5,14 @@ pub mod net_server;
 pub mod protocol;
 #[cfg(feature = "quic")]
 pub mod quic;
-pub mod route_service;
+pub mod route_connection;
 pub mod stream;
 #[cfg(feature = "tls")]
 pub mod tls;
 #[cfg(feature = "tls")]
 pub use tls::{CertificateStore, CertificateStoreBuilder};
 
-pub use route_service::RouteConnectionService;
+pub use route_connection::RouteConnectionService;
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
