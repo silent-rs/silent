@@ -349,6 +349,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_local_addrs_slice_len() {
+        let mut builder = ListenersBuilder::new();
+        builder.bind("127.0.0.1:0".parse().unwrap());
+        builder.bind("127.0.0.1:0".parse().unwrap());
+        let listeners = builder.listen().unwrap();
+        let addrs = listeners.local_addrs();
+        assert!(addrs.len() >= 2);
+    }
+
+    #[tokio::test]
     #[cfg(feature = "tls")]
     async fn test_listener_tls_method_exists() {
         // 注意：这个测试仅验证 TLS 相关方法的存在性

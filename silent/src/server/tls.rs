@@ -215,3 +215,16 @@ fn looks_like_pem(data: &[u8]) -> bool {
 fn is_pem_path(path: &Path) -> bool {
     matches!(path.extension().and_then(|ext| ext.to_str()), Some("pem"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_looks_like_pem_and_ext() {
+        assert!(looks_like_pem(b"-----BEGIN CERTIFICATE-----\n..."));
+        assert!(!looks_like_pem(b"random bytes"));
+        assert!(is_pem_path(Path::new("/tmp/test.pem")));
+        assert!(!is_pem_path(Path::new("/tmp/test.der")));
+    }
+}

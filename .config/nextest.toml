@@ -1,0 +1,12 @@
+[profile.default]
+retries = 0
+failure-output = "immediate-final"
+
+# 限制单个测试长时间卡住：
+# - period：检测周期，超过此时间视为慢测试
+# - terminate-after：超过后向测试进程发送终止信号
+# - grace-period：终止后等待一段时间强制杀掉
+slow-timeout = { period = "60s", terminate-after = 2, grace-period = "10s" }
+
+# 限制同时运行的测试进程数量，避免端口/资源冲突（按需调整）
+run-threads = 4

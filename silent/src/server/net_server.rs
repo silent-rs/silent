@@ -629,4 +629,26 @@ mod tests {
         // 第 3 个令牌应该不可用
         assert_eq!(limiter.semaphore.available_permits(), 0);
     }
+
+    #[tokio::test]
+    async fn test_rate_limiter_refill_adds_permit() {
+        // 容量为 1，间隔很短，验证补充后可用许可数恢复
+        let limiter = RateLimiter::new(1, Duration::from_millis(20), Duration::from_millis(10));
+        // 先消耗掉唯一的许可
+        let _permit = limiter
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("permit should be available");
+        assert_eq!(limiter.semaphore.available_permits(), 0);
+
+        // 启动补充任务，并等待一小段时间
+        let handle = limiter.spawn_refill_task();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        // 至少应补回 1 个许可
+        assert!(limiter.semaphore.available_permits() >= 1);
+        handle.abort();
+        let _ = handle.await;
+    }
 }

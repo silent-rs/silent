@@ -93,3 +93,43 @@ fn get_cookie(req: &HyperRequest<ReqBody>) -> Result<CookieJar, SilentError> {
 // 对 hyper 服务适配器进行子模块归档，并在此 re-export 方便上层引用
 pub mod hyper_service;
 pub use hyper_service::HyperServiceHandler;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http::Request as HttpRequest;
+
+    #[test]
+    fn test_into_internal_basic() {
+        let req = HttpRequest::builder()
+            .uri("/hello")
+            .method("GET")
+            .body(ReqBody::Empty)
+            .unwrap();
+        let internal = HyperHttpProtocol::into_internal(req);
+        // 仅验证类型转换不 panic
+        let _ = internal;
+    }
+
+    #[cfg(feature = "cookie")]
+    #[test]
+    fn test_cookie_roundtrip_headers() {
+        // 构造带 cookie 的请求，验证 into_internal 会解析 cookies 到 extensions
+        let req = HttpRequest::builder()
+            .uri("/c")
+            .header(header::COOKIE, "a=1; b=2")
+            .body(ReqBody::Empty)
+            .unwrap();
+        let internal = HyperHttpProtocol::into_internal(req);
+        let jar = internal.extensions().get::<CookieJar>().cloned().unwrap();
+        assert!(jar.iter().any(|c| c.name() == "a"));
+
+        // 构造响应，验证 from_internal 会把 Set-Cookie 写回头部
+        let mut resp = Response::empty();
+        let mut jar = CookieJar::new();
+        jar.add(Cookie::new("x", "y"));
+        resp.extensions_mut().insert(jar);
+        let hyper_resp = HyperHttpProtocol::from_internal(resp);
+        assert!(hyper_resp.headers().contains_key(header::SET_COOKIE));
+    }
+}
