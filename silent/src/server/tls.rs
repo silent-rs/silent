@@ -261,4 +261,34 @@ mod tests {
         let msg = format!("{err:#}");
         assert!(msg.contains("证书文件不存在") || msg.contains("私钥文件不存在"));
     }
+
+    #[test]
+    fn test_builder_success_with_raw_der_bytes() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_{}.key", unique));
+
+        // 写入原始字节（非 PEM），builder 会将其视为 DER 字节并成功构建
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .expect("builder should succeed with raw bytes");
+
+        // 能返回客户端根证书字节（即我们写入的第一段）
+        let root = store.client_root_certificate();
+        assert!(!root.is_empty());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
 }

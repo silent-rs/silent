@@ -6,10 +6,38 @@ use std::net::SocketAddr;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::signal;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+#[cfg(test)]
+static SHUTDOWN_NOTIFY: OnceLock<tokio::sync::Notify> = OnceLock::new();
+
+#[cfg(test)]
+fn trigger_test_shutdown() {
+    SHUTDOWN_NOTIFY
+        .get_or_init(tokio::sync::Notify::new)
+        .notify_waiters();
+}
+
+#[cfg(not(test))]
+#[allow(dead_code)]
+fn trigger_test_shutdown() {}
+
+fn test_shutdown_future() -> impl std::future::Future<Output = ()> {
+    #[cfg(test)]
+    {
+        SHUTDOWN_NOTIFY
+            .get_or_init(tokio::sync::Notify::new)
+            .notified()
+    }
+    #[cfg(not(test))]
+    {
+        futures_util::future::pending::<()>()
+    }
+}
 
 type ListenCallback = Box<dyn Fn(&[CoreSocketAddr]) + Send + Sync>;
 
@@ -473,6 +501,11 @@ impl NetServer {
                         tracing::error!(error = ?err, "connection task panicked");
                     }
                 }
+                // 测试关停注入点（非测试构建为 pending，不影响选择其他分支）
+                _ = test_shutdown_future() => {
+                    tracing::info!("test shutdown notify received");
+                    break;
+                }
             }
         }
 
@@ -856,6 +889,31 @@ mod tests {
         let jh = tokio::spawn(async move { server.serve(handler).await });
         tokio::time::sleep(Duration::from_millis(50)).await;
         jh.abort();
+        let _ = jh.await;
+    }
+
+    #[tokio::test]
+    async fn test_net_server_graceful_shutdown_timeout() {
+        // 一次连接，handler 故意延迟，触发优雅关停等待超时
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        let handler = |_s: BoxedConnection, _p: CoreSocketAddr| async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok::<(), BoxError>(())
+        };
+
+        let server = NetServer::new()
+            .with_shutdown(Duration::from_millis(10))
+            .listen(listener);
+
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        // 等 on_listen 后小等，然后触发测试关停通知
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        trigger_test_shutdown();
+        // 若优雅关停未正确处理，此处会卡住超时
         let _ = jh.await;
     }
 
