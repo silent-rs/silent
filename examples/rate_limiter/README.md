@@ -79,5 +79,5 @@ ab -n 100 -c 20 http://127.0.0.1:8080/
 
 ## 相关文档
 
-- [NetServer 限流文档](../../silent/src/service/net_server.rs)
-- [Server API 文档](../../silent/src/service/mod.rs)
+- [NetServer 限流文档](../../silent/src/server/net_server.rs)
+- [Server API 文档](../../silent/src/server/mod.rs)

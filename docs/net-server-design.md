@@ -2,7 +2,7 @@
 
 > 版本：v0.1（实现中）
 > 关联：`rfcs/2025-10-01-net-server-decoupling.md`（状态：Implementing）
-> 模块：`silent::service::{net_server, listener, connection}`
+> 模块：`silent::server::{net_server, listener, connection}`
 
 ---
 
@@ -74,7 +74,7 @@ where
 
 ## 监听器暴露（ListenersBuilder / Listeners）
 
-最小公开能力（已存在于 `service::listener`）：
+最小公开能力（已存在于 `server::listener`）：
 - `ListenersBuilder::bind(_)/bind_unix(_)`、`add_listener(_)`、`listen() -> io::Result<Listeners>`
 - `Listeners::accept() -> Option<Result<(Box<dyn Connection>, CoreSocketAddr)>>`
 - `Listeners::local_addrs(&self) -> &[CoreSocketAddr]`（只读切片视图）
@@ -126,7 +126,7 @@ sequenceDiagram
 ## 示例（草案）
 
 ```rust
-use silent::service::{Server, ConnectionService};
+use silent::server::{Server, ConnectionService};
 use silent::prelude::*; // 假定 re-export Route 等
 
 #[tokio::main]

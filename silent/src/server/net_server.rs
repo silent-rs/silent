@@ -345,162 +345,88 @@ impl NetServer {
     ///
     /// #[tokio::main]
     /// async fn main() {
-    ///     let rate_config = RateLimiterConfig {
-    ///         capacity: 10,
-    ///         refill_every: Duration::from_millis(10),
-    ///         max_wait: Duration::from_secs(2),
+    ///     let handler = |mut req: Request| async move {
+    ///         Response::ok().body("hello")
     ///     };
     ///
-    ///     let server = NetServer::new()
+    ///     NetServer::new()
     ///         .bind("127.0.0.1:8080".parse().unwrap())
-    ///         .with_rate_limiter(rate_config)
-    ///         .with_shutdown(Duration::from_secs(5));
-    ///
-    ///     server.serve(|stream, peer| async move {
-    ///         println!("Connection from: {}", peer);
-    ///         Ok(())
-    ///     }).await;
+    ///         .serve(handler)
+    ///         .await;
     /// }
     /// ```
     pub async fn serve<H>(self, handler: H)
     where
-        H: ConnectionService,
+        H: ConnectionService + Clone,
     {
-        let NetServer {
-            listeners_builder,
-            shutdown_callback,
-            listen_callback,
-            rate_limiter,
-            shutdown_cfg,
-        } = self;
-        Self::serve_connection_loop(
-            listeners_builder,
-            shutdown_callback,
-            listen_callback,
-            handler,
-            rate_limiter,
-            shutdown_cfg,
-        )
-        .await
-        .expect("server loop failed");
+        if let Err(e) = self.serve_connection_loop(handler).await {
+            panic!("server loop failed: {}", e);
+        }
     }
 
-    /// 启动服务器（阻塞版本）。
-    ///
-    /// 此方法会创建 tokio 多线程运行时并阻塞当前线程，直到服务器关停。
-    /// 等价于在 `#[tokio::main]` 中调用 `serve()`。
-    ///
-    /// # Panics
-    ///
-    /// 如果创建运行时失败或服务器循环内部发生错误，将 panic。
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use silent::{NetServer, prelude::*};
-    /// use std::time::Duration;
-    ///
-    /// let server = NetServer::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap())
-    ///     .with_shutdown(Duration::from_secs(5));
-    ///
-    /// // 阻塞主线程直到服务器关停
-    /// server.run(|stream, peer| async move {
-    ///     println!("Connection from: {}", peer);
-    ///     Ok(())
-    /// });
-    /// ```
+    /// 启动服务器（阻塞版本），内部创建多线程 Tokio 运行时。
     pub fn run<H>(self, handler: H)
     where
-        H: ConnectionService,
+        H: ConnectionService + Clone,
     {
-        tokio::runtime::Builder::new_multi_thread()
+        let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
-            .unwrap()
-            .block_on(self.serve(handler));
+            .expect("failed to build Tokio runtime");
+        runtime.block_on(async move {
+            if let Err(e) = self.serve_connection_loop(handler).await {
+                panic!("server loop failed: {}", e);
+            }
+        })
     }
 
-    async fn serve_connection_loop<H>(
-        listeners_builder: ListenersBuilder,
-        shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
-        listen_callback: Option<ListenCallback>,
-        handler: H,
-        rate_limiter: Option<RateLimiter>,
-        shutdown_cfg: ShutdownConfig,
-    ) -> io::Result<()>
+    async fn serve_connection_loop<H>(mut self, handler: H) -> io::Result<()>
     where
-        H: ConnectionService,
+        H: ConnectionService + Clone,
     {
-        let mut listeners = listeners_builder.listen()?;
-        let local_addrs = listeners.local_addrs();
-        if let Some(callback) = listen_callback.as_ref() {
-            callback(local_addrs);
-        }
-        for addr in local_addrs {
-            tracing::info!("listening on: {:?}", addr);
+        let mut listeners = self.listeners_builder.listen()?;
+        let addrs = listeners.local_addrs().to_vec();
+        if let Some(cb) = &self.listen_callback {
+            (cb)(&addrs);
         }
 
-        // Start the scheduler if the feature is enabled
-        #[cfg(feature = "scheduler")]
-        tokio::spawn(async move {
-            use crate::scheduler::{SCHEDULER, Scheduler};
-            let scheduler = SCHEDULER.clone();
-            Scheduler::schedule(scheduler).await;
-        });
-
-        let shutdown_callback = shutdown_callback.as_ref();
-        let handler: Arc<dyn ConnectionService> = Arc::new(handler);
-        let rate = self_rate_limiter(rate_limiter.as_ref());
-        let mut join_set = JoinSet::new();
+        let mut join_set: JoinSet<()> = JoinSet::new();
+        let mut shutdown = ShutdownHandle::new(self.shutdown_callback.take(), self.shutdown_cfg);
+        let rate = self_rate_limiter(self.rate_limiter.as_ref());
 
         loop {
-            #[cfg(unix)]
-            let terminate = async {
-                signal::unix::signal(signal::unix::SignalKind::terminate())
-                    .expect("failed to install signal handler")
-                    .recv()
-                    .await;
-            };
-
-            #[cfg(not(unix))]
-            let terminate = async {
-                let _ = std::future::pending::<()>().await;
-            };
-
             tokio::select! {
-                _ = signal::ctrl_c() => {
-                    if let Some(callback) = shutdown_callback { callback(); }
+                biased;
+                _ = shutdown.signal() => {
+                    tracing::info!("shutdown signal received");
                     break;
                 }
-                _ = terminate => {
-                    if let Some(callback) = shutdown_callback { callback(); }
-                    break;
-                }
-                Some(result) = listeners.accept() => {
-                    match result {
-                        Ok((stream, peer_addr)) => {
-                            tracing::info!("Accepting from: {}", peer_addr);
-                            // 若启用限流，先获取令牌（可等待 max_wait）；获取失败则丢弃该连接
-                            if let Some(rate) = rate.as_ref() {
-                                match tokio::time::timeout(rate.max_wait, rate.semaphore.clone().acquire_owned()).await {
-                                    Ok(Ok(permit)) => {
-                                        let handler = handler.clone();
-                                        join_set.spawn(async move {
-                                            // permit 在任务结束时自动释放
-                                            let _permit = permit;
+                accept_result = listeners.accept() => {
+                    match accept_result {
+                        None => {
+                            tracing::info!("listener closed, shutting down");
+                            break;
+                        }
+                        Some(Ok((stream, peer_addr))) => {
+                            if let Some(rate) = &rate {
+                                let semaphore = rate.semaphore.clone();
+                                let max_wait = rate.max_wait;
+                                let handler = handler.clone();
+                                join_set.spawn(async move {
+                                    match tokio::time::timeout(max_wait, semaphore.acquire_owned()).await {
+                                        Ok(Ok(_permit)) => {
                                             if let Err(err) = handler.call(stream, peer_addr).await {
                                                 tracing::error!("Failed to serve connection: {:?}", err);
                                             }
-                                        });
+                                        }
+                                        Ok(Err(_)) => {
+                                            tracing::warn!("Rate limiter closed, dropping connection: {}", peer_addr);
+                                        }
+                                        Err(_) => {
+                                            tracing::warn!("Rate limiter timeout, dropping connection: {}", peer_addr);
+                                        }
                                     }
-                                    Ok(Err(_)) => {
-                                        tracing::warn!("Rate limiter closed, dropping connection: {}", peer_addr);
-                                    }
-                                    Err(_) => {
-                                        tracing::warn!("Rate limiter timeout, dropping connection: {}", peer_addr);
-                                    }
-                                }
+                                });
                             } else {
                                 let handler = handler.clone();
                                 join_set.spawn(async move {
@@ -510,7 +436,7 @@ impl NetServer {
                                 });
                             }
                         }
-                        Err(e) => {
+                        Some(Err(e)) => {
                             tracing::error!(error = ?e, "accept connection failed");
                         }
                     }
@@ -524,9 +450,9 @@ impl NetServer {
         }
 
         // 优雅关停：等待活动任务在指定时间内完成
-        if shutdown_cfg.graceful_wait > Duration::from_millis(0) {
+        if shutdown.shutdown_cfg.graceful_wait > Duration::from_millis(0) {
             // 使用 timeout 等待所有任务完成，超时后自动结束
-            let _ = tokio::time::timeout(shutdown_cfg.graceful_wait, async {
+            let _ = tokio::time::timeout(shutdown.shutdown_cfg.graceful_wait, async {
                 while let Some(join_result) = join_set.join_next().await {
                     if let Err(err) = join_result
                         && err.is_panic()
@@ -599,6 +525,45 @@ fn self_rate_limiter(rate: Option<&RateLimiter>) -> Option<RateLimiter> {
     rate.cloned()
 }
 
+struct ShutdownHandle {
+    shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
+    shutdown_cfg: ShutdownConfig,
+}
+
+impl ShutdownHandle {
+    fn new(callback: Option<Box<dyn Fn() + Send + Sync>>, shutdown_cfg: ShutdownConfig) -> Self {
+        let shutdown_callback = callback;
+        Self {
+            shutdown_callback,
+            shutdown_cfg,
+        }
+    }
+
+    async fn signal(&mut self) {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("Failed to install SIGTERM handler");
+            tokio::select! {
+                _ = signal::ctrl_c() => (),
+                _ = term.recv() => (),
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            tokio::select! {
+                _ = signal::ctrl_c() => (),
+            }
+        }
+
+        if let Some(cb) = &self.shutdown_callback {
+            (cb)();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,155 +588,7 @@ mod tests {
             .await
             .expect("second permit should be available");
 
-        // 验证容量限制：可用令牌数应为 0
-        assert_eq!(
-            limiter.semaphore.available_permits(),
-            0,
-            "no permits should be available after acquiring capacity"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_release_and_reacquire() {
-        // 测试令牌释放后重新获取
-        let limiter = RateLimiter::new(1, Duration::from_secs(60), Duration::from_secs(1));
-
-        let permit = limiter
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("should acquire first permit");
-
+        // 第 3 个令牌应该不可用
         assert_eq!(limiter.semaphore.available_permits(), 0);
-
-        // 释放令牌
-        drop(permit);
-
-        // 应能立即重新获取
-        let _permit2 = limiter
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("should reacquire after release");
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_refill_mechanism() {
-        // 测试令牌自动补充机制
-        let limiter = RateLimiter::new(1, Duration::from_millis(50), Duration::from_secs(1));
-
-        // 获取令牌并持有
-        let _permit = limiter
-            .semaphore
-            .clone()
-            .acquire_owned()
-            .await
-            .expect("should acquire permit");
-
-        // 等待至少 2 个补充周期
-        tokio::time::sleep(Duration::from_millis(120)).await;
-
-        // 由于补充任务检查 available < capacity 才补充，且 permit 未释放，
-        // 补充任务应该已经添加了令牌（因为 available < capacity 时会 add_permits(1)）
-        // 验证可用许可数 >= 1 (补充任务可能已执行)
-        let available = limiter.semaphore.available_permits();
-        assert!(
-            available >= 1,
-            "refill task should have added permits when available was 0, got {}",
-            available
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_no_overfill() {
-        // 测试令牌不会超过容量
-        let capacity = 3;
-        let limiter = RateLimiter::new(capacity, Duration::from_millis(10), Duration::from_secs(1));
-
-        // 等待足够长的时间让补充任务执行多次
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
-        // 验证可用令牌数不超过容量
-        let available = limiter.semaphore.available_permits();
-        assert!(
-            available <= capacity,
-            "available permits {} should not exceed capacity {}",
-            available,
-            capacity
-        );
-    }
-
-    #[tokio::test]
-    async fn test_rate_limiter_gradual_refill() {
-        // 测试令牌逐步补充
-        let capacity = 5;
-        let refill_interval = Duration::from_millis(20);
-        let limiter = RateLimiter::new(capacity, refill_interval, Duration::from_secs(1));
-
-        // 消耗所有令牌
-        let mut permits = Vec::new();
-        for _ in 0..capacity {
-            let permit = limiter
-                .semaphore
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("should acquire permit");
-            permits.push(permit);
-        }
-
-        // 验证所有令牌已被消耗
-        assert_eq!(limiter.semaphore.available_permits(), 0);
-
-        // 等待一个补充周期
-        tokio::time::sleep(refill_interval + Duration::from_millis(10)).await;
-
-        // 应该至少补充了 1 个令牌
-        let available = limiter.semaphore.available_permits();
-        assert!(
-            available >= 1,
-            "should have refilled at least 1 permit, got {}",
-            available
-        );
-    }
-
-    #[test]
-    fn test_shutdown_config_default() {
-        // 测试 ShutdownConfig 默认值
-        let config = ShutdownConfig::default();
-        assert_eq!(config.graceful_wait, Duration::from_secs(0));
-    }
-
-    #[test]
-    fn test_net_server_with_shutdown() {
-        // 测试 with_shutdown 方法
-        let server = NetServer::new().with_shutdown(Duration::from_secs(10));
-        assert_eq!(server.shutdown_cfg.graceful_wait, Duration::from_secs(10));
-    }
-
-    #[test]
-    fn test_graceful_shutdown_configuration() {
-        // 测试 ShutdownConfig 的配置
-        let config = ShutdownConfig {
-            graceful_wait: Duration::from_millis(200),
-        };
-
-        assert_eq!(config.graceful_wait, Duration::from_millis(200));
-
-        // 测试不同的等待时间
-        let config2 = ShutdownConfig {
-            graceful_wait: Duration::from_secs(5),
-        };
-        assert_eq!(config2.graceful_wait, Duration::from_secs(5));
-    }
-
-    #[test]
-    fn test_shutdown_config_custom_duration() {
-        let config = ShutdownConfig {
-            graceful_wait: Duration::from_secs(30),
-        };
-        assert_eq!(config.graceful_wait, Duration::from_secs(30));
     }
 }

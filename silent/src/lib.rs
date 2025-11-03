@@ -19,7 +19,7 @@ mod scheduler;
 #[cfg(feature = "security")]
 mod security;
 #[cfg(feature = "server")]
-mod service;
+mod server;
 #[cfg(feature = "session")]
 mod session;
 #[cfg(feature = "sse")]
@@ -47,15 +47,15 @@ pub use crate::middleware::{MiddleWareHandler, middlewares};
 #[cfg(feature = "server")]
 pub use crate::protocol::Protocol;
 #[cfg(feature = "server")]
-pub use crate::service::connection::{BoxedConnection, Connection};
+pub use crate::server::connection::{BoxedConnection, Connection};
 #[cfg(feature = "server")]
-pub use crate::service::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};
+pub use crate::server::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};
 #[cfg(feature = "server")]
-pub use crate::service::net_server::{NetServer, RateLimiterConfig};
+pub use crate::server::net_server::{NetServer, RateLimiterConfig};
 #[cfg(feature = "server")]
-pub use crate::service::{BoxError, ConnectionFuture, ConnectionService, Server};
+pub use crate::server::{BoxError, ConnectionFuture, ConnectionService, Server};
 #[cfg(all(feature = "server", feature = "tls"))]
-pub use crate::service::{CertificateStore, CertificateStoreBuilder};
+pub use crate::server::{CertificateStore, CertificateStoreBuilder};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
 pub use handler::Handler;

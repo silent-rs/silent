@@ -8,9 +8,9 @@ use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
-use crate::service::connection::BoxedConnection;
-use crate::service::connection_service::{ConnectionFuture, ConnectionService};
-use crate::service::hyper_service::HyperServiceHandler;
+use crate::server::connection::BoxedConnection;
+use crate::server::connection_service::{ConnectionFuture, ConnectionService};
+use crate::server::hyper_service::HyperServiceHandler;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 #[cfg(feature = "quic")]
@@ -30,7 +30,7 @@ use std::sync::Arc;
 ///
 /// ```rust,no_run
 /// use silent::prelude::*;
-/// use silent::service::RouteConnectionService;
+/// use silent::server::RouteConnectionService;
 ///
 /// let route = Route::new("").get(|_req: Request| async { Ok("hello world") });
 ///

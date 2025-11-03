@@ -1,3 +1,25 @@
+# TODO - Issue #4: 代码结构调整（service → server）
+
+> 分支: `feature/调整-service-为-server`
+>
+> 依据: `PLAN.md` → v2.12 / 结构优化（P0）
+>
+> 目标版本: v2.12 近期小版本
+
+状态：进行中
+
+范围：
+- 将 `silent/src/service/*` 更名为 `silent/src/server/*`
+- 全量替换 `crate::service::*` 为 `crate::server::*`
+- 更新导出与 `prelude`，保持对外 API 兼容
+- 同步更新文档与 RFC 的路径引用
+
+验收：
+- `cargo check --all` 通过
+- 示例与文档引用无断链
+
+---
+
 # TODO - Issue #3: 完成网络层解耦（提取 NetServer 结构）✅# TODO - Issue #3: 完成网络层解耦（提取 NetServer 结构）
 
 

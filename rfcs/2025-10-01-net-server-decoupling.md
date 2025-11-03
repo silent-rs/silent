@@ -7,7 +7,7 @@
 
 ## 背景
 
-当前 `silent` 框架的网络监听能力主要内聚在 `service::Server` 之中，面向 HTTP/Hyper 协议的场景。像 `silent-mqtt` 这类非 HTTP 协议项目，如果希望复用 `silent` 的监听与连接抽象，只能直接引入 `core::listener::ListenersBuilder` 等内部实现细节。这会导致如下问题：
+当前 `silent` 框架的网络监听能力主要内聚在 `server::Server` 之中，面向 HTTP/Hyper 协议的场景。像 `silent-mqtt` 这类非 HTTP 协议项目，如果希望复用 `silent` 的监听与连接抽象，只能直接引入 `core::listener::ListenersBuilder` 等内部实现细节。这会导致如下问题：
 
 1. 业务代码需了解 `silent` 内部模块组织，耦合度过高。
 2. 难以通过 `silent` 提供的统一入口实现自定义协议握手，因为监听逻辑与 Hyper 服务绑定在一起。
@@ -17,13 +17,13 @@
 
 - 暴露一个与具体协议无关的网络监听服务，供任意协议栈复用。
 - 让 `silent-mqtt` 等项目仅关注协议解析与状态管理，通过组合 `silent` 网络服务器即可提供完整服务。
-- 保持现有 HTTP 场景兼容，不破坏现有 `service::Server` 行为。
+- 保持现有 HTTP 场景兼容，不破坏现有 `server::Server` 行为。
 
 ## 设计概述
 
-在 `service` 模块内整合轻量网络服务器能力，提供 `NetServer` 与连接处理抽象 `ConnectionService`：
+在 `server` 模块内整合轻量网络服务器能力，提供 `NetServer` 与连接处理抽象 `ConnectionService`：
 
-- `NetServer` 负责基于 `ListenersBuilder` 管理监听套接字，并在 Tokio 运行时内循环接受连接，同时作为 `service::Server` 的底层监听实现复用；`Server::serve_with_connection_handler` 允许注入自定义协议层。
+- `NetServer` 负责基于 `ListenersBuilder` 管理监听套接字，并在 Tokio 运行时内循环接受连接，同时作为 `server::Server` 的底层监听实现复用；`Server::serve_with_connection_handler` 允许注入自定义协议层。
 - `ConnectionService` 是一个泛型服务 trait，定义 `call(stream, peer)` 异步处理逻辑，返回 `Result<(), BoxError>`。
 - 通过 blanket impl，普通闭包即可充当连接处理器，业务层不必手写结构体实现。
 - 所有接受到的连接都会被 `tokio::spawn` 分发到独立任务，错误通过 `tracing::error!` 记录。
@@ -35,11 +35,11 @@
 
 ### 新增
 
-- `silent::service::{NetServer, ConnectionService, BoxedConnection, BoxError, ConnectionFuture}` 作为通用网络监听与连接处理入口。
+- `silent::server::{NetServer, ConnectionService, BoxedConnection, BoxError, ConnectionFuture}` 作为通用网络监听与连接处理入口。
 
 ### 调整
 
-- `silent::core::listener` 改为薄封装，真实实现位于 `service::listener`，配合 `ListenersBuilder`、`Listeners` 对外公开。
+- `silent::core::listener` 改为薄封装，真实实现位于 `server::listener`，配合 `ListenersBuilder`、`Listeners` 对外公开。
 - `Listeners::local_addrs()` 返回类型由 `&Vec<SocketAddr>` 改为 `&[SocketAddr]`，避免暴露可变容器实现。
 - `silent::lib` 对外 re-export：`NetServer` 及相关别名可直接通过 `silent::NetServer` 使用。
 
@@ -76,12 +76,12 @@
 
 ### 已完成功能
 
-1. **ConnectionService 抽象** (`silent/src/service/connection_service.rs`):
+1. **ConnectionService 抽象** (`silent/src/server/connection_service.rs`):
    - 定义 `ConnectionService` trait，提供 `call(stream, peer)` 接口
    - 自动为闭包实现 blanket impl，简化业务代码
    - 类型别名：`BoxError`、`BoxedConnection`、`ConnectionFuture`
 
-2. **NetServer 核心实现** (`silent/src/service/net_server.rs`):
+2. **NetServer 核心实现** (`silent/src/server/net_server.rs`):
    - 基于 `ListenersBuilder` 的通用网络服务器
    - 配置方法：`bind()`、`bind_unix()`、`listen()`
    - 回调方法：`on_listen()`、`set_shutdown_callback()`

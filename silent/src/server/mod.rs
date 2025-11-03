@@ -135,7 +135,7 @@ impl Server {
 
     pub async fn serve<H>(self, handler: H)
     where
-        H: ConnectionService,
+        H: ConnectionService + Clone,
     {
         // 将网络层职责完全委托给通用 NetServer
         // 注意: 调度器会在 NetServer::serve_connection_loop 中启动
@@ -160,7 +160,7 @@ impl Server {
 
     pub fn run<H>(self, handler: H)
     where
-        H: ConnectionService,
+        H: ConnectionService + Clone,
     {
         // 将网络层职责完全委托给通用 NetServer
         // 注意: 调度器会在 NetServer::serve_connection_loop 中启动

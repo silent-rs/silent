@@ -309,13 +309,13 @@ impl Handler for Route {
 
 // 为 Route 实现 ConnectionService，委托给 RouteConnectionService
 // 这保持了向后兼容性，用户可以继续使用 Server::new().run(route)
-impl crate::service::ConnectionService for Route {
+impl crate::server::ConnectionService for Route {
     fn call(
         &self,
-        stream: crate::service::connection::BoxedConnection,
+        stream: crate::server::connection::BoxedConnection,
         peer: crate::core::socket_addr::SocketAddr,
-    ) -> crate::service::ConnectionFuture {
-        crate::service::RouteConnectionService::from(self.clone()).call(stream, peer)
+    ) -> crate::server::ConnectionFuture {
+        crate::server::RouteConnectionService::from(self.clone()).call(stream, peer)
     }
 }
 

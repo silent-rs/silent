@@ -15,13 +15,13 @@
 //!
 //! ```no_run
 //! use silent::prelude::*;
-//! use silent::service::connection_service::ConnectionService;
+//! use silent::server::connection_service::ConnectionService;
 //! use tokio::io::{AsyncReadExt, AsyncWriteExt};
 //!
 //! struct EchoService;
 //!
 //! impl ConnectionService for EchoService {
-//!     fn call(&self, mut stream, peer) -> silent::service::connection_service::ConnectionFuture {
+//!     fn call(&self, mut stream, peer) -> silent::server::connection_service::ConnectionFuture {
 //!         Box::pin(async move {
 //!             let mut buf = vec![0u8; 1024];
 //!             loop {
@@ -58,7 +58,7 @@
 //! ```
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
-use crate::service::connection::BoxedConnection;
+use crate::server::connection::BoxedConnection;
 use std::error::Error as StdError;
 use std::future::Future;
 use std::pin::Pin;
@@ -83,8 +83,8 @@ pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + 
 /// 结构体实现：
 ///
 /// ```no_run
-/// use silent::service::connection_service::{ConnectionService, ConnectionFuture};
-/// use silent::service::connection::BoxedConnection;
+/// use silent::server::connection_service::{ConnectionService, ConnectionFuture};
+/// use silent::server::connection::BoxedConnection;
 /// use silent::core::socket_addr::SocketAddr;
 ///
 /// struct MyService {

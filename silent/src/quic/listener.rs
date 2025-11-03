@@ -10,7 +10,7 @@ use crate::AcceptFuture;
 use crate::BoxedConnection;
 use crate::CertificateStore;
 use crate::Listen;
-use crate::service::listener::TlsListener;
+use crate::server::listener::TlsListener;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 
 pub struct QuicEndpointListener {
@@ -68,7 +68,7 @@ impl QuicEndpointListener {
         let tcp_listener =
             StdTcpListener::bind(bind_addr).expect("Failed to bind TCP listener for HTTP fallback");
         let http_listener =
-            crate::service::listener::Listener::from(tcp_listener).tls_with_cert(&self.store);
+            crate::server::listener::Listener::from(tcp_listener).tls_with_cert(&self.store);
 
         HybridListener {
             quic: self,
