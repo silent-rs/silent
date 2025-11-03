@@ -357,9 +357,9 @@ impl NetServer {
     /// ```
     pub async fn serve<H>(self, handler: H)
     where
-        H: ConnectionService + Clone,
+        H: ConnectionService + 'static,
     {
-        if let Err(e) = self.serve_connection_loop(handler).await {
+        if let Err(e) = self.serve_arc(std::sync::Arc::new(handler)).await {
             panic!("server loop failed: {}", e);
         }
     }
@@ -367,23 +367,38 @@ impl NetServer {
     /// 启动服务器（阻塞版本），内部创建多线程 Tokio 运行时。
     pub fn run<H>(self, handler: H)
     where
-        H: ConnectionService + Clone,
+        H: ConnectionService + 'static,
     {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .expect("failed to build Tokio runtime");
         runtime.block_on(async move {
-            if let Err(e) = self.serve_connection_loop(handler).await {
+            if let Err(e) = self.serve_arc(std::sync::Arc::new(handler)).await {
                 panic!("server loop failed: {}", e);
             }
         })
     }
 
-    async fn serve_connection_loop<H>(mut self, handler: H) -> io::Result<()>
+    /// 使用 Arc 包装的处理器（泛型版）
+    pub async fn serve_arc<H>(self, handler: std::sync::Arc<H>) -> io::Result<()>
     where
-        H: ConnectionService + Clone,
+        H: ConnectionService + 'static,
     {
+        // 向下转为 trait 对象，复用 dyn 版本
+        self.serve_dyn(handler as std::sync::Arc<dyn ConnectionService>)
+            .await
+    }
+
+    /// 使用 Arc<dyn ConnectionService> 的处理器
+    pub async fn serve_dyn(self, handler: std::sync::Arc<dyn ConnectionService>) -> io::Result<()> {
+        self.serve_connection_loop(handler).await
+    }
+
+    async fn serve_connection_loop(
+        mut self,
+        handler: std::sync::Arc<dyn ConnectionService>,
+    ) -> io::Result<()> {
         let mut listeners = self.listeners_builder.listen()?;
         let addrs = listeners.local_addrs().to_vec();
         if let Some(cb) = &self.listen_callback {
@@ -393,6 +408,8 @@ impl NetServer {
         let mut join_set: JoinSet<()> = JoinSet::new();
         let mut shutdown = ShutdownHandle::new(self.shutdown_callback.take(), self.shutdown_cfg);
         let rate = self_rate_limiter(self.rate_limiter.as_ref());
+        // 启动限流器补充任务（若配置）
+        let mut refill_handle = rate.as_ref().map(|r| r.spawn_refill_task());
 
         loop {
             tokio::select! {
@@ -464,6 +481,12 @@ impl NetServer {
             .await;
         }
 
+        // 结束限流补充任务
+        if let Some(h) = &mut refill_handle {
+            h.abort();
+            let _ = h.await;
+        }
+
         // 强制取消剩余任务并清理
         join_set.abort_all();
         while let Some(join_result) = join_set.join_next().await {
@@ -482,29 +505,34 @@ impl NetServer {
 struct RateLimiter {
     semaphore: Arc<Semaphore>,
     max_wait: Duration,
+    capacity: usize,
+    refill_every: Duration,
 }
 
 impl RateLimiter {
     fn new(capacity: usize, refill_every: Duration, max_wait: Duration) -> Self {
         let semaphore = Arc::new(Semaphore::new(capacity));
-        // 补充任务：后台周期性增加 1 个令牌，直至容量上限
-        let sem_clone = semaphore.clone();
+        Self {
+            semaphore,
+            max_wait,
+            capacity,
+            refill_every,
+        }
+    }
+
+    fn spawn_refill_task(&self) -> tokio::task::JoinHandle<()> {
+        let sem = self.semaphore.clone();
+        let capacity = self.capacity;
+        let refill_every = self.refill_every;
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(refill_every);
             loop {
                 ticker.tick().await;
-                // 正确的令牌补充机制：只有当可用许可数小于容量时才补充
-                // 通过 available_permits() < capacity 判断是否需要补充
-                if sem_clone.available_permits() < capacity {
-                    sem_clone.add_permits(1);
+                if sem.available_permits() < capacity {
+                    sem.add_permits(1);
                 }
             }
-        });
-
-        Self {
-            semaphore,
-            max_wait,
-        }
+        })
     }
 }
 

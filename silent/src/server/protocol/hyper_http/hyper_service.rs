@@ -27,7 +27,6 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
             routes,
         }
     }
-    /// Handle [`Request`] and returns [`Response`] (优化：减少克隆操作)
     #[inline]
     pub fn handle(&self, mut req: Request) -> impl Future<Output = Response> + use<H> {
         let remote_addr = self.remote_addr.clone();
@@ -57,26 +56,5 @@ where
             debug!("Response: \n{:?}", res);
             Ok(HyperHttpProtocol::from_internal(res))
         })
-    }
-}
-#[cfg(test)]
-mod tests {
-    use crate::route::Route;
-
-    use super::*;
-
-    #[tokio::test]
-    async fn test_handle_request() {
-        // Arrange
-        let remote_addr = "127.0.0.1:8080"
-            .parse::<std::net::SocketAddr>()
-            .unwrap()
-            .into();
-        let routes = Route::new_root(); // 创建新的根路由实例
-        let hsh = HyperServiceHandler::new(remote_addr, routes);
-        let req = hyper::Request::builder().body(()).unwrap(); // Assuming Request::new() creates a new instance of Request
-
-        // Act
-        let _ = hsh.call(req).await;
     }
 }

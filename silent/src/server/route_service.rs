@@ -10,7 +10,7 @@ use crate::route::Route;
 use crate::scheduler::middleware::SchedulerMiddleware;
 use crate::server::connection::BoxedConnection;
 use crate::server::connection_service::{ConnectionFuture, ConnectionService};
-use crate::server::hyper_service::HyperServiceHandler;
+use crate::server::protocol::hyper_http::HyperServiceHandler;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
 #[cfg(feature = "quic")]

@@ -89,3 +89,7 @@ fn get_cookie(req: &HyperRequest<ReqBody>) -> Result<CookieJar, SilentError> {
     }
     Ok(jar)
 }
+
+// 对 hyper 服务适配器进行子模块归档，并在此 re-export 方便上层引用
+pub mod hyper_service;
+pub use hyper_service::HyperServiceHandler;

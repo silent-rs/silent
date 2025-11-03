@@ -1,6 +1,5 @@
 pub mod connection;
 pub mod connection_service;
-mod hyper_service;
 pub mod listener;
 pub mod net_server;
 pub mod protocol;
