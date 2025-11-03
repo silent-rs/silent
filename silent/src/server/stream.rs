@@ -80,3 +80,71 @@ impl AsyncWrite for Stream {
 }
 
 impl Unpin for Stream {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn test_stream_tcp_rw_and_peer() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            let (stream, _peer) = listener.accept().await.unwrap();
+            let mut s = Stream::TcpStream(stream);
+            let pa = s.peer_addr().unwrap();
+            match pa {
+                SocketAddr::Tcp(_) => {}
+                _ => panic!("expected tcp socket addr"),
+            }
+            let mut buf = [0u8; 2];
+            tokio::io::AsyncReadExt::read_exact(&mut s, &mut buf)
+                .await
+                .unwrap();
+            assert_eq!(&buf, b"hi");
+            tokio::io::AsyncWriteExt::write_all(&mut s, b"ok")
+                .await
+                .unwrap();
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut client, b"hi")
+            .await
+            .unwrap();
+        let mut buf = [0u8; 2];
+        tokio::io::AsyncReadExt::read_exact(&mut client, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(&buf, b"ok");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    #[cfg(not(target_os = "windows"))]
+    async fn test_stream_unix_peer_and_flags() {
+        use std::fs;
+        use tokio::net::UnixListener;
+        let path = "/tmp/test_silent_unix_rw.sock";
+        let _ = fs::remove_file(path);
+        let listener = UnixListener::bind(path).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _addr) = listener.accept().await.unwrap();
+            let mut s = Stream::UnixStream(stream);
+            assert!(s.is_unix());
+            assert!(!s.is_tcp());
+            tokio::io::AsyncWriteExt::write_all(&mut s, b"ux")
+                .await
+                .unwrap();
+        });
+        let mut client = tokio::net::UnixStream::connect(path).await.unwrap();
+        let mut buf = [0u8; 2];
+        tokio::io::AsyncReadExt::read_exact(&mut client, &mut buf)
+            .await
+            .unwrap();
+        assert_eq!(&buf, b"ux");
+        server.await.unwrap();
+        let _ = fs::remove_file(path);
+    }
+}

@@ -58,3 +58,22 @@ where
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::route::Route;
+
+    #[tokio::test]
+    async fn test_hyper_service_handler_basic() {
+        let remote_addr = "127.0.0.1:0"
+            .parse::<std::net::SocketAddr>()
+            .unwrap()
+            .into();
+        // 使用空路由树（不做具体处理），只要能完整走一遍转换流程即可
+        let routes = Route::new_root();
+        let svc = HyperServiceHandler::new(remote_addr, routes);
+        let req = hyper::Request::builder().body(()).unwrap();
+        let _ = svc.call(req).await.unwrap();
+    }
+}

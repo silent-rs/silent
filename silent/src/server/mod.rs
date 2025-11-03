@@ -185,3 +185,22 @@ impl Server {
         net_server.run(handler)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_server_builder_chain() {
+        let _ = Server::new()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .on_listen(|_addrs| {})
+            .with_rate_limiter(RateLimiterConfig {
+                capacity: 1,
+                refill_every: Duration::from_millis(10),
+                max_wait: Duration::from_millis(10),
+            })
+            .with_shutdown(Duration::from_millis(1));
+    }
+}

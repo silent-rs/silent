@@ -227,4 +227,38 @@ mod tests {
         assert!(is_pem_path(Path::new("/tmp/test.pem")));
         assert!(!is_pem_path(Path::new("/tmp/test.der")));
     }
+
+    #[test]
+    fn test_builder_missing_paths_errors() {
+        // 仅设置 key_path，缺少 cert_path
+        let err = CertificateStoreBuilder::new()
+            .key_path("/tmp/missing.key")
+            .build()
+            .err()
+            .expect("should error when cert_path is missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("未设置证书路径"));
+
+        // 仅设置 cert_path，缺少 key_path
+        let err = CertificateStoreBuilder::new()
+            .cert_path("/tmp/missing.crt")
+            .build()
+            .err()
+            .expect("should error when key_path is missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("未设置私钥路径"));
+    }
+
+    #[test]
+    fn test_builder_nonexistent_files_errors() {
+        // 同时设置证书与私钥，但文件不存在
+        let err = CertificateStoreBuilder::new()
+            .cert_path("/tmp/not-exist.crt")
+            .key_path("/tmp/not-exist.key")
+            .build()
+            .err()
+            .expect("should error on non-existent files");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("证书文件不存在") || msg.contains("私钥文件不存在"));
+    }
 }

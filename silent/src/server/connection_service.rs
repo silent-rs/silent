@@ -143,3 +143,37 @@ where
         Box::pin((self)(stream, peer))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::socket_addr::SocketAddr;
+    use crate::server::connection::BoxedConnection;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn test_closure_connection_service_echo() {
+        // 构造一对内存双工流
+        let (mut client, server_side) = tokio::io::duplex(64);
+        let boxed: BoxedConnection = Box::new(server_side);
+        let peer = SocketAddr::from("127.0.0.1:12345".parse::<std::net::SocketAddr>().unwrap());
+
+        // 使用闭包实现 ConnectionService：读取并回写
+        let svc = |mut stream: BoxedConnection, _peer: SocketAddr| async move {
+            let mut buf = [0u8; 3];
+            stream.read_exact(&mut buf).await?;
+            stream.write_all(&buf).await?;
+            Ok::<(), BoxError>(())
+        };
+
+        // 并发驱动：一边调用处理器，一边通过另一端写入/读取
+        let handle = tokio::spawn(async move {
+            crate::server::connection_service::ConnectionService::call(&svc, boxed, peer).await
+        });
+        client.write_all(b"abc").await.unwrap();
+        let mut out = [0u8; 3];
+        client.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
+        handle.await.unwrap().unwrap();
+    }
+}
