@@ -29,3 +29,30 @@ impl MiddleWareHandler for AltSvcMiddleware {
         Ok(response)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::next::Next;
+    use crate::{Handler, Response};
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct Ep;
+    #[async_trait::async_trait]
+    impl Handler for Ep {
+        async fn call(&self, _req: Request) -> crate::Result<SilentResponse> {
+            Ok(Response::empty())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_alt_svc_injected() {
+        let mw = AltSvcMiddleware::new(4433);
+        // 构造 next 链，仅包含一个空 endpoint
+        let next = Next::build_from_slice(Arc::new(Ep), &[]);
+        let req = Request::empty();
+        let resp = mw.handle(req, &next).await.unwrap();
+        assert!(resp.headers().contains_key("alt-svc"));
+    }
+}

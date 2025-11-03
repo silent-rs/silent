@@ -54,3 +54,20 @@ pub trait WebTransportHandler: Send + Sync {
         stream: &mut WebTransportStream,
     ) -> Result<()>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_quic_session_basics() {
+        let addr1: SocketAddr = "127.0.0.1:1111".parse().unwrap();
+        let addr2: SocketAddr = "127.0.0.1:2222".parse().unwrap();
+        let s1 = QuicSession::new(addr1);
+        let s2 = QuicSession::new(addr2);
+        assert!(!s1.id().is_empty());
+        assert_ne!(s1.id(), s2.id());
+        assert_eq!(s1.remote_addr(), addr1);
+        assert_eq!(s2.remote_addr(), addr2);
+    }
+}
