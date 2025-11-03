@@ -291,4 +291,36 @@ mod tests {
         let _ = fs::remove_file(&cert_path);
         let _ = fs::remove_file(&key_path);
     }
+
+    #[test]
+    fn test_https_config_error_on_invalid_der() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_bad_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_bad_{}.key", unique));
+
+        // 无效原始字节：将导致 https_config() 失败
+        fs::write(&cert_path, b"BAD_CERT").unwrap();
+        fs::write(&key_path, b"BAD_KEY").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .expect("builder should still construct store with raw bytes");
+
+        let err = store
+            .https_config()
+            .expect_err("https_config should fail on invalid der");
+        let msg = format!("{err:#}");
+        assert!(!msg.is_empty());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
 }

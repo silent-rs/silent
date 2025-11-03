@@ -55,4 +55,13 @@ mod tests {
         let resp = mw.handle(req, &next).await.unwrap();
         assert!(resp.headers().contains_key("alt-svc"));
     }
+
+    #[tokio::test]
+    async fn test_alt_svc_zero_port_no_header() {
+        let mw = AltSvcMiddleware::new(0);
+        let next = Next::build_from_slice(Arc::new(Ep), &[]);
+        let req = Request::empty();
+        let resp = mw.handle(req, &next).await.unwrap();
+        assert!(!resp.headers().contains_key("alt-svc"));
+    }
 }
