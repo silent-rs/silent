@@ -215,3 +215,112 @@ fn looks_like_pem(data: &[u8]) -> bool {
 fn is_pem_path(path: &Path) -> bool {
     matches!(path.extension().and_then(|ext| ext.to_str()), Some("pem"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_looks_like_pem_and_ext() {
+        assert!(looks_like_pem(b"-----BEGIN CERTIFICATE-----\n..."));
+        assert!(!looks_like_pem(b"random bytes"));
+        assert!(is_pem_path(Path::new("/tmp/test.pem")));
+        assert!(!is_pem_path(Path::new("/tmp/test.der")));
+    }
+
+    #[test]
+    fn test_builder_missing_paths_errors() {
+        // 仅设置 key_path，缺少 cert_path
+        let err = CertificateStoreBuilder::new()
+            .key_path("/tmp/missing.key")
+            .build()
+            .err()
+            .expect("should error when cert_path is missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("未设置证书路径"));
+
+        // 仅设置 cert_path，缺少 key_path
+        let err = CertificateStoreBuilder::new()
+            .cert_path("/tmp/missing.crt")
+            .build()
+            .err()
+            .expect("should error when key_path is missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("未设置私钥路径"));
+    }
+
+    #[test]
+    fn test_builder_nonexistent_files_errors() {
+        // 同时设置证书与私钥，但文件不存在
+        let err = CertificateStoreBuilder::new()
+            .cert_path("/tmp/not-exist.crt")
+            .key_path("/tmp/not-exist.key")
+            .build()
+            .err()
+            .expect("should error on non-existent files");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("证书文件不存在") || msg.contains("私钥文件不存在"));
+    }
+
+    #[test]
+    fn test_builder_success_with_raw_der_bytes() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_{}.key", unique));
+
+        // 写入原始字节（非 PEM），builder 会将其视为 DER 字节并成功构建
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .expect("builder should succeed with raw bytes");
+
+        // 能返回客户端根证书字节（即我们写入的第一段）
+        let root = store.client_root_certificate();
+        assert!(!root.is_empty());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_https_config_error_on_invalid_der() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_bad_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_bad_{}.key", unique));
+
+        // 无效原始字节：将导致 https_config() 失败
+        fs::write(&cert_path, b"BAD_CERT").unwrap();
+        fs::write(&key_path, b"BAD_KEY").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .expect("builder should still construct store with raw bytes");
+
+        let err = store
+            .https_config()
+            .expect_err("https_config should fail on invalid der");
+        let msg = format!("{err:#}");
+        assert!(!msg.is_empty());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+}

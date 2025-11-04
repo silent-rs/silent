@@ -152,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     root.push(pb::echo_server::EchoServer::new(server).service());
     Server::new()
         .bind("0.0.0.0:50051".parse().unwrap())
+        .expect("Failed to bind to address")
         .serve(root)
         .await;
     Ok(())

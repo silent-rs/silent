@@ -1,0 +1,12 @@
+[package]
+name = "example-net_server_basic"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+silent = { path = "../../silent", features = ["server"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

@@ -25,11 +25,11 @@ pub use crate::scheduler::{SCHEDULER, SchedulerExt, Task};
 #[cfg(feature = "security")]
 pub use crate::security::{argon2, pbkdf2};
 #[cfg(feature = "server")]
-pub use crate::service::Server;
+pub use crate::server::Server;
 #[cfg(feature = "server")]
-pub use crate::service::listener::{Listen, Listener};
+pub use crate::server::listener::{Listen, Listener};
 #[cfg(feature = "server")]
-pub use crate::service::stream::Stream;
+pub use crate::server::stream::Stream;
 #[cfg(feature = "session")]
 pub use crate::session::session_ext::SessionExt;
 #[cfg(feature = "sse")]
