@@ -953,4 +953,145 @@ mod tests {
         jh.abort();
         let _ = jh.await;
     }
+
+    struct TestListenerDelay {
+        addr: std::net::SocketAddr,
+        once_conn: tokio::sync::Mutex<Option<BoxedConnection>>,
+        delay: Duration,
+    }
+
+    impl TestListenerDelay {
+        fn new(conn: BoxedConnection, addr: std::net::SocketAddr, delay: Duration) -> Self {
+            Self {
+                addr,
+                once_conn: tokio::sync::Mutex::new(Some(conn)),
+                delay,
+            }
+        }
+    }
+
+    impl Listen for TestListenerDelay {
+        fn accept(&self) -> AcceptFuture<'_> {
+            let delay = self.delay;
+            let addr = self.addr;
+            let once = self.once_conn.try_lock();
+            if let Ok(mut guard) = once
+                && let Some(conn) = guard.take()
+            {
+                return Box::pin(async move {
+                    tokio::time::sleep(delay).await;
+                    Ok((conn, crate::core::socket_addr::SocketAddr::from(addr)))
+                });
+            }
+            Box::pin(async move {
+                futures_util::future::pending::<
+                    std::io::Result<(
+                        Box<dyn connection::Connection + Send + Sync>,
+                        crate::core::socket_addr::SocketAddr,
+                    )>,
+                >()
+                .await
+            })
+        }
+
+        fn local_addr(&self) -> std::io::Result<crate::core::socket_addr::SocketAddr> {
+            Ok(crate::core::socket_addr::SocketAddr::from(self.addr))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_net_server_multi_listeners_race() {
+        // 快慢两个 listener，优先处理较快的连接一次
+        let (_a1, b1) = tokio::io::duplex(8);
+        let boxed1: BoxedConnection = Box::new(b1);
+        let (_a2, b2) = tokio::io::duplex(8);
+        let boxed2: BoxedConnection = Box::new(b2);
+        let addr: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+
+        let fast = TestListenerDelay::new(boxed1, addr, Duration::from_millis(1));
+        let slow = TestListenerDelay::new(boxed2, addr, Duration::from_millis(50));
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_cl = calls.clone();
+        let handler = move |_s: BoxedConnection, _p: CoreSocketAddr| {
+            let calls_cl = calls_cl.clone();
+            async move {
+                calls_cl.fetch_add(1, Ordering::SeqCst);
+                Ok::<(), BoxError>(())
+            }
+        };
+
+        let server = NetServer::new().listen(fast).listen(slow);
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "only fast listener's connection handled"
+        );
+        jh.abort();
+        let _ = jh.await;
+    }
+
+    #[tokio::test]
+    async fn test_net_server_on_listen_addrs_content() {
+        let (_a, b) = tokio::io::duplex(8);
+        let boxed: BoxedConnection = Box::new(b);
+        let addr: std::net::SocketAddr = "127.0.0.1:5555".parse().unwrap();
+        let listener = TestListener::new(boxed, addr);
+
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::<CoreSocketAddr>::new()));
+        let seen_cl = seen.clone();
+        let server = NetServer::new().listen(listener).on_listen(move |addrs| {
+            let addrs = addrs.to_vec();
+            let seen_cl = seen_cl.clone();
+            tokio::spawn(async move {
+                *seen_cl.lock().await = addrs;
+            });
+        });
+
+        let handler =
+            |_s: BoxedConnection, _p: CoreSocketAddr| async move { Ok::<(), BoxError>(()) };
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let addrs = seen.lock().await.clone();
+        assert_eq!(addrs.len(), 1);
+        assert!(matches!(addrs[0], CoreSocketAddr::Tcp(_)));
+        jh.abort();
+        let _ = jh.await;
+    }
+
+    #[tokio::test]
+    async fn test_net_server_on_listen_multi_addrs() {
+        let (_a1, b1) = tokio::io::duplex(8);
+        let boxed1: BoxedConnection = Box::new(b1);
+        let (_a2, b2) = tokio::io::duplex(8);
+        let boxed2: BoxedConnection = Box::new(b2);
+        let addr1: std::net::SocketAddr = "127.0.0.1:60000".parse().unwrap();
+        let addr2: std::net::SocketAddr = "127.0.0.1:60001".parse().unwrap();
+        let l1 = TestListener::new(boxed1, addr1);
+        let l2 = TestListener::new(boxed2, addr2);
+
+        let seen = Arc::new(tokio::sync::Mutex::new(Vec::<CoreSocketAddr>::new()));
+        let seen_cl = seen.clone();
+        let server = NetServer::new()
+            .listen(l1)
+            .listen(l2)
+            .on_listen(move |addrs| {
+                let addrs = addrs.to_vec();
+                let seen_cl = seen_cl.clone();
+                tokio::spawn(async move {
+                    *seen_cl.lock().await = addrs;
+                });
+            });
+
+        let handler =
+            |_s: BoxedConnection, _p: CoreSocketAddr| async move { Ok::<(), BoxError>(()) };
+        let jh = tokio::spawn(async move { server.serve(handler).await });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let addrs = seen.lock().await.clone();
+        assert_eq!(addrs.len(), 2);
+        jh.abort();
+        let _ = jh.await;
+    }
 }
