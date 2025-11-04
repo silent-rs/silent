@@ -194,7 +194,8 @@ mod tests {
     #[tokio::test]
     async fn test_server_builder_chain() {
         let _ = Server::new()
-            .bind("127.0.0.1:0".parse().unwrap()).unwrap()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .unwrap()
             .on_listen(|_addrs| {})
             .with_rate_limiter(RateLimiterConfig {
                 capacity: 1,

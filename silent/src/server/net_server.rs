@@ -22,7 +22,6 @@ fn trigger_test_shutdown() {
         .notify_waiters();
 }
 
-
 fn test_shutdown_future() -> impl std::future::Future<Output = ()> {
     #[cfg(test)]
     {

@@ -21,7 +21,8 @@ fn main() {
 
     // 配置 Server 并启用限流
     Server::new()
-        .bind("127.0.0.1:8080".parse().unwrap()).expect("Failed to bind to address")
+        .bind("127.0.0.1:8080".parse().unwrap())
+        .expect("Failed to bind to address")
         .with_rate_limiter(rate_limiter_config)
         // 配置优雅关停：等待 10 秒让连接完成
         .with_shutdown(Duration::from_secs(10))

@@ -161,7 +161,10 @@ impl ListenersBuilder {
     pub fn bind(&mut self, addr: std::net::SocketAddr) -> Result<()> {
         match std::net::TcpListener::bind(addr) {
             Ok(listener) => match Listener::try_from(listener) {
-                Ok(listener) => self.listeners.push(Box::new(listener)),
+                Ok(listener) => {
+                    self.listeners.push(Box::new(listener));
+                    Ok(())
+                }
                 Err(e) => {
                     tracing::error!(addr = ?addr, error = ?e, "failed to convert TCP listener");
                     panic!("failed to convert TCP listener for {}: {}", addr, e);
@@ -179,10 +182,16 @@ impl ListenersBuilder {
         let path = path.as_ref();
         match std::os::unix::net::UnixListener::bind(path) {
             Ok(listener) => match Listener::try_from(listener) {
-                Ok(listener) => self.listeners.push(Box::new(listener)),
+                Ok(listener) => {
+                    self.listeners.push(Box::new(listener));
+                    Ok(())
+                }
                 Err(e) => {
                     tracing::error!(path = ?path, error = ?e, "failed to convert Unix socket listener");
-                    panic!("failed to convert Unix socket listener for {:?}: {}", path, e);
+                    panic!(
+                        "failed to convert Unix socket listener for {:?}: {}",
+                        path, e
+                    );
                 }
             },
             Err(e) => {
@@ -195,7 +204,9 @@ impl ListenersBuilder {
         if self.listeners.is_empty() {
             match std::net::TcpListener::bind("127.0.0.1:0") {
                 Ok(listener) => match Listener::try_from(listener) {
-                    Ok(listener) => self.listeners.push(Box::new(listener)),
+                    Ok(listener) => {
+                        self.listeners.push(Box::new(listener));
+                    }
                     Err(e) => {
                         tracing::error!(error = ?e, "failed to convert default TCP listener");
                         panic!("failed to convert default listener: {}", e);
@@ -203,9 +214,9 @@ impl ListenersBuilder {
                 },
                 Err(e) => {
                     tracing::error!(error = ?e, "failed to bind default TCP listener on 127.0.0.1:0");
-                    e
-                })?;
-            self.listeners.push(Box::new(Listener::from(listener)));
+                    return Err(e);
+                }
+            }
         }
         let local_addrs = self
             .listeners
@@ -381,14 +392,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_bind_error_handling() {
-        // 测试绑定错误时返回 Err 而不是 panic
+        // 测试绑定错误时返回 Err 而不是 panic（使用确定会冲突的端口）
+        // 先占用一个随机端口
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = occupied.local_addr().unwrap();
+
         let mut builder = ListenersBuilder::new();
-        
-        // 尝试绑定到无效地址应该返回错误
-        // 使用一个很可能失败的地址（通常端口1需要root权限）
-        let result = builder.bind("0.0.0.0:1".parse().unwrap());
-        
-        // 验证返回了错误而不是panic
-        assert!(result.is_err(), "Binding to privileged port should return an error");
+        // 再次绑定同一地址应返回错误（地址已被占用）
+        let result = builder.bind(addr);
+        assert!(result.is_err(), "Binding to an occupied port should fail");
+        // 避免被优化掉
+        drop(occupied);
     }
 }

@@ -14,6 +14,7 @@ fn main() {
         Ok("hello world".to_string())
     });
     Server::new()
-        .bind("127.0.0.1:8000".parse().unwrap()).expect("Failed to bind to address")
+        .bind("127.0.0.1:8000".parse().unwrap())
+        .expect("Failed to bind to address")
         .run(route);
 }
