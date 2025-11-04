@@ -124,5 +124,5 @@ pub async fn main() {
     };
 
     let addr: std::net::SocketAddr = format!("127.0.0.1:{}", port).parse().expect("invalid PORT");
-    Server::new().bind(addr).serve(route).await;
+    Server::new().bind(addr).expect("Failed to bind to address").serve(route).await;
 }

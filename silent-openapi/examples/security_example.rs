@@ -37,6 +37,6 @@ async fn main() -> silent::Result<()> {
         .append(route);
 
     let addr = "127.0.0.1:8080".parse().expect("Invalid address");
-    Server::new().bind(addr).serve(app).await;
+    Server::new().bind(addr)?.serve(app).await;
     Ok(())
 }

@@ -102,7 +102,7 @@ pub struct RateLimiterConfig {
 ///     };
 ///
 ///     NetServer::new()
-///         .bind("127.0.0.1:8080".parse().unwrap())
+///         .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
 ///         .with_rate_limiter(rate_config)
 ///         .with_shutdown(Duration::from_secs(30))
 ///         .serve(handler)
@@ -191,13 +191,13 @@ impl NetServer {
     /// use silent::NetServer;
     ///
     /// let server = NetServer::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap())
-    ///     .bind("127.0.0.1:8081".parse().unwrap());
+    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
+    ///     .bind("127.0.0.1:8081".parse().unwrap()).unwrap();
     /// ```
     #[inline]
-    pub fn bind(mut self, addr: SocketAddr) -> Self {
-        self.listeners_builder.bind(addr);
-        self
+    pub fn bind(mut self, addr: SocketAddr) -> Result<Self, io::Error> {
+        self.listeners_builder.bind(addr)?;
+        Ok(self)
     }
 
     /// 绑定 Unix Domain Socket 监听路径（仅非 Windows 平台）。
@@ -215,9 +215,9 @@ impl NetServer {
     /// ```
     #[cfg(not(target_os = "windows"))]
     #[inline]
-    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.listeners_builder.bind_unix(path);
-        self
+    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Result<Self, io::Error> {
+        self.listeners_builder.bind_unix(path)?;
+        Ok(self)
     }
 
     /// 添加自定义监听器。
@@ -253,7 +253,7 @@ impl NetServer {
     /// use silent::NetServer;
     ///
     /// let server = NetServer::new()
-    ///     .bind("127.0.0.1:0".parse().unwrap())  // 随机端口
+    ///     .bind("127.0.0.1:0".parse().unwrap()).unwrap()  // 随机端口
     ///     .on_listen(|addrs| {
     ///         println!("Server listening on: {:?}", addrs);
     ///     });
@@ -276,7 +276,7 @@ impl NetServer {
     /// use silent::NetServer;
     ///
     /// let server = NetServer::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
     ///     .set_shutdown_callback(|| {
     ///         println!("Server is shutting down...");
     ///     });
@@ -306,7 +306,7 @@ impl NetServer {
     /// };
     ///
     /// let server = NetServer::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
     ///     .with_rate_limiter(config);
     /// ```
     pub fn with_rate_limiter(mut self, config: RateLimiterConfig) -> Self {
@@ -336,7 +336,7 @@ impl NetServer {
     /// use std::time::Duration;
     ///
     /// let _server = NetServer::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap())
+    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
     ///     .with_shutdown(Duration::from_secs(30));
     /// ```
     pub fn with_shutdown(mut self, graceful_wait: Duration) -> Self {
@@ -375,7 +375,7 @@ impl NetServer {
     ///     };
     ///
     ///     NetServer::new()
-    ///         .bind("127.0.0.1:8080".parse().unwrap())
+    ///         .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
     ///         .serve(handler)
     ///         .await;
     /// }

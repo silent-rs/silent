@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut route = Route::new("").get(|_req: Request| async { Ok("hello world") });
     GreeterServer::new(greeter).register(&mut route);
     silent::prelude::Server::new()
-        .bind("0.0.0.0:50051".parse().unwrap())
+        .bind("0.0.0.0:50051".parse().unwrap()).expect("Failed to bind to address")
         .serve(route)
         .await;
     Ok(())

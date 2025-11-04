@@ -158,7 +158,7 @@ impl ListenersBuilder {
         self.listeners.push(listener);
     }
 
-    pub fn bind(&mut self, addr: std::net::SocketAddr) {
+    pub fn bind(&mut self, addr: std::net::SocketAddr) -> Result<()> {
         match std::net::TcpListener::bind(addr) {
             Ok(listener) => match Listener::try_from(listener) {
                 Ok(listener) => self.listeners.push(Box::new(listener)),
@@ -169,13 +169,13 @@ impl ListenersBuilder {
             },
             Err(e) => {
                 tracing::error!(addr = ?addr, error = ?e, "failed to bind TCP listener");
-                panic!("failed to bind TCP listener on {}: {}", addr, e);
+                Err(e)
             }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
-    pub fn bind_unix<P: AsRef<Path>>(&mut self, path: P) {
+    pub fn bind_unix<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let path = path.as_ref();
         match std::os::unix::net::UnixListener::bind(path) {
             Ok(listener) => match Listener::try_from(listener) {
@@ -187,7 +187,7 @@ impl ListenersBuilder {
             },
             Err(e) => {
                 tracing::error!(path = ?path, error = ?e, "failed to bind Unix socket listener");
-                panic!("failed to bind Unix socket listener on {:?}: {}", path, e);
+                Err(e)
             }
         }
     }
@@ -352,7 +352,7 @@ mod tests {
     async fn test_listeners_builder_bind() {
         // 测试绑定指定地址（使用随机端口避免冲突）
         let mut builder = ListenersBuilder::new();
-        builder.bind("127.0.0.1:0".parse().unwrap());
+        builder.bind("127.0.0.1:0".parse().unwrap()).unwrap();
 
         assert_eq!(builder.listeners.len(), 1);
     }
@@ -360,8 +360,8 @@ mod tests {
     #[tokio::test]
     async fn test_local_addrs_slice_len() {
         let mut builder = ListenersBuilder::new();
-        builder.bind("127.0.0.1:0".parse().unwrap());
-        builder.bind("127.0.0.1:0".parse().unwrap());
+        builder.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+        builder.bind("127.0.0.1:0".parse().unwrap()).unwrap();
         let listeners = builder.listen().unwrap();
         let addrs = listeners.local_addrs();
         assert!(addrs.len() >= 2);
@@ -377,5 +377,18 @@ mod tests {
 
         // 验证 tls 方法存在（通过类型检查即可）
         let _: fn(Listener, tokio_rustls::TlsAcceptor) -> TlsListener = Listener::tls;
+    }
+
+    #[tokio::test]
+    async fn test_bind_error_handling() {
+        // 测试绑定错误时返回 Err 而不是 panic
+        let mut builder = ListenersBuilder::new();
+        
+        // 尝试绑定到无效地址应该返回错误
+        // 使用一个很可能失败的地址（通常端口1需要root权限）
+        let result = builder.bind("0.0.0.0:1".parse().unwrap());
+        
+        // 验证返回了错误而不是panic
+        assert!(result.is_err(), "Binding to privileged port should return an error");
     }
 }

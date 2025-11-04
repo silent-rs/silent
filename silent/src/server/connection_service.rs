@@ -48,7 +48,7 @@
 //!
 //! # async fn example() {
 //! NetServer::new()
-//!     .bind("127.0.0.1:8080".parse().unwrap())
+//!     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
 //!     .serve(|mut stream: silent::BoxedConnection, peer: silent::SocketAddr| async move {
 //!         println!("Connection from: {}", peer);
 //!         let mut buf = vec![0u8; 1024];
@@ -110,7 +110,7 @@ pub type ConnectionFuture = Pin<Box<dyn Future<Output = Result<(), BoxError>> + 
 ///
 /// # async fn example() {
 /// NetServer::new()
-///     .bind("127.0.0.1:8080".parse().unwrap())
+///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
 ///     .serve(|stream: silent::BoxedConnection, _peer: silent::SocketAddr| async move {
 ///         // 直接处理连接
 ///         Ok(())
