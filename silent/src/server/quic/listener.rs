@@ -44,8 +44,9 @@ impl QuicEndpointListener {
         let bind_addr = self.endpoint.local_addr().unwrap();
         let tcp_listener =
             StdTcpListener::bind(bind_addr).expect("Failed to bind TCP listener for HTTP fallback");
-        let http_listener =
-            crate::server::listener::Listener::from(tcp_listener).tls_with_cert(&self.store);
+        let http_listener = crate::server::listener::Listener::try_from(tcp_listener)
+            .expect("Failed to convert TCP listener")
+            .tls_with_cert(&self.store);
 
         HybridListener {
             quic: self,
