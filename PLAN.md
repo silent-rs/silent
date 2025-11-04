@@ -16,6 +16,29 @@
   - 对外 API：通过 re-export 保持兼容（`Server`、`NetServer`、`ConnectionService` 等仍从 crate 根导出）。
   - 文档：更新文档与 RFC 中的路径引用。
 
+## 专题：QUIC/HTTP/3 稳定化（quichttp3）
+
+- 分支：`feature/quichttp3-stabilization`（自 `main` 切出）
+- 目标：
+  - 稳定 HTTP/3 请求-响应链路（读取/聚合/发送、错误传播、资源释放）。
+  - WebTransport 握手与响应头回传的语义稳定，避免依赖真实网络环境的测试不确定性。
+  - 内部抽象收敛：保持 `H3RequestIo` 为文件内私有、最小方法集，避免泄露协议细节到通用网络层。
+  - 与路由/中间件的交互行为一致（状态码、头、响应体）。
+- 范围：
+  - 单测完善：HTTP/3 多帧/空体/错误分支；WebTransport 握手头传递。
+  - 代码健壮性：边界日志、错误信息上下文、避免 panic。
+  - 覆盖率：server/quic 模块行/函数覆盖率上升（目标：较当前基线提升）。
+- 验收标准：
+  - `cargo fmt`、`cargo clippy -D warnings`、`cargo check` 通过。
+  - `cargo test -p silent --all-features` 全部通过；`cargo llvm-cov nextest` 可产出报告。
+  - 不引入对外 API 破坏性变更。
+- 风险与对策：
+  - H3 外部依赖接口变更 → 通过最小适配层隔离；测试优先使用伪造流。
+  - 平台差异导致不稳定用例 → 统一用“占用端口再绑定”式模式替代特权端口假设。
+- 时间节点：
+  - 分支创建：当前（本次提交）。
+  - 用例与收敛迭代：1-2 个工作日内完成并提 PR。
+
 ## 功能优先级
 1. 结构更名与编译通过（P0）
 2. 文档与示例同步更新（P0）
