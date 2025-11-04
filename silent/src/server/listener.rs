@@ -34,34 +34,25 @@ pub enum Listener {
     UnixListener(tokio::net::UnixListener),
 }
 
-impl From<std::net::TcpListener> for Listener {
-    fn from(listener: std::net::TcpListener) -> Self {
+impl TryFrom<std::net::TcpListener> for Listener {
+    type Error = std::io::Error;
+
+    fn try_from(listener: std::net::TcpListener) -> Result<Self> {
         // 设置为非阻塞模式
-        if let Err(e) = listener.set_nonblocking(true) {
-            tracing::error!(error = ?e, "failed to set nonblocking mode for TcpListener");
-            panic!("failed to set nonblocking: {}", e);
-        }
+        listener.set_nonblocking(true)?;
         // 转换为 tokio TcpListener
-        match tokio::net::TcpListener::from_std(listener) {
-            Ok(tokio_listener) => Listener::TcpListener(tokio_listener),
-            Err(e) => {
-                tracing::error!(error = ?e, "failed to convert std::net::TcpListener to tokio::net::TcpListener");
-                panic!("failed to convert TcpListener: {}", e);
-            }
-        }
+        let tokio_listener = tokio::net::TcpListener::from_std(listener)?;
+        Ok(Listener::TcpListener(tokio_listener))
     }
 }
 
 #[cfg(not(target_os = "windows"))]
-impl From<std::os::unix::net::UnixListener> for Listener {
-    fn from(value: std::os::unix::net::UnixListener) -> Self {
-        match tokio::net::UnixListener::from_std(value) {
-            Ok(tokio_listener) => Listener::UnixListener(tokio_listener),
-            Err(e) => {
-                tracing::error!(error = ?e, "failed to convert std::os::unix::net::UnixListener to tokio::net::UnixListener");
-                panic!("failed to convert UnixListener: {}", e);
-            }
-        }
+impl TryFrom<std::os::unix::net::UnixListener> for Listener {
+    type Error = std::io::Error;
+
+    fn try_from(value: std::os::unix::net::UnixListener) -> Result<Self> {
+        let tokio_listener = tokio::net::UnixListener::from_std(value)?;
+        Ok(Listener::UnixListener(tokio_listener))
     }
 }
 
@@ -169,7 +160,13 @@ impl ListenersBuilder {
 
     pub fn bind(&mut self, addr: std::net::SocketAddr) {
         match std::net::TcpListener::bind(addr) {
-            Ok(listener) => self.listeners.push(Box::new(Listener::from(listener))),
+            Ok(listener) => match Listener::try_from(listener) {
+                Ok(listener) => self.listeners.push(Box::new(listener)),
+                Err(e) => {
+                    tracing::error!(addr = ?addr, error = ?e, "failed to convert TCP listener");
+                    panic!("failed to convert TCP listener for {}: {}", addr, e);
+                }
+            },
             Err(e) => {
                 tracing::error!(addr = ?addr, error = ?e, "failed to bind TCP listener");
                 panic!("failed to bind TCP listener on {}: {}", addr, e);
@@ -181,7 +178,13 @@ impl ListenersBuilder {
     pub fn bind_unix<P: AsRef<Path>>(&mut self, path: P) {
         let path = path.as_ref();
         match std::os::unix::net::UnixListener::bind(path) {
-            Ok(listener) => self.listeners.push(Box::new(Listener::from(listener))),
+            Ok(listener) => match Listener::try_from(listener) {
+                Ok(listener) => self.listeners.push(Box::new(listener)),
+                Err(e) => {
+                    tracing::error!(path = ?path, error = ?e, "failed to convert Unix socket listener");
+                    panic!("failed to convert Unix socket listener for {:?}: {}", path, e);
+                }
+            },
             Err(e) => {
                 tracing::error!(path = ?path, error = ?e, "failed to bind Unix socket listener");
                 panic!("failed to bind Unix socket listener on {:?}: {}", path, e);
@@ -191,7 +194,13 @@ impl ListenersBuilder {
     pub fn listen(mut self) -> Result<Listeners> {
         if self.listeners.is_empty() {
             match std::net::TcpListener::bind("127.0.0.1:0") {
-                Ok(listener) => self.listeners.push(Box::new(Listener::from(listener))),
+                Ok(listener) => match Listener::try_from(listener) {
+                    Ok(listener) => self.listeners.push(Box::new(listener)),
+                    Err(e) => {
+                        tracing::error!(error = ?e, "failed to convert default TCP listener");
+                        panic!("failed to convert default listener: {}", e);
+                    }
+                },
                 Err(e) => {
                     tracing::error!(error = ?e, "failed to bind default TCP listener on 127.0.0.1:0");
                     panic!("failed to bind default listener: {}", e);
