@@ -190,13 +190,12 @@ impl ListenersBuilder {
     }
     pub fn listen(mut self) -> Result<Listeners> {
         if self.listeners.is_empty() {
-            match std::net::TcpListener::bind("127.0.0.1:0") {
-                Ok(listener) => self.listeners.push(Box::new(Listener::from(listener))),
-                Err(e) => {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0")
+                .map_err(|e| {
                     tracing::error!(error = ?e, "failed to bind default TCP listener on 127.0.0.1:0");
-                    panic!("failed to bind default listener: {}", e);
-                }
-            }
+                    e
+                })?;
+            self.listeners.push(Box::new(Listener::from(listener)));
         }
         let local_addrs = self
             .listeners
