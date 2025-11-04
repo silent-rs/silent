@@ -203,9 +203,9 @@ impl ListenersBuilder {
                 },
                 Err(e) => {
                     tracing::error!(error = ?e, "failed to bind default TCP listener on 127.0.0.1:0");
-                    panic!("failed to bind default listener: {}", e);
-                }
-            }
+                    e
+                })?;
+            self.listeners.push(Box::new(Listener::from(listener)));
         }
         let local_addrs = self
             .listeners
