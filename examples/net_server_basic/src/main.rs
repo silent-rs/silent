@@ -44,7 +44,7 @@ async fn main() {
 
     // 配置 NetServer：限流 10 QPS，优雅关停等待 5 秒
     let server = NetServer::new()
-        .bind("127.0.0.1:18080".parse().unwrap())
+        .bind("127.0.0.1:18080".parse().unwrap()).expect("Failed to bind to address")
         .with_rate_limiter(rate_limiter_config)
         .with_shutdown(Duration::from_secs(5)) // 关停时等待 5 秒
         .on_listen(|addrs| {

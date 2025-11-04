@@ -30,7 +30,7 @@ fn main() {
     );
 
     Server::new()
-        .bind("0.0.0.0:8001".parse().unwrap())
+        .bind("0.0.0.0:8001".parse().unwrap()).expect("Failed to bind to address")
         .run(route);
 }
 

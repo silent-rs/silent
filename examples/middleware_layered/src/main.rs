@@ -100,7 +100,7 @@ async fn start_server() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("💡 匹配到路由后，会按层级顺序执行所有相关中间件");
 
     let addr = "127.0.0.1:30000".parse()?;
-    Server::new().bind(addr).serve(root_route).await;
+    Server::new().bind(addr)?.serve(root_route).await;
 
     Ok(())
 }

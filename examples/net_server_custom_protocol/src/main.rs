@@ -55,7 +55,7 @@ async fn main() {
     };
 
     let server = NetServer::new()
-        .bind("127.0.0.1:18081".parse().unwrap())
+        .bind("127.0.0.1:18081".parse().unwrap()).expect("Failed to bind to address")
         .with_rate_limiter(rate_limiter_config)
         .with_shutdown(Duration::from_secs(10)) // 关停时等待 10 秒
         .on_listen(|addrs| {

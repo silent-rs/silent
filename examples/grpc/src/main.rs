@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .append(greeter_server.service());
     info!("route: \n{:?}", route);
     Server::new()
-        .bind("0.0.0.0:50051".parse().unwrap())
+        .bind("0.0.0.0:50051".parse().unwrap()).expect("Failed to bind to address")
         .serve(route)
         .await;
     Ok(())
