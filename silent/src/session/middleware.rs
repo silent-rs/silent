@@ -61,7 +61,8 @@ where
         if !session_key_exists {
             cookies.add(
                 Cookie::build(("silent-web-session", cookie_value))
-                    .max_age(cookie::time::Duration::hours(2)),
+                    .max_age(cookie::time::Duration::hours(2))
+                    .secure(true),
             );
         }
         let mut res = next.call(req).await?;
