@@ -37,7 +37,7 @@ pub enum Listener {
 impl TryFrom<std::net::TcpListener> for Listener {
     type Error = std::io::Error;
 
-    fn try_from(listener: std::net::TcpListener) -> Result<Self> {
+    fn try_from(listener: std::net::TcpListener) -> std::result::Result<Self, Self::Error> {
         // 设置为非阻塞模式
         listener.set_nonblocking(true)?;
         // 转换为 tokio TcpListener
@@ -50,7 +50,7 @@ impl TryFrom<std::net::TcpListener> for Listener {
 impl TryFrom<std::os::unix::net::UnixListener> for Listener {
     type Error = std::io::Error;
 
-    fn try_from(value: std::os::unix::net::UnixListener) -> Result<Self> {
+    fn try_from(value: std::os::unix::net::UnixListener) -> std::result::Result<Self, Self::Error> {
         let tokio_listener = tokio::net::UnixListener::from_std(value)?;
         Ok(Listener::UnixListener(tokio_listener))
     }
