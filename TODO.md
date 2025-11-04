@@ -236,6 +236,32 @@
 
 ---
 
+# TODO - Issue #5: 提升 quic 覆盖率（HTTP/3 路径）
+
+> 分支: `feature/quic-coverage-http3`
+>
+> 依据: `PLAN.md` → 当前阶段（结构优化 + 覆盖率）
+
+状态：进行中
+
+范围：
+- 提取 `server/quic/service.rs` 中 HTTP/3 处理为可注入实现（最小 `H3StreamIo` 接口），不改变对外行为。
+- 提取 WebTransport 握手响应构造为函数，便于单测验证头与状态（不依赖真实 h3 流）。
+- 新增单测：
+  - 基本请求体聚合与回显（多帧）
+  - 空请求体路径
+  - 发送响应头失败的错误传播
+  - WebTransport 握手头回传与 200 状态
+
+不做：
+- 不进行真实 QUIC/H3 握手；不改动 WebTransport Handler 接口。
+
+下一步：
+- 若需要进一步覆盖 handler 执行通路，考虑在 cfg(test) 下引入最小适配层以模拟 `WebTransportStream` 的读写行为。
+
+验收：
+- `cargo test -p silent --all-features` 通过；`server/quic/service.rs` 行/函数覆盖率提升。
+
 ### 8) 兼容性与迁移 ✅
 
 - [x] 全量示例编译通过（`examples/*`）。## 🧪 边界与风控

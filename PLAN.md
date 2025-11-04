@@ -8,8 +8,9 @@
 - v2.11：完成网络层解耦（引入 NetServer、ConnectionService、限流/关停）。
 - v2.12：代码结构优化与命名规范统一。
 
-## 当前阶段（v2.12 / 结构优化）
+## 当前阶段（v2.12 / 结构优化 + 覆盖率）
 - 任务：将 `service` 模块更名为 `server`，并将所有 Server 相关内容整合至该目录中，命名与职责更清晰。
+- 任务（测试）：提升 `server/quic` 覆盖率，优先覆盖 HTTP/3 请求-响应通路与错误传播（通过可注入的最小 H3 流接口）。
 - 影响范围：
   - 代码：`silent/src/service/*` → `silent/src/server/*`，`crate::service::*` 引用更新为 `crate::server::*`。
   - 对外 API：通过 re-export 保持兼容（`Server`、`NetServer`、`ConnectionService` 等仍从 crate 根导出）。
