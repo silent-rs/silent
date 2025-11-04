@@ -95,6 +95,6 @@ async fn main() -> Result<()> {
     println!("      - 无头: 401; token 含 'forbidden': 403; 其他: 200");
 
     let addr = "127.0.0.1:8080".parse().expect("Invalid address");
-    Server::new().bind(addr).serve(routes).await;
+    Server::new().bind(addr)?.serve(routes).await;
     Ok(())
 }

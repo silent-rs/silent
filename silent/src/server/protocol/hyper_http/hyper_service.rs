@@ -8,8 +8,8 @@ use tracing::debug;
 use crate::core::res_body::ResBody;
 use crate::core::socket_addr::SocketAddr;
 use crate::prelude::ReqBody;
-use crate::protocol::Protocol;
-use crate::protocol::hyper_http::HyperHttpProtocol;
+use crate::server::protocol::Protocol;
+use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request, Response};
 
 #[doc(hidden)]
@@ -27,7 +27,6 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
             routes,
         }
     }
-    /// Handle [`Request`] and returns [`Response`] (优化：减少克隆操作)
     #[inline]
     pub fn handle(&self, mut req: Request) -> impl Future<Output = Response> + use<H> {
         let remote_addr = self.remote_addr.clone();
@@ -59,24 +58,22 @@ where
         })
     }
 }
+
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::route::Route;
 
-    use super::*;
-
     #[tokio::test]
-    async fn test_handle_request() {
-        // Arrange
-        let remote_addr = "127.0.0.1:8080"
+    async fn test_hyper_service_handler_basic() {
+        let remote_addr = "127.0.0.1:0"
             .parse::<std::net::SocketAddr>()
             .unwrap()
             .into();
-        let routes = Route::new_root(); // 创建新的根路由实例
-        let hsh = HyperServiceHandler::new(remote_addr, routes);
-        let req = hyper::Request::builder().body(()).unwrap(); // Assuming Request::new() creates a new instance of Request
-
-        // Act
-        let _ = hsh.call(req).await;
+        // 使用空路由树（不做具体处理），只要能完整走一遍转换流程即可
+        let routes = Route::new_root();
+        let svc = HyperServiceHandler::new(remote_addr, routes);
+        let req = hyper::Request::builder().body(()).unwrap();
+        let _ = svc.call(req).await.unwrap();
     }
 }

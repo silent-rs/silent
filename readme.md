@@ -43,7 +43,45 @@ Silent 是一个简单的基于Hyper的Web框架，它的目标是提供一个�
 - [x] 会话
 - [x] 安全
 - [x] GRPC
+- [x] 通用网络层 (NetServer)
 - [x] Cloudflare Worker
+
+## NetServer
+
+提供与协议无关的通用网络服务器，支持 TCP、Unix Socket 等多种监听方式，并内置连接限流和优雅关停功能。
+
+### 基本用法
+
+```rust
+use silent::NetServer;
+use std::time::Duration;
+
+#[tokio::main]
+async fn main() {
+    NetServer::new()
+        .bind("127.0.0.1:8080".parse().unwrap())
+        .with_rate_limiter(10, Duration::from_millis(10), Duration::from_secs(2))
+        .with_shutdown(Duration::from_secs(5))
+        .serve(|mut stream, peer| async move {
+            println!("Connection from: {}", peer);
+            // 处理连接...
+            Ok(())
+        })
+        .await;
+}
+```
+
+### 功能特性
+
+- **多监听器支持**: 同时监听多个 TCP 或 Unix Socket 地址
+- **连接限流**: 基于令牌桶算法的 QPS 限制
+- **优雅关停**: 支持 Ctrl-C 和 SIGTERM 信号，可配置等待时间
+- **协议无关**: 通过 `ConnectionService` trait 支持任意应用层协议
+
+### 示例
+
+- [基本 TCP Echo 服务器](./examples/net_server_basic/)
+- [自定义命令协议](./examples/net_server_custom_protocol/)
 
 ## security
 
