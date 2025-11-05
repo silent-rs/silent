@@ -118,6 +118,30 @@
 5. 类型转换：使用 `crate::core::serde::from_str_val` 确保与现有萃取器一致
 6. 错误处理：参数不存在时返回 `SilentError::ParamsNotFound`
 
+---
+
+# TODO（移除非 server 模块 Tok io 依赖） ✅ 已完成
+
+> 分支: `refactor/remove-non-server-tokio-deps`
+> 目标版本: v2.12
+> 优先级: P0
+> 状态: 已完成 ✅
+
+## 变更项
+- sse: `tokio::time` → `async-io::Timer`
+- static: `tokio::fs`/`tokio_util::io::ReaderStream` → `async-fs` + 自定义 `to_stream`
+- multipart: `tokio::fs::File`/`AsyncWriteExt` → `async-fs` + `futures::io::AsyncWriteExt`
+- scheduler: `tokio::sync::Mutex`/`tokio::time::sleep`/`tokio::spawn` → `async-lock::Mutex`/`async-io::Timer`/`crate::runtime::spawn`
+- grpc: `tokio::sync::Mutex`/`tokio::spawn` → `async-lock::Mutex`/`crate::runtime::spawn`
+
+## 依赖与特性
+- 新增依赖：`async-io`、`async-fs`、`futures`
+- `async-compression` 改为 `futures-io` 后端
+- 特性调整：`multipart`/`static` 启用 `dep:async-fs`，`scheduler`/`grpc` 启用 `dep:async-lock`
+
+## 验收
+- 运行 `cargo check --all` 通过 ✅
+
 **测试覆盖**：
 - 基本功能：4 种萃取器的正常提取
 - 错误处理：参数不存在时的错误返回

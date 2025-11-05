@@ -2,15 +2,16 @@ use std::borrow::Cow;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use async_compression::tokio::bufread::{BrotliEncoder, GzipEncoder};
+use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder};
+use async_fs::{File, metadata};
 use async_trait::async_trait;
+use bytes::Bytes;
+use futures::io::{AsyncRead, AsyncReadExt, BufReader};
 use futures_util::StreamExt;
+use futures_util::stream::{self, BoxStream};
 use headers::ContentType;
 use http::header::CONTENT_LENGTH;
 use mime::CHARSET;
-use tokio::fs::{File, metadata};
-use tokio::io::BufReader;
-use tokio_util::io::ReaderStream;
 
 use crate::prelude::stream_body;
 use crate::{Handler, Request, Response, SilentError, StatusCode};
@@ -86,15 +87,15 @@ impl Handler for HandlerWrapperStatic {
                         match kind {
                             Compression::Brotli => {
                                 let reader = BufReader::new(file);
-                                ReaderStream::new(BrotliEncoder::new(reader)).boxed()
+                                to_stream(BrotliEncoder::new(reader))
                             }
                             Compression::Gzip => {
                                 let reader = BufReader::new(file);
-                                ReaderStream::new(GzipEncoder::new(reader)).boxed()
+                                to_stream(GzipEncoder::new(reader))
                             }
                         }
                     } else {
-                        ReaderStream::new(file).boxed()
+                        to_stream(file)
                     };
 
                 res.headers_mut().remove(CONTENT_LENGTH);
@@ -107,6 +108,24 @@ impl Handler for HandlerWrapperStatic {
             msg: "Not Found".to_string(),
         })
     }
+}
+
+fn to_stream<R>(reader: R) -> BoxStream<'static, Result<Bytes, std::io::Error>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    const CHUNK_SIZE: usize = 16 * 1024;
+    let buf = vec![0u8; CHUNK_SIZE];
+    stream::try_unfold((reader, buf), |(mut reader, mut buf)| async move {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            Ok(None)
+        } else {
+            let bytes = Bytes::copy_from_slice(&buf[..n]);
+            Ok(Some((bytes, (reader, buf))))
+        }
+    })
+    .boxed()
 }
 
 fn normalize_content_type(mime: Option<mime::Mime>) -> ContentType {

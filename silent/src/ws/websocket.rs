@@ -5,6 +5,9 @@ use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
 use async_trait::async_trait;
+use async_tungstenite::WebSocketStream;
+use async_tungstenite::tokio::TokioAdapter;
+use async_tungstenite::tungstenite::protocol;
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
@@ -16,12 +19,10 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol;
 
 pub struct WebSocket {
     parts: Arc<RwLock<WebSocketParts>>,
-    upgrade: WebSocketStream<TokioIo<HyperUpgraded>>,
+    upgrade: WebSocketStream<TokioAdapter<TokioIo<HyperUpgraded>>>,
 }
 
 unsafe impl Sync for WebSocket {}
@@ -37,7 +38,8 @@ impl WebSocket {
         let upgraded = TokioIo::new(upgraded);
         Self {
             parts: Arc::new(RwLock::new(parts)),
-            upgrade: WebSocketStream::from_raw_socket(upgraded, role, config).await,
+            upgrade: WebSocketStream::from_raw_socket(TokioAdapter::new(upgraded), role, config)
+                .await,
         }
     }
 

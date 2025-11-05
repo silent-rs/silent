@@ -35,7 +35,6 @@ prost = "0.14"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tokio-tungstenite = "0.28"
 tokio_wasi = { version = "1", features = ["full"] }
 tonic = "0.14"
 tonic-prost = "0.14"

@@ -1,9 +1,8 @@
 use crate::{Result, SilentError};
-use bytes::Bytes;
+use async_tungstenite::tungstenite::protocol;
 use std::fmt;
 use std::fmt::Formatter;
 use std::ops::Deref;
-use tokio_tungstenite::tungstenite::{Utf8Bytes, protocol};
 
 #[derive(Eq, PartialEq, Clone)]
 pub struct Message {
@@ -21,23 +20,23 @@ impl Deref for Message {
 impl Message {
     /// Construct a new Text `Message`.
     #[inline]
-    pub fn text<S: Into<Utf8Bytes>>(s: S) -> Message {
+    pub fn text<S: Into<String>>(s: S) -> Message {
         Message {
-            inner: protocol::Message::text(s),
+            inner: protocol::Message::Text(s.into()),
         }
     }
 
     /// Construct a new Binary `Message`.
     #[inline]
-    pub fn binary<V: Into<Bytes>>(v: V) -> Message {
+    pub fn binary<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
-            inner: protocol::Message::binary(v),
+            inner: protocol::Message::Binary(v.into()),
         }
     }
 
     /// Construct a new Ping `Message`.
     #[inline]
-    pub fn ping<V: Into<Bytes>>(v: V) -> Message {
+    pub fn ping<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
             inner: protocol::Message::Ping(v.into()),
         }
@@ -45,7 +44,7 @@ impl Message {
 
     /// Construct a new pong `Message`.
     #[inline]
-    pub fn pong<V: Into<Bytes>>(v: V) -> Message {
+    pub fn pong<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
             inner: protocol::Message::Pong(v.into()),
         }
@@ -123,9 +122,9 @@ impl Message {
     pub fn as_bytes(&self) -> &[u8] {
         match self.inner {
             protocol::Message::Text(ref s) => s.as_bytes(),
-            protocol::Message::Binary(ref v) => v.iter().as_slice(),
-            protocol::Message::Ping(ref v) => v.iter().as_slice(),
-            protocol::Message::Pong(ref v) => v.iter().as_slice(),
+            protocol::Message::Binary(ref v) => v.as_slice(),
+            protocol::Message::Ping(ref v) => v.as_slice(),
+            protocol::Message::Pong(ref v) => v.as_slice(),
             protocol::Message::Close(_) => &[],
             protocol::Message::Frame(ref v) => v.payload(),
         }

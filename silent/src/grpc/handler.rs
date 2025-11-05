@@ -3,11 +3,11 @@ use std::sync::Arc;
 use super::utils::merge_grpc_response;
 use crate::grpc::service::GrpcService;
 use crate::{Handler, Response, SilentError};
+use async_lock::Mutex;
 use async_trait::async_trait;
 use http::{HeaderValue, StatusCode, header};
 use hyper::upgrade::OnUpgrade;
 use hyper_util::rt::TokioExecutor;
-use tokio::sync::Mutex;
 use tonic::body::Body;
 use tonic::codegen::Service;
 use tonic::server::NamedService;
@@ -74,7 +74,7 @@ where
     async fn call(&self, mut req: crate::Request) -> crate::Result<Response> {
         if let Some(on_upgrade) = req.extensions_mut().remove::<OnUpgrade>() {
             let handler = self.inner.clone();
-            tokio::spawn(async move {
+            async_global_executor::spawn(async move {
                 let conn = on_upgrade.await;
                 if conn.is_err() {
                     error!("upgrade error: {:?}", conn.err());
@@ -90,7 +90,8 @@ where
                     Ok(_) => info!("finished gracefully"),
                     Err(err) => error!("ERROR: {err}"),
                 }
-            });
+            })
+            .detach();
             let mut res = Response::empty();
             res.set_status(StatusCode::SWITCHING_PROTOCOLS);
             res.headers_mut()
