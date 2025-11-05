@@ -1,10 +1,11 @@
 use crate::header::{HeaderMap, HeaderValue};
 use crate::prelude::PathParam;
 use crate::{Request, Result, SilentError};
+use futures::channel::oneshot;
 use http::Extensions;
-use hyper::upgrade;
-use hyper::upgrade::OnUpgrade;
+use hyper::upgrade::Upgraded as HyperUpgraded;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -49,12 +50,12 @@ impl WebSocketParts {
 
 pub(crate) struct Upgraded {
     head: WebSocketParts,
-    upgrade: upgrade::Upgraded,
+    upgrade: HyperUpgraded,
 }
 
 #[allow(dead_code)]
 impl Upgraded {
-    pub(crate) fn into_parts(self) -> (WebSocketParts, upgrade::Upgraded) {
+    pub(crate) fn into_parts(self) -> (WebSocketParts, HyperUpgraded) {
         (self.head, self.upgrade)
     }
 
@@ -84,17 +85,38 @@ impl Upgraded {
     }
 }
 
+// 注入式升级接收器：服务器侧在收到可升级请求时，创建 oneshot::Receiver 并注入到 Request.extensions 中。
+#[derive(Clone)]
+pub struct AsyncUpgradeRx(AsyncUpgradeInner);
+
+#[derive(Clone)]
+struct AsyncUpgradeInner(Arc<Mutex<Option<oneshot::Receiver<HyperUpgraded>>>>);
+
+impl AsyncUpgradeRx {
+    pub fn new(rx: oneshot::Receiver<HyperUpgraded>) -> Self {
+        Self(AsyncUpgradeInner(Arc::new(Mutex::new(Some(rx)))))
+    }
+    pub fn take(&self) -> Option<oneshot::Receiver<HyperUpgraded>> {
+        // 忽略锁错误，按 None 处理
+        self.0.0.lock().ok().and_then(|mut g| g.take())
+    }
+}
+
 pub(crate) async fn on(mut req: Request) -> Result<Upgraded> {
     let headers = req.headers().clone();
     let path_params = req.path_params().clone();
     let params = req.params().clone();
     let mut extensions = req.take_extensions();
-    let on_upgrade = extensions
-        .remove::<OnUpgrade>()
-        .ok_or(SilentError::WsError(
-            "No OnUpgrade in Extensions".to_string(),
-        ))?;
-    let upgrade = on_upgrade.await?;
+    // 从扩展中获取注入的升级接收器
+    let rx = extensions
+        .remove::<AsyncUpgradeRx>()
+        .ok_or_else(|| SilentError::WsError("No upgrade channel available".to_string()))?;
+    let rx = rx
+        .take()
+        .ok_or_else(|| SilentError::WsError("Upgrade channel missing".to_string()))?;
+    let upgrade = rx
+        .await
+        .map_err(|e| SilentError::WsError(format!("upgrade await error: {e}")))?;
     Ok(Upgraded {
         head: WebSocketParts {
             path_params,

@@ -46,13 +46,36 @@ where
 
     #[inline]
     fn call(&self, req: HyperRequest<B>) -> Self::Future {
-        let (parts, body) = req.into_parts();
+        let (mut parts, body) = req.into_parts();
+        #[cfg(feature = "upgrade")]
+        let on_upgrade = parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
+        #[cfg(feature = "upgrade")]
+        let (tx_opt, rx_opt) = if on_upgrade.is_some() {
+            let (tx, rx) = futures::channel::oneshot::channel::<hyper::upgrade::Upgraded>();
+            (Some(tx), Some(rx))
+        } else {
+            (None, None)
+        };
+        #[cfg(feature = "upgrade")]
+        if let Some(rx) = rx_opt {
+            parts.extensions.insert(crate::ws::AsyncUpgradeRx::new(rx));
+        }
         let request = HyperRequest::from_parts(parts, body.into());
         let request = HyperHttpProtocol::into_internal(request);
         debug!("Request: \n{:#?}", request);
         let response = self.handle(request);
         Box::pin(async move {
             let res = response.await;
+            #[cfg(feature = "upgrade")]
+            if let Some(on_upgrade) = on_upgrade
+                && let Some(tx) = tx_opt
+            {
+                tokio::task::spawn(async move {
+                    if let Ok(up) = on_upgrade.await {
+                        let _ = tx.send(up);
+                    }
+                });
+            }
             debug!("Response: \n{:?}", res);
             Ok(HyperHttpProtocol::from_internal(res))
         })
