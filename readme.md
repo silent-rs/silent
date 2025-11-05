@@ -83,6 +83,13 @@ async fn main() {
 - [基本 TCP Echo 服务器](./examples/net_server_basic/)
 - [自定义命令协议](./examples/net_server_custom_protocol/)
 
+## Extractors（萃取器）
+
+### 文档
+
+- [萃取器完整指南](./docs/extractors-guide.md) - 详细的使用文档和最佳实践
+- [API 文档](https://docs.rs/silent) - 完整的 API 参考
+
 ## security
 
 ### argon2

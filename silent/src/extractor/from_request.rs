@@ -1,14 +1,126 @@
 use async_trait::async_trait;
 
-use crate::{Request, Response, SilentError, core::path_param::PathParam, headers::HeaderMapExt};
+use crate::core::path_param::PathParam as CorePathParam;
+use crate::{Request, Response, SilentError, headers::HeaderMapExt};
 
 use super::types::{
     Configs, Extension, Form, Json, Method, Path, Query, RemoteAddr, TypedHeader, Uri, Version,
 };
 
+/// `FromRequest` 是萃取器的核心 trait，用于从 HTTP 请求中提取特定类型的数据。
+///
+/// 通过实现这个 trait，您可以创建自定义的萃取器，从请求中提取任何需要的数据。
+/// 所有内置萃取器（Path、Query、Json 等）都实现了这个 trait。
+///
+/// ## 基本用法
+///
+/// 要实现一个自定义萃取器，您需要：
+/// 1. 定义您的数据类型
+/// 2. 实现 `FromRequest` trait
+/// 3. 在处理函数中使用萃取器
+///
+/// ## 示例：创建 JWT 令牌萃取器
+///
+/// ```rust
+/// use async_trait::async_trait;
+/// use silent::extractor::FromRequest;
+/// use silent::{Request, Result, SilentError};
+///
+/// struct JwtToken(String);
+///
+/// #[async_trait]
+/// impl FromRequest for JwtToken {
+///     type Rejection = SilentError;
+///
+///     async fn from_request(req: &mut Request) -> std::result::Result<Self, Self::Rejection> {
+///         let token = req.headers()
+///             .get("authorization")
+///             .and_then(|v| v.to_str().ok())
+///             .and_then(|s| s.strip_prefix("Bearer "))
+///             .map(|s| s.to_string())
+///             .ok_or(SilentError::ParamsNotFound)?;
+///
+///         Ok(JwtToken(token))
+///     }
+/// }
+///
+/// // 使用自定义萃取器
+/// async fn protected_handler(token: JwtToken) -> Result<String> {
+///     Ok(format!("访问受保护的资源，Token: {}", token.0))
+/// }
+/// ```
+///
+/// ## 错误处理
+///
+/// `FromRequest` 的 `Rejection` 类型决定了萃取失败时的错误类型。常用的错误类型：
+/// - `SilentError`：框架内置错误，包含 `ParamsNotFound`、`ParamsEmpty` 等
+/// - `Response`：直接返回 HTTP 响应
+///
+/// ## 组合使用
+///
+/// 多个萃取器可以组合使用：
+///
+/// ```rust
+/// use silent::Result;
+/// use silent::extractor::{Path, Query, Json};
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Page {
+///     page: u32,
+///     size: u32,
+/// }
+///
+/// #[derive(Deserialize)]
+/// struct Data {
+///     name: String,
+/// }
+///
+/// async fn handler(
+///     (Path(id), Query(p), Json(data)): (Path<i64>, Query<Page>, Json<Data>),
+/// ) -> Result<String> {
+///     // 处理提取的数据
+///     Ok("成功".to_string())
+/// }
+/// ```
+///
+/// ## 可选参数
+///
+/// 使用 `Option<T>` 可以处理可选参数：
+///
+/// ```rust
+/// use silent::Result;
+/// use silent::extractor::Path;
+///
+/// async fn handler(opt_id: Option<Path<i64>>) -> Result<String> {
+///     match opt_id {
+///         Some(Path(id)) => Ok(format!("ID: {}", id)),
+///         None => Ok("无ID".to_string()),
+///     }
+/// }
+/// ```
 #[async_trait]
 pub trait FromRequest: Sized {
+    /// 萃取失败时的错误类型
+    ///
+    /// 这个类型必须能够转换为 HTTP 响应（实现了 `Into<Response>`）
     type Rejection: Into<crate::Response> + Send + 'static;
+
+    /// 从请求中提取数据
+    ///
+    /// # 参数
+    ///
+    /// * `req` - 可变的请求引用，可以从中提取数据
+    ///
+    /// # 返回值
+    ///
+    /// 返回 `Result<Self, Self::Rejection>`：
+    /// - 成功时返回 `Ok(extracted_value)`
+    /// - 失败时返回 `Err(error)`
+    ///
+    /// # 示例
+    ///
+    /// 参见上面 `FromRequest` trait 的完整示例。
     async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection>;
 }
 
@@ -283,14 +395,14 @@ where
 }
 
 #[inline]
-fn path_param_to_string(param: &PathParam) -> String {
+fn path_param_to_string(param: &CorePathParam) -> String {
     match param {
-        PathParam::Str(s) | PathParam::Path(s) => s.as_str().to_string(),
-        PathParam::Int(v) => v.to_string(),
-        PathParam::Int32(v) => v.to_string(),
-        PathParam::Int64(v) => v.to_string(),
-        PathParam::UInt32(v) => v.to_string(),
-        PathParam::UInt64(v) => v.to_string(),
-        PathParam::Uuid(u) => u.to_string(),
+        CorePathParam::Str(s) | CorePathParam::Path(s) => s.as_str().to_string(),
+        CorePathParam::Int(v) => v.to_string(),
+        CorePathParam::Int32(v) => v.to_string(),
+        CorePathParam::Int64(v) => v.to_string(),
+        CorePathParam::UInt32(v) => v.to_string(),
+        CorePathParam::UInt64(v) => v.to_string(),
+        CorePathParam::Uuid(u) => u.to_string(),
     }
 }
