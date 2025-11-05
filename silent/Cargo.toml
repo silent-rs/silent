@@ -40,6 +40,7 @@ full = [
     "quic",
 ]
 multipart = [
+    "server",
     "tokio/fs",
     "dep:multer",
     "dep:multimap",
@@ -54,9 +55,9 @@ server = [
     "tokio/signal",
     "tokio/macros",
 ]
-session = ["cookie", "dep:async-session"]
+session = ["cookie", "dep:async-session", "dep:async-lock"]
 sse = ["dep:pin-project", "dep:tokio-stream"]
-static = ["tokio/fs", "dep:urlencoding", "dep:async-compression"]
+static = ["server", "tokio/fs", "dep:urlencoding", "dep:async-compression"]
 template = ["dep:tera"]
 upgrade = ["dep:tokio-tungstenite"]
 worker = ["dep:worker", "tokio/sync"]
@@ -67,7 +68,7 @@ grpc = [
     "dep:pin-project",
     "dep:tokio-stream",
 ]
-scheduler = ["dep:cron"]
+scheduler = ["server", "dep:cron"]
 test = ["tokio/macros", "tokio/rt"]
 tls = [
     "dep:tokio-rustls",
@@ -88,6 +89,7 @@ quic = [
 [dependencies]
 # Basic dependencies
 anyhow = "1"
+async-lock = { version = "2", optional = true }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -100,6 +102,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 memchr = "2.7"
 mime = "0.3"
+once_cell = { version = "1", default-features = false, features = ["std"] }
 smallvec = "1.13"
 pin-project = { version = "1", optional = true }
 pin-project-lite = { version = "0.2", optional = true }
