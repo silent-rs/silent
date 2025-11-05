@@ -18,7 +18,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-// no direct compat usage here; constructed upstream
 
 pub struct WebSocket<S>
 where
