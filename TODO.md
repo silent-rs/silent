@@ -152,16 +152,18 @@
 - 可并行：可与 v2.12 其他任务并行开发
 
 ## 成功指标
-- **单个字段萃取器功能**：4 个萃取器类型全部实现（QueryParam、PathParam、HeaderParam、CookieParam）
+- **单个字段萃取器功能**：5 个萃取器类型全部实现（QueryParam、PathParam、HeaderParam、CookieParam、ConfigParam） ✅
 - **类型系统一致性**：
-  - [ ] `QueryParam<T>` 与 `Query<T>` 支持完全相同的类型集合
-  - [ ] `PathParam<T>` 与 `Path<T>` 支持完全相同的类型集合
-  - [ ] `HeaderParam<T>` 与 `TypedHeader<T>` 支持完全相同的类型集合
-  - [ ] 复用现有类型转换逻辑，无重复代码
-- 萃取器指南文档完整度：100%
-- 高级示例可运行数：≥2
-- **新增示例**：包含单个字段萃取器完整示例
-- README 萃取器展示：已添加
+  - [x] `QueryParam<T>` 与 `Query<T>` 支持完全相同的类型集合
+  - [x] `PathParam<T>` 与 `Path<T>` 支持完全相同的类型集合
+  - [x] `HeaderParam<T>` 与 `TypedHeader<T>` 支持完全相同的类型集合
+  - [x] `ConfigParam<T>` 与 `Configs<T>` 支持完全相同的类型集合
+  - [x] 复用现有类型转换逻辑，无重复代码
+- **示例项目**：已创建并可运行，8 个示例端点展示功能用法 ✅
+- **测试覆盖**：新增 4 个测试用例（test_single_field_extractors、test_single_field_extractors_not_found、test_single_field_extractors_type_conversion、test_config_param），全部通过 ✅
+- 萃取器指南文档完整度：待完成
+- 高级示例可运行数：1（已通过编译检查）
+- README 萃取器展示：待添加
 - 文档质量：适合新用户理解
 
 ## 新功能设计说明
