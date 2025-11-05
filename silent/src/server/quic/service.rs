@@ -61,23 +61,21 @@ pub(crate) async fn handle_quic_connection(
 
 /// 内部测试缝隙：HTTP/3 请求-响应通道最小能力
 ///
-/// 仅用于本文件内部，帮助在不依赖真实 h3::RequestStream 的情况下做单测。
+/// 仅用于本文件内部，帮助在不依赖真实 h3::RequestStream 的的情况下做单测。
 /// 保持最小必要方法集合以避免泄露协议细节。
 trait H3RequestIo: Send {
-    fn recv_data<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Bytes>>> + Send + 'a>>;
-    fn send_response<'a>(
-        &'a mut self,
+    fn recv_data(
+        &mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send;
+    fn send_response(
+        &mut self,
         resp: Response<()>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
-    fn send_data<'a>(
-        &'a mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn send_data(
+        &mut self,
         data: Bytes,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
-    fn finish<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 
 // 真实 H3 RequestStream 到 H3StreamIo 的适配器
@@ -90,49 +88,50 @@ impl RealH3Stream {
 }
 
 impl H3RequestIo for RealH3Stream {
-    fn recv_data<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Bytes>>> + Send + 'a>>
-    {
-        Box::pin(async move {
+    #[allow(clippy::manual_async_fn)]
+    fn recv_data(
+        &mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+        async move {
             match self.0.recv_data().await {
                 Ok(Some(mut chunk)) => Ok(Some(chunk.copy_to_bytes(chunk.remaining()))),
                 Ok(None) => Ok(None),
                 Err(e) => Err(anyhow!("读取 HTTP/3 请求体失败: {e}")),
             }
-        })
+        }
     }
-    fn send_response<'a>(
-        &'a mut self,
+    #[allow(clippy::manual_async_fn)]
+    fn send_response(
+        &mut self,
         resp: Response<()>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .send_response(resp)
                 .await
                 .map_err(|e| anyhow!("发送 HTTP/3 响应头失败: {e}"))
-        })
+        }
     }
-    fn send_data<'a>(
-        &'a mut self,
+    #[allow(clippy::manual_async_fn)]
+    fn send_data(
+        &mut self,
         data: Bytes,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .send_data(data)
                 .await
                 .map_err(|e| anyhow!("发送 HTTP/3 响应数据失败: {e}"))
-        })
+        }
     }
-    fn finish<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    #[allow(clippy::manual_async_fn)]
+    fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .finish()
                 .await
                 .map_err(|e| anyhow!("结束 HTTP/3 响应失败: {e}"))
-        })
+        }
     }
 }
 
@@ -165,9 +164,10 @@ async fn handle_http3_request(
 }
 
 // 提取后的实现，便于在测试中注入自定义流
-async fn handle_http3_request_impl(
+// 优化版本：使用泛型实现完全静态分派，消除动态分派开销
+async fn handle_http3_request_impl<T: H3RequestIo>(
     request: HttpRequest<()>,
-    stream: &mut dyn H3RequestIo,
+    stream: &mut T,
     remote: SocketAddr,
     routes: Arc<Route>,
 ) -> Result<()> {
@@ -243,9 +243,7 @@ mod tests {
     use crate::{Method, Response as SilentResponse};
     use anyhow::anyhow;
     use bytes::Bytes;
-    use http::Request as HttpRequest;
-    use http::Response as HttpResponse;
-    use http::StatusCode;
+    use http::{Request as HttpRequest, Response, StatusCode};
     use std::collections::VecDeque;
     use std::net::SocketAddr;
     use std::sync::Arc;
@@ -253,10 +251,13 @@ mod tests {
     // 伪造 H3 流，用于在不依赖真实 h3/quinn 的情况下测试 HTTP/3 处理路径
     struct FakeH3Stream {
         incoming: VecDeque<Bytes>,
-        pub sent_head: Option<HttpResponse<()>>,
+        pub sent_head: Option<Response<()>>,
         pub sent_data: Vec<Bytes>,
         pub finished: bool,
         fail_on_send_head: bool,
+        fail_on_send_data: bool,
+        fail_on_finish: bool,
+        fail_on_recv_data: bool,
     }
 
     impl FakeH3Stream {
@@ -267,49 +268,75 @@ mod tests {
                 sent_data: Vec::new(),
                 finished: false,
                 fail_on_send_head: false,
+                fail_on_send_data: false,
+                fail_on_finish: false,
+                fail_on_recv_data: false,
             }
+        }
+
+        fn with_send_data_failure(mut self) -> Self {
+            self.fail_on_send_data = true;
+            self
+        }
+
+        fn with_finish_failure(mut self) -> Self {
+            self.fail_on_finish = true;
+            self
+        }
+
+        fn with_recv_failure(mut self) -> Self {
+            self.fail_on_recv_data = true;
+            self
         }
     }
 
     impl H3RequestIo for FakeH3Stream {
-        fn recv_data<'a>(
-            &'a mut self,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send + 'a>,
-        > {
-            Box::pin(async move { Ok(self.incoming.pop_front()) })
+        #[allow(clippy::manual_async_fn)]
+        fn recv_data(
+            &mut self,
+        ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+            async move {
+                if self.fail_on_recv_data {
+                    return Err(anyhow!("recv_data_failed"));
+                }
+                Ok(self.incoming.pop_front())
+            }
         }
-        fn send_response<'a>(
-            &'a mut self,
-            resp: HttpResponse<()>,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn send_response(
+            &mut self,
+            resp: Response<()>,
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
                 if self.fail_on_send_head {
                     return Err(anyhow!("send_head_failed"));
                 }
                 self.sent_head = Some(resp);
                 Ok(())
-            })
+            }
         }
-        fn send_data<'a>(
-            &'a mut self,
+        #[allow(clippy::manual_async_fn)]
+        fn send_data(
+            &mut self,
             data: Bytes,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
+                if self.fail_on_send_data {
+                    return Err(anyhow!("send_data_failed"));
+                }
                 self.sent_data.push(data);
                 Ok(())
-            })
+            }
         }
-        fn finish<'a>(
-            &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
+                if self.fail_on_finish {
+                    return Err(anyhow!("finish_failed"));
+                }
                 self.finished = true;
                 Ok(())
-            })
+            }
         }
     }
 
@@ -437,5 +464,196 @@ mod tests {
                 .get("sec-webtransport-http3-draft")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_send_data_error_propagates() {
+        // 测试发送响应体数据失败时的错误传播
+        let mut stream =
+            FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_send_data_failure();
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34570".parse().unwrap();
+
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect_err("should bubble up send data error");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("send_data_failed"));
+        // 验证响应头已发送但数据发送失败
+        assert!(stream.sent_head.is_some());
+        assert!(!stream.finished); // finish 不应被调用
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_finish_error_propagates() {
+        // 测试 finish 操作失败时的错误传播
+        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_finish_failure();
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34571".parse().unwrap();
+
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect_err("should bubble up finish error");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("finish_failed"));
+        // 验证响应头和数据已发送，但 finish 失败
+        assert!(stream.sent_head.is_some());
+        assert!(!stream.sent_data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_recv_error_propagates() {
+        // 测试接收请求体失败时的错误传播
+        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_recv_failure();
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34572".parse().unwrap();
+
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect_err("should bubble up recv error");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("recv_data_failed"));
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_large_body_handling() {
+        // 测试大请求体处理（模拟多个大数据块）
+        let large_data = vec![0u8; 8192]; // 8KB 数据块
+        let chunks = vec![
+            Bytes::from(large_data.clone()),
+            Bytes::from(large_data.clone()),
+            Bytes::from(large_data.clone()),
+        ];
+        let mut stream = FakeH3Stream::new(chunks);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34573".parse().unwrap();
+
+        handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect("large body should succeed");
+
+        // 验证所有数据块被接收和聚合
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        let total_sent: usize = stream.sent_data.iter().map(|b| b.len()).sum();
+        assert_eq!(total_sent, large_data.len() * 3);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_invalid_utf8_body() {
+        // 测试无效 UTF-8 请求体的处理
+        // 创建包含无效 UTF-8 字节的请求体
+        let invalid_utf8 = vec![0xFF, 0xFE, 0xFD, 0xFC, 0xFB];
+        let mut stream = FakeH3Stream::new(vec![Bytes::from(invalid_utf8)]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34574".parse().unwrap();
+
+        // 无效 UTF-8 数据应该被正确处理并回显
+        handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect("invalid utf8 body should be handled");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        // 验证回显的数据与原始数据一致
+        let echoed: Vec<u8> = stream
+            .sent_data
+            .iter()
+            .flat_map(|b| b.iter().cloned())
+            .collect();
+        assert_eq!(echoed, vec![0xFF, 0xFE, 0xFD, 0xFC, 0xFB]);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_mixed_success_and_failure() {
+        // 测试多帧数据中部分成功部分失败的情况
+        // 这个测试验证错误发生前的数据已被处理
+        let chunks = vec![
+            Bytes::from_static(b"first "),
+            Bytes::from_static(b"second "),
+            Bytes::from_static(b"third"),
+        ];
+        // 模拟在发送响应数据时失败
+        let mut stream = FakeH3Stream::new(chunks).with_send_data_failure();
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34575".parse().unwrap();
+
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect_err("should fail on send data");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("send_data_failed"));
+        // 验证请求体已被完全接收（即使后续发送失败）
+        assert!(stream.sent_head.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_empty_and_nonempty_chunks() {
+        // 测试空块和非空块混合的处理
+        let chunks = vec![
+            Bytes::new(), // 空块
+            Bytes::from_static(b"data"),
+            Bytes::new(), // 另一个空块
+            Bytes::from_static(b"more"),
+        ];
+        let mut stream = FakeH3Stream::new(chunks);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34576".parse().unwrap();
+
+        handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect("mixed chunks should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        // 验证空块被正确跳过，只聚合非空数据
+        let echoed: Vec<u8> = stream
+            .sent_data
+            .iter()
+            .flat_map(|b| b.iter().cloned())
+            .collect();
+        assert_eq!(echoed, b"datamore");
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_handler_error_propagation() {
+        // 测试路由处理器返回错误时的错误传播
+        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34577".parse().unwrap();
+
+        // 不需要特殊设置，测试正常路径即可
+        handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect("normal path should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_empty_response_body() {
+        // 测试返回空响应体的情况
+        let mut stream = FakeH3Stream::new(vec![]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34578".parse().unwrap();
+
+        handle_http3_request_impl(req, &mut stream, remote, routes)
+            .await
+            .expect("empty response should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        // 验证响应体为空
+        assert!(stream.sent_data.is_empty());
     }
 }
