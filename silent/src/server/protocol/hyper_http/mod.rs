@@ -127,7 +127,9 @@ mod tests {
         // 构造响应，验证 from_internal 会把 Set-Cookie 写回头部
         let mut resp = Response::empty();
         let mut jar = CookieJar::new();
-        jar.add(Cookie::new("x", "y"));
+        let mut cookie = Cookie::new("x", "y");
+        cookie.set_secure(true);
+        jar.add(cookie);
         resp.extensions_mut().insert(jar);
         let hyper_resp = HyperHttpProtocol::from_internal(resp);
         assert!(hyper_resp.headers().contains_key(header::SET_COOKIE));
