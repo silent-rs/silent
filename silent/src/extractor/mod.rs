@@ -1,9 +1,184 @@
+//! # 萃取器模块
+//!
+//! 萃取器是 Silent 框架中用于从 HTTP 请求中提取数据的核心机制。它允许您以类型安全的方式
+//! 获取路径参数、查询参数、请求头、请求体等各种数据。
+//!
+//! ## 主要特性
+//!
+//! - **类型安全**：所有萃取器都使用 Rust 的类型系统确保数据安全
+//! - **零成本抽象**：编译时类型检查，无运行时开销
+//! - **灵活组合**：支持多个萃取器组合使用
+//! - **丰富类型**：支持所有实现了 `serde::Deserialize` 或 `FromStr` 的类型
+//!
+//! ## 基本用法
+//!
+//! ### 1. 路径参数萃取
+//!
+//! ```rust
+//! use silent::extractor::Path;
+//! use silent::Result;
+//!
+//! async fn handler(Path(id): Path<i64>) -> Result<String> {
+//!     Ok(format!("用户ID: {}", id))
+//! }
+//! ```
+//!
+//! ### 2. 查询参数萃取
+//!
+//! ```rust
+//! use silent::extractor::Query;
+//! use silent::Result;
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct Page {
+//!     page: u32,
+//!     size: u32,
+//! }
+//!
+//! async fn handler(Query(p): Query<Page>) -> Result<String> {
+//!     Ok(format!("第 {} 页，每页 {} 条", p.page, p.size))
+//! }
+//! ```
+//!
+//! ### 3. 组合使用
+//!
+//! ```rust
+//! use silent::extractor::{Path, Query, Json};
+//! use silent::{Request, Result};
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct Page {
+//!     page: u32,
+//!     size: u32,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! struct Data {
+//!     name: String,
+//! }
+//!
+//! async fn handler(
+//!     (Path(id), Query(p), Json(data)): (Path<i64>, Query<Page>, Json<Data>),
+//! ) -> Result<String> {
+//!     // 处理提取的数据
+//!     Ok("成功".to_string())
+//! }
+//! ```
+//!
+//! ## 萃取器类型
+//!
+//! 本模块提供以下萃取器：
+//!
+//! - **Path<T>**：从 URL 路径中提取参数
+//! - **Query<T>**：从查询字符串中提取参数
+//! - **Json<T>**：从 JSON 请求体中提取数据
+//! - **Form<T>**：从表单数据中提取参数
+//! - **TypedHeader<T>**：提取并解析特定类型的请求头
+//! - **Extension<T>**：从请求扩展中提取数据
+//! - **Configs<T>**：从请求配置中提取数据
+//! - **Method、Uri、Version**：提取请求的基础信息
+//!
+//! ## 自定义萃取器
+//!
+//! 您可以通过实现 `FromRequest` trait 来创建自定义萃取器：
+//!
+//! ```rust
+//! use async_trait::async_trait;
+//! use silent::extractor::FromRequest;
+//! use silent::{Request, Result, SilentError};
+//!
+//! struct AuthToken(String);
+//!
+//! #[async_trait]
+//! impl FromRequest for AuthToken {
+//!     type Rejection = SilentError;
+//!
+//!     async fn from_request(req: &mut Request) -> std::result::Result<Self, Self::Rejection> {
+//!         let token = req.headers()
+//!             .get("authorization")
+//!             .and_then(|v| v.to_str().ok())
+//!             .map(|s| s.to_string())
+//!             .ok_or(SilentError::ParamsNotFound)?;
+//!
+//!         Ok(AuthToken(token))
+//!     }
+//! }
+//! ```
+//!
+//! ## 组合使用
+//!
+//! 萃取器可以组合使用：
+//!
+//! ```rust
+//! use silent::Result;
+//! use silent::extractor::{Path, Query, Json};
+//! use serde::Deserialize;
+//!
+//! #[derive(Deserialize)]
+//! struct Page {
+//!     page: u32,
+//!     size: u32,
+//! }
+//!
+//! #[derive(Deserialize)]
+//! struct Data {
+//!     name: String,
+//! }
+//!
+//! async fn handler(
+//!     (Path(id), Query(p), Json(data)): (Path<i64>, Query<Page>, Json<Data>),
+//! ) -> Result<String> {
+//!     // 处理提取的数据
+//!     Ok("成功".to_string())
+//! }
+//! ```
+//!
+//! ## 错误处理
+//!
+//! 萃取器在提取失败时会返回错误。您可以使用 `Option<T>` 或 `Result<T, E>` 来优雅处理：
+//!
+//! ```rust
+//! use silent::{Result, Response};
+//! use silent::extractor::{Path, Json};
+//!
+//! // 可选参数
+//! async fn handler(opt_id: Option<Path<i64>>) -> Result<String> {
+//!     match opt_id {
+//!         Some(Path(id)) => Ok(format!("有ID: {}", id)),
+//!         None => Ok("无ID".to_string()),
+//!     }
+//! }
+//!
+//! // 自定义错误处理
+//! #[derive(serde::Deserialize, Debug)]
+//! struct Data {
+//!     name: String,
+//! }
+//!
+//! async fn handler2(
+//!     result: std::result::Result<Json<Data>, Response>,
+//! ) -> Result<String> {
+//!     match result {
+//!         Ok(Json(data)) => Ok(format!("数据: {:?}", data)),
+//!         Err(_) => Ok("请求无效".to_string()),
+//!     }
+//! }
+//! ```
+//!
+//! # Examples
+//!
+//! 查看 `examples/extractors/` 目录获取更多示例。
+//!
+// pub use silent_macros::define_extractors;  // 暂时注释，将在后面正确设置
+
 use futures_util::future::BoxFuture;
 use std::sync::Arc;
 
 use crate::{Request, Response};
 
-pub use self::from_request::{FromRequest, cookie_param, header_param, path_param, query_param};
+pub use self::from_request::FromRequest;
 pub use self::types::*;
 
 mod from_request;
@@ -284,99 +459,5 @@ mod tests {
                 .await
                 .unwrap();
         assert!(matches!(r, Ok(Json(U { name })) if name == "ok"));
-    }
-
-    #[tokio::test]
-    async fn test_single_field_extractors() {
-        // 测试 QueryParam
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test?name=alice&age=25");
-        let name = query_param::<String>(&mut req, "name").await.unwrap();
-        assert_eq!(name, "alice");
-
-        let age = query_param::<u32>(&mut req, "age").await.unwrap();
-        assert_eq!(age, 25);
-
-        // 测试 PathParam
-        let mut req = Request::empty();
-        req.set_path_params("id".to_owned(), crate::core::path_param::PathParam::Int(42));
-        let id = path_param::<i32>(&mut req, "id").await.unwrap();
-        assert_eq!(id, 42);
-
-        // 测试 HeaderParam
-        let mut req = Request::empty();
-        req.headers_mut().insert(
-            "content-type",
-            http::HeaderValue::from_static("application/json"),
-        );
-        let content_type = header_param::<String>(&mut req, "content-type")
-            .await
-            .unwrap();
-        assert_eq!(content_type, "application/json");
-
-        // 测试 CookieParam
-        let mut req = Request::empty();
-        req.headers_mut().insert(
-            "cookie",
-            http::HeaderValue::from_static("session=abc123; user=alice"),
-        );
-        let session = cookie_param::<String>(&mut req, "session").await.unwrap();
-        assert_eq!(session, "abc123");
-
-        let user = cookie_param::<String>(&mut req, "user").await.unwrap();
-        assert_eq!(user, "alice");
-    }
-
-    #[tokio::test]
-    async fn test_single_field_extractors_not_found() {
-        // 测试 QueryParam 不存在的情况
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test");
-        let result = query_param::<String>(&mut req, "missing").await;
-        assert!(result.is_err());
-
-        // 测试 PathParam 不存在的情况
-        let mut req = Request::empty();
-        let result = path_param::<String>(&mut req, "missing").await;
-        assert!(result.is_err());
-
-        // 测试 HeaderParam 不存在的情况
-        let mut req = Request::empty();
-        let result = header_param::<String>(&mut req, "missing").await;
-        assert!(result.is_err());
-
-        // 测试 CookieParam 不存在的情况
-        let mut req = Request::empty();
-        req.headers_mut()
-            .insert("cookie", http::HeaderValue::from_static("session=abc123"));
-        let result = cookie_param::<String>(&mut req, "missing").await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_single_field_extractors_type_conversion() {
-        // 测试类型转换：String -> i32
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test?count=123");
-        let count = query_param::<i32>(&mut req, "count").await.unwrap();
-        assert_eq!(count, 123);
-
-        // 测试类型转换：String -> bool
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test?active=true");
-        let active = query_param::<bool>(&mut req, "active").await.unwrap();
-        assert!(active);
-
-        // 测试类型转换：String -> f64
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test?price=99.99");
-        let price = query_param::<f64>(&mut req, "price").await.unwrap();
-        assert_eq!(price, 99.99);
-
-        // 测试类型转换：String -> u64
-        let mut req = Request::empty();
-        *req.uri_mut() = http::Uri::from_static("http://localhost/test?size=999");
-        let size = query_param::<u64>(&mut req, "size").await.unwrap();
-        assert_eq!(size, 999);
     }
 }

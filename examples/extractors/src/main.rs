@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use silent::extractor::{
-    config_param, cookie_param, header_param, path_param, query_param, Configs, Extension, Form,
-    Json, Method, Path, Query, TypedHeader, Uri, Version, handler_from_extractor,
+    Configs, Extension, Form, FromRequest, Json, Method, Path, Query, TypedHeader, Uri, Version,
+    handler_from_extractor,
 };
 use silent::headers::UserAgent;
 use silent::prelude::{Route, Server, logger};
@@ -50,7 +50,7 @@ async fn ex_path_struct(Path(up): Path<UserPath>) -> Result<String> {
 }
 
 // Query
-async fn ex_query(Query(p): Query<Page>) -> Result<String> {
+async fn ex_query_old(Query(p): Query<Page>) -> Result<String> {
     Ok(format!("query.page={}, query.size={}", p.page, p.size))
 }
 
@@ -104,84 +104,115 @@ async fn ex_configs(Configs(MyCfg(v)): Configs<MyCfg>) -> Result<String> {
     Ok(format!("cfg={v}"))
 }
 
-// ===== 新增：单个字段萃取器示例 =====
-
-// QueryParam - 单个查询参数
-async fn ex_query_param(mut req: Request) -> Result<String> {
-    let name = query_param::<String>(&mut req, "name")
-        .await
-        .unwrap_or_default();
-    let age = query_param::<u32>(&mut req, "age").await.unwrap_or(0);
-    Ok(format!("query_param: name={}, age={}", name, age))
+// ===== Query 参数结构体 =====
+#[derive(Debug, Deserialize)]
+struct NameAgeQuery {
+    name: Option<String>,
+    age: Option<u32>,
 }
 
-// PathParam - 单个路径参数
-async fn ex_path_param(mut req: Request, Path(id): Path<i64>) -> Result<String> {
-    let single_id = path_param::<i64>(&mut req, "id").await.unwrap_or_default();
+// Path 参数结构体
+#[derive(Deserialize)]
+struct IdPath {
+    #[serde(rename = "id")]
+    single_id: i64,
+}
+
+// Header 结构体
+#[derive(Deserialize)]
+struct HeadersQuery {
+    #[serde(rename = "user-agent")]
+    user_agent: Option<String>,
+    #[serde(rename = "content-type")]
+    content_type: Option<String>,
+}
+
+// Cookie 结构体
+#[derive(Deserialize)]
+struct CookiesQuery {
+    session: Option<String>,
+    user: Option<String>,
+}
+
+// 类型转换查询参数
+#[derive(Deserialize)]
+struct TypeConversionQuery {
+    count: Option<i32>,
+    active: Option<bool>,
+    price: Option<f64>,
+    size: Option<u64>,
+}
+
+// ===== 使用结构体萃取器的示例 =====
+
+// Query - 使用结构体萃取器
+async fn ex_query(Query(params): Query<NameAgeQuery>) -> Result<String> {
+    let name = params.name.unwrap_or_default();
+    let age = params.age.unwrap_or(0);
+    Ok(format!("query: name={}, age={}", name, age))
+}
+
+// Path - 使用结构体萃取器
+async fn ex_path(Path(params): Path<IdPath>) -> Result<String> {
     Ok(format!(
-        "path_param: id from Path={}, single_id={}",
-        id, single_id
+        "path: id from Path={}, single_id={}",
+        params.single_id, params.single_id
     ))
 }
 
-// HeaderParam - 单个请求头
-async fn ex_header_param(mut req: Request) -> Result<String> {
-    let user_agent = header_param::<String>(&mut req, "user-agent")
-        .await
+// Headers - 使用 TypedHeader
+async fn ex_headers(TypedHeader(ua): TypedHeader<UserAgent>) -> Result<String> {
+    Ok(format!("headers: user-agent={}", ua.as_str()))
+}
+
+// Cookies - 使用辅助函数从 HeaderMap 提取
+async fn ex_cookies(req: Request) -> Result<String> {
+    let cookies = req
+        .headers()
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
         .unwrap_or_default();
-    let content_type = header_param::<String>(&mut req, "content-type")
-        .await
-        .unwrap_or_default();
+
+    let mut session = String::new();
+    let mut user = String::new();
+
+    for part in cookies.split(';') {
+        let mut kv = part.trim().split('=');
+        if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
+            if k == "session" {
+                session = v.to_string();
+            } else if k == "user" {
+                user = v.to_string();
+            }
+        }
+    }
+
+    Ok(format!("cookies: session={}, user={}", session, user))
+}
+
+// Config - 使用结构体萃取器
+async fn ex_config(Configs(cfg): Configs<MyCfg>) -> Result<String> {
+    Ok(format!("config: cfg={}", cfg.0))
+}
+
+// 组合使用多个萃取器
+async fn ex_combined(args: (Query<NameAgeQuery>, Configs<MyCfg>)) -> Result<String> {
+    let (Query(params), Configs(cfg)) = args;
+    let name = params.name.unwrap_or("guest".to_string());
     Ok(format!(
-        "header_param: user-agent={}, content-type={}",
-        user_agent, content_type
-    ))
-}
-
-// CookieParam - 单个 Cookie
-async fn ex_cookie_param(mut req: Request) -> Result<String> {
-    let session = cookie_param::<String>(&mut req, "session")
-        .await
-        .unwrap_or_default();
-    let user = cookie_param::<String>(&mut req, "user")
-        .await
-        .unwrap_or_default();
-    Ok(format!("cookie_param: session={}, user={}", session, user))
-}
-
-// ConfigParam - 单个配置
-async fn ex_config_param(mut req: Request) -> Result<String> {
-    let cfg = config_param::<MyCfg>(&mut req).await.unwrap_or(MyCfg(0));
-    Ok(format!("config_param: cfg={}", cfg.0))
-}
-
-// 组合使用多个单个字段萃取器
-async fn ex_combined_extractors(mut req: Request) -> Result<String> {
-    let name = query_param::<String>(&mut req, "name")
-        .await
-        .unwrap_or("guest".to_string());
-    let user_agent = header_param::<String>(&mut req, "user-agent")
-        .await
-        .unwrap_or_default();
-    let session = cookie_param::<String>(&mut req, "session")
-        .await
-        .unwrap_or_default();
-    let cfg = config_param::<MyCfg>(&mut req).await.unwrap_or(MyCfg(0));
-
-    Ok(format!(
-        "combined: name={}, ua={}, session={}, cfg={}",
-        name, user_agent, session, cfg.0
+        "combined: name={}, age={}, cfg={}",
+        name,
+        params.age.unwrap_or(0),
+        cfg.0
     ))
 }
 
 // 类型转换示例
-async fn ex_type_conversion(mut req: Request) -> Result<String> {
-    let count = query_param::<i32>(&mut req, "count").await.unwrap_or(0);
-    let active = query_param::<bool>(&mut req, "active")
-        .await
-        .unwrap_or(false);
-    let price = query_param::<f64>(&mut req, "price").await.unwrap_or(0.0);
-    let size = query_param::<u64>(&mut req, "size").await.unwrap_or(0);
+async fn ex_type_conversion(Query(params): Query<TypeConversionQuery>) -> Result<String> {
+    let count = params.count.unwrap_or(0);
+    let active = params.active.unwrap_or(false);
+    let price = params.price.unwrap_or(0.0);
+    let size = params.size.unwrap_or(0);
 
     Ok(format!(
         "type conversion: count={}, active={}, price={}, size={}",
@@ -191,11 +222,9 @@ async fn ex_type_conversion(mut req: Request) -> Result<String> {
 
 // 错误处理示例
 async fn ex_error_handling(mut req: Request) -> Result<String> {
-    // 演示单个字段萃取器的错误处理
-    let result = query_param::<String>(&mut req, "required_param").await;
-
-    match result {
-        Ok(value) => Ok(format!("成功获取参数: {}", value)),
+    // 使用 Query 萃取器，缺少参数时返回错误
+    match Query::<NameAgeQuery>::from_request(&mut req).await {
+        Ok(Query(params)) => Ok(format!("成功获取参数: {:?}", params)),
         Err(_) => Ok("错误：缺少必需参数".to_string()),
     }
 }
@@ -238,7 +267,7 @@ fn main() {
         .append(Route::new("path/<id:int>").get(ex_path_id))
         .append(Route::new("path_struct/<id:i64>/<name>").get(ex_path_struct))
         // query
-        .append(Route::new("query").get(ex_query))
+        .append(Route::new("query").get(ex_query_old))
         .append(Route::new("multi_query").get(ex_multi_query))
         // json
         .append(Route::new("json").post(create_user))
@@ -255,15 +284,20 @@ fn main() {
         // extension/configs
         .append(Route::new("extension").get(ex_extension))
         .append(Route::new("configs").get(ex_configs))
-        // ===== 新增：单个字段萃取器示例路由 =====
-        .append(Route::new("single/query").get(ex_query_param))
-        .append(Route::new("single/path/<id:int>").get(ex_path_param))
-        .append(Route::new("single/header").get(ex_header_param))
-        .append(Route::new("single/cookie").get(ex_cookie_param))
-        .append(Route::new("single/config").get(ex_config_param))
-        .append(Route::new("single/combined").get(ex_combined_extractors))
-        .append(Route::new("single/type_conversion").get(ex_type_conversion))
-        .append(Route::new("single/error").get(ex_error_handling))
+        // ===== 使用结构体萃取器的示例路由 =====
+        .append(Route::new("struct/query").get(ex_query))
+        .append(Route::new("struct/path/<id:int>").get(ex_path))
+        .append(Route::new("struct/headers").get(ex_headers))
+        .append(Route::new("struct/cookies").get(ex_cookies))
+        .append(Route::new("struct/config").get(ex_config))
+        .append(Route::new("struct/combined").get(handler_from_extractor::<
+            (Query<NameAgeQuery>, Configs<MyCfg>),
+            _,
+            _,
+            _,
+        >(ex_combined)))
+        .append(Route::new("struct/type_conversion").get(ex_type_conversion))
+        .append(Route::new("struct/error").get(ex_error_handling))
         // option/result extractors
         .append(Route::new("opt_id").get(ex_option_id))
         .append(Route::new("opt_id/<id:int>").get(ex_option_id))

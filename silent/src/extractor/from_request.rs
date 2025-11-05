@@ -4,13 +4,123 @@ use crate::core::path_param::PathParam as CorePathParam;
 use crate::{Request, Response, SilentError, headers::HeaderMapExt};
 
 use super::types::{
-    Configs, CookieParam, Extension, Form, HeaderParam, Json, Method, Path, PathParam, Query,
-    QueryParam, RemoteAddr, TypedHeader, Uri, Version,
+    Configs, Extension, Form, Json, Method, Path, Query, RemoteAddr, TypedHeader, Uri, Version,
 };
 
+/// `FromRequest` 是萃取器的核心 trait，用于从 HTTP 请求中提取特定类型的数据。
+///
+/// 通过实现这个 trait，您可以创建自定义的萃取器，从请求中提取任何需要的数据。
+/// 所有内置萃取器（Path、Query、Json 等）都实现了这个 trait。
+///
+/// ## 基本用法
+///
+/// 要实现一个自定义萃取器，您需要：
+/// 1. 定义您的数据类型
+/// 2. 实现 `FromRequest` trait
+/// 3. 在处理函数中使用萃取器
+///
+/// ## 示例：创建 JWT 令牌萃取器
+///
+/// ```rust
+/// use async_trait::async_trait;
+/// use silent::extractor::FromRequest;
+/// use silent::{Request, Result, SilentError};
+///
+/// struct JwtToken(String);
+///
+/// #[async_trait]
+/// impl FromRequest for JwtToken {
+///     type Rejection = SilentError;
+///
+///     async fn from_request(req: &mut Request) -> std::result::Result<Self, Self::Rejection> {
+///         let token = req.headers()
+///             .get("authorization")
+///             .and_then(|v| v.to_str().ok())
+///             .and_then(|s| s.strip_prefix("Bearer "))
+///             .map(|s| s.to_string())
+///             .ok_or(SilentError::ParamsNotFound)?;
+///
+///         Ok(JwtToken(token))
+///     }
+/// }
+///
+/// // 使用自定义萃取器
+/// async fn protected_handler(token: JwtToken) -> Result<String> {
+///     Ok(format!("访问受保护的资源，Token: {}", token.0))
+/// }
+/// ```
+///
+/// ## 错误处理
+///
+/// `FromRequest` 的 `Rejection` 类型决定了萃取失败时的错误类型。常用的错误类型：
+/// - `SilentError`：框架内置错误，包含 `ParamsNotFound`、`ParamsEmpty` 等
+/// - `Response`：直接返回 HTTP 响应
+///
+/// ## 组合使用
+///
+/// 多个萃取器可以组合使用：
+///
+/// ```rust
+/// use silent::Result;
+/// use silent::extractor::{Path, Query, Json};
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Page {
+///     page: u32,
+///     size: u32,
+/// }
+///
+/// #[derive(Deserialize)]
+/// struct Data {
+///     name: String,
+/// }
+///
+/// async fn handler(
+///     (Path(id), Query(p), Json(data)): (Path<i64>, Query<Page>, Json<Data>),
+/// ) -> Result<String> {
+///     // 处理提取的数据
+///     Ok("成功".to_string())
+/// }
+/// ```
+///
+/// ## 可选参数
+///
+/// 使用 `Option<T>` 可以处理可选参数：
+///
+/// ```rust
+/// use silent::Result;
+/// use silent::extractor::Path;
+///
+/// async fn handler(opt_id: Option<Path<i64>>) -> Result<String> {
+///     match opt_id {
+///         Some(Path(id)) => Ok(format!("ID: {}", id)),
+///         None => Ok("无ID".to_string()),
+///     }
+/// }
+/// ```
 #[async_trait]
 pub trait FromRequest: Sized {
+    /// 萃取失败时的错误类型
+    ///
+    /// 这个类型必须能够转换为 HTTP 响应（实现了 `Into<Response>`）
     type Rejection: Into<crate::Response> + Send + 'static;
+
+    /// 从请求中提取数据
+    ///
+    /// # 参数
+    ///
+    /// * `req` - 可变的请求引用，可以从中提取数据
+    ///
+    /// # 返回值
+    ///
+    /// 返回 `Result<Self, Self::Rejection>`：
+    /// - 成功时返回 `Ok(extracted_value)`
+    /// - 失败时返回 `Err(error)`
+    ///
+    /// # 示例
+    ///
+    /// 参见上面 `FromRequest` trait 的完整示例。
     async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection>;
 }
 
@@ -295,181 +405,4 @@ fn path_param_to_string(param: &CorePathParam) -> String {
         CorePathParam::UInt64(v) => v.to_string(),
         CorePathParam::Uuid(u) => u.to_string(),
     }
-}
-
-// ===== 单个字段萃取器实现 =====
-
-impl QueryParam<()> {
-    /// 创建查询参数萃取器上下文
-    fn extract(req: &mut Request, param_name: &'static str) -> Result<String, SilentError> {
-        let query = req.uri().query().unwrap_or("");
-        let params: std::collections::HashMap<String, String> = serde_html_form::from_str(query)?;
-        params
-            .get(param_name)
-            .ok_or_else(|| SilentError::ParamsNotFound)
-            .cloned()
-    }
-}
-
-impl PathParam<()> {
-    /// 创建路径参数萃取器上下文
-    fn extract(req: &mut Request, param_name: &'static str) -> Result<String, SilentError> {
-        let params = req.path_params();
-        let value = params
-            .get(param_name)
-            .ok_or_else(|| SilentError::ParamsNotFound)?;
-        Ok(path_param_to_string(value))
-    }
-}
-
-impl HeaderParam<()> {
-    /// 创建请求头萃取器上下文
-    fn extract(req: &mut Request, param_name: &'static str) -> Result<String, SilentError> {
-        let headers = req.headers();
-        let value = headers
-            .get(param_name)
-            .ok_or_else(|| SilentError::ParamsNotFound)?
-            .to_str()
-            .map_err(|_| SilentError::ParamsNotFound)?;
-        Ok(value.to_string())
-    }
-}
-
-impl CookieParam<()> {
-    /// 创建 Cookie 萃取器上下文
-    fn extract(req: &mut Request, param_name: &'static str) -> Result<String, SilentError> {
-        let headers = req.headers();
-        let cookie_header = headers
-            .get("cookie")
-            .ok_or_else(|| SilentError::ParamsNotFound)?
-            .to_str()
-            .map_err(|_| SilentError::ParamsNotFound)?;
-
-        // 解析 Cookie 字符串
-        let mut cookies = std::collections::HashMap::new();
-        for part in cookie_header.split(';') {
-            let mut kv = part.trim().split('=');
-            if let (Some(k), Some(v)) = (kv.next(), kv.next()) {
-                cookies.insert(k.to_string(), v.to_string());
-            }
-        }
-
-        cookies
-            .get(param_name)
-            .ok_or_else(|| SilentError::ParamsNotFound)
-            .cloned()
-    }
-}
-
-// 实现 QueryParam<T> 的 FromRequest
-#[async_trait]
-impl<T> FromRequest for QueryParam<T>
-where
-    for<'de> T: serde::Deserialize<'de> + Send + 'static,
-{
-    type Rejection = SilentError;
-
-    async fn from_request(_req: &mut Request) -> Result<Self, Self::Rejection> {
-        // 注意：QueryParam 需要参数名称才能工作，但 FromRequest 不能接收额外参数
-        // 这个实现只是占位符，实际使用需要通过特殊的宏或函数
-        unimplemented!(
-            "QueryParam<T> requires param_name. Use QueryParam::<T>::from_request_with_name(req, param_name) instead"
-        )
-    }
-}
-
-// 为 QueryParam<T> 实现辅助方法
-impl<T> QueryParam<T> {
-    /// 从请求中提取指定名称的查询参数
-    pub async fn from_request_with_name(
-        req: &mut Request,
-        param_name: &'static str,
-    ) -> Result<T, SilentError>
-    where
-        for<'de> T: serde::Deserialize<'de>,
-    {
-        let value = QueryParam::extract(req, param_name)?;
-        let parsed: T = crate::core::serde::from_str_val(&value)?;
-        Ok(parsed)
-    }
-}
-
-// 为 PathParam<T> 实现辅助方法
-impl<T> PathParam<T> {
-    /// 从请求中提取指定名称的路径参数
-    pub async fn from_request_with_name(
-        req: &mut Request,
-        param_name: &'static str,
-    ) -> Result<T, SilentError>
-    where
-        for<'de> T: serde::Deserialize<'de>,
-    {
-        let value = PathParam::extract(req, param_name)?;
-        let parsed: T = crate::core::serde::from_str_val(&value)?;
-        Ok(parsed)
-    }
-}
-
-// 为 HeaderParam<T> 实现辅助方法
-impl<T> HeaderParam<T> {
-    /// 从请求中提取指定名称的请求头
-    pub async fn from_request_with_name(
-        req: &mut Request,
-        param_name: &'static str,
-    ) -> Result<T, SilentError>
-    where
-        for<'de> T: serde::Deserialize<'de>,
-    {
-        let value = HeaderParam::extract(req, param_name)?;
-        let parsed: T = crate::core::serde::from_str_val(&value)?;
-        Ok(parsed)
-    }
-}
-
-// 为 CookieParam<T> 实现辅助方法
-impl<T> CookieParam<T> {
-    /// 从请求中提取指定名称的 Cookie
-    pub async fn from_request_with_name(
-        req: &mut Request,
-        param_name: &'static str,
-    ) -> Result<T, SilentError>
-    where
-        for<'de> T: serde::Deserialize<'de>,
-    {
-        let value = CookieParam::extract(req, param_name)?;
-        let parsed: T = crate::core::serde::from_str_val(&value)?;
-        Ok(parsed)
-    }
-}
-
-/// 便捷函数：创建 QueryParam 萃取器
-pub async fn query_param<T>(req: &mut Request, param_name: &'static str) -> Result<T, SilentError>
-where
-    for<'de> T: serde::Deserialize<'de> + Send + 'static,
-{
-    QueryParam::<T>::from_request_with_name(req, param_name).await
-}
-
-/// 便捷函数：创建 PathParam 萃取器
-pub async fn path_param<T>(req: &mut Request, param_name: &'static str) -> Result<T, SilentError>
-where
-    for<'de> T: serde::Deserialize<'de> + Send + 'static,
-{
-    PathParam::<T>::from_request_with_name(req, param_name).await
-}
-
-/// 便捷函数：创建 HeaderParam 萃取器
-pub async fn header_param<T>(req: &mut Request, param_name: &'static str) -> Result<T, SilentError>
-where
-    for<'de> T: serde::Deserialize<'de> + Send + 'static,
-{
-    HeaderParam::<T>::from_request_with_name(req, param_name).await
-}
-
-/// 便捷函数：创建 CookieParam 萃取器
-pub async fn cookie_param<T>(req: &mut Request, param_name: &'static str) -> Result<T, SilentError>
-where
-    for<'de> T: serde::Deserialize<'de> + Send + 'static,
-{
-    CookieParam::<T>::from_request_with_name(req, param_name).await
 }

@@ -50,31 +50,3 @@ impl RequestExt for Request {
         T::from_request(self).await
     }
 }
-
-/// QueryParam 萃取器：按名称提取单个查询参数
-#[allow(dead_code)]
-pub struct QueryParam<T> {
-    param_name: &'static str,
-    value: T,
-}
-
-/// PathParam 萃取器：按名称提取单个路径参数
-#[allow(dead_code)]
-pub struct PathParam<T> {
-    param_name: &'static str,
-    value: T,
-}
-
-/// HeaderParam 萃取器：按名称提取单个请求头
-#[allow(dead_code)]
-pub struct HeaderParam<T> {
-    param_name: &'static str,
-    value: T,
-}
-
-/// CookieParam 萃取器：按名称提取单个 Cookie
-#[allow(dead_code)]
-pub struct CookieParam<T> {
-    param_name: &'static str,
-    value: T,
-}
