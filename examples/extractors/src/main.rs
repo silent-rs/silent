@@ -1,8 +1,12 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use silent::extractor::{
+    config_param, cookie_param, header_param, path_param, query_param, Configs, Extension, Form,
+    Json, Method, Path, Query, TypedHeader, Uri, Version, handler_from_extractor,
+};
 use silent::headers::UserAgent;
 use silent::prelude::{Route, Server, logger};
-use silent::{Handler, MiddleWareHandler, Next, Request, Response, Result, extractor::*};
+use silent::{Handler, MiddleWareHandler, Next, Request, Response, Result};
 use tracing::{Level, info};
 
 #[derive(Deserialize)]
@@ -100,6 +104,102 @@ async fn ex_configs(Configs(MyCfg(v)): Configs<MyCfg>) -> Result<String> {
     Ok(format!("cfg={v}"))
 }
 
+// ===== 新增：单个字段萃取器示例 =====
+
+// QueryParam - 单个查询参数
+async fn ex_query_param(mut req: Request) -> Result<String> {
+    let name = query_param::<String>(&mut req, "name")
+        .await
+        .unwrap_or_default();
+    let age = query_param::<u32>(&mut req, "age").await.unwrap_or(0);
+    Ok(format!("query_param: name={}, age={}", name, age))
+}
+
+// PathParam - 单个路径参数
+async fn ex_path_param(mut req: Request, Path(id): Path<i64>) -> Result<String> {
+    let single_id = path_param::<i64>(&mut req, "id").await.unwrap_or_default();
+    Ok(format!(
+        "path_param: id from Path={}, single_id={}",
+        id, single_id
+    ))
+}
+
+// HeaderParam - 单个请求头
+async fn ex_header_param(mut req: Request) -> Result<String> {
+    let user_agent = header_param::<String>(&mut req, "user-agent")
+        .await
+        .unwrap_or_default();
+    let content_type = header_param::<String>(&mut req, "content-type")
+        .await
+        .unwrap_or_default();
+    Ok(format!(
+        "header_param: user-agent={}, content-type={}",
+        user_agent, content_type
+    ))
+}
+
+// CookieParam - 单个 Cookie
+async fn ex_cookie_param(mut req: Request) -> Result<String> {
+    let session = cookie_param::<String>(&mut req, "session")
+        .await
+        .unwrap_or_default();
+    let user = cookie_param::<String>(&mut req, "user")
+        .await
+        .unwrap_or_default();
+    Ok(format!("cookie_param: session={}, user={}", session, user))
+}
+
+// ConfigParam - 单个配置
+async fn ex_config_param(mut req: Request) -> Result<String> {
+    let cfg = config_param::<MyCfg>(&mut req).await.unwrap_or(MyCfg(0));
+    Ok(format!("config_param: cfg={}", cfg.0))
+}
+
+// 组合使用多个单个字段萃取器
+async fn ex_combined_extractors(mut req: Request) -> Result<String> {
+    let name = query_param::<String>(&mut req, "name")
+        .await
+        .unwrap_or("guest".to_string());
+    let user_agent = header_param::<String>(&mut req, "user-agent")
+        .await
+        .unwrap_or_default();
+    let session = cookie_param::<String>(&mut req, "session")
+        .await
+        .unwrap_or_default();
+    let cfg = config_param::<MyCfg>(&mut req).await.unwrap_or(MyCfg(0));
+
+    Ok(format!(
+        "combined: name={}, ua={}, session={}, cfg={}",
+        name, user_agent, session, cfg.0
+    ))
+}
+
+// 类型转换示例
+async fn ex_type_conversion(mut req: Request) -> Result<String> {
+    let count = query_param::<i32>(&mut req, "count").await.unwrap_or(0);
+    let active = query_param::<bool>(&mut req, "active")
+        .await
+        .unwrap_or(false);
+    let price = query_param::<f64>(&mut req, "price").await.unwrap_or(0.0);
+    let size = query_param::<u64>(&mut req, "size").await.unwrap_or(0);
+
+    Ok(format!(
+        "type conversion: count={}, active={}, price={}, size={}",
+        count, active, price, size
+    ))
+}
+
+// 错误处理示例
+async fn ex_error_handling(mut req: Request) -> Result<String> {
+    // 演示单个字段萃取器的错误处理
+    let result = query_param::<String>(&mut req, "required_param").await;
+
+    match result {
+        Ok(value) => Ok(format!("成功获取参数: {}", value)),
+        Err(_) => Ok("错误：缺少必需参数".to_string()),
+    }
+}
+
 // Option 与 Result 萃取器
 async fn ex_option_id(opt: Option<Path<i64>>) -> Result<String> {
     Ok(match opt {
@@ -155,6 +255,15 @@ fn main() {
         // extension/configs
         .append(Route::new("extension").get(ex_extension))
         .append(Route::new("configs").get(ex_configs))
+        // ===== 新增：单个字段萃取器示例路由 =====
+        .append(Route::new("single/query").get(ex_query_param))
+        .append(Route::new("single/path/<id:int>").get(ex_path_param))
+        .append(Route::new("single/header").get(ex_header_param))
+        .append(Route::new("single/cookie").get(ex_cookie_param))
+        .append(Route::new("single/config").get(ex_config_param))
+        .append(Route::new("single/combined").get(ex_combined_extractors))
+        .append(Route::new("single/type_conversion").get(ex_type_conversion))
+        .append(Route::new("single/error").get(ex_error_handling))
         // option/result extractors
         .append(Route::new("opt_id").get(ex_option_id))
         .append(Route::new("opt_id/<id:int>").get(ex_option_id))
