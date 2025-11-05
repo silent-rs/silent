@@ -7,5 +7,6 @@ publish = false
 
 [dependencies]
 silent = { path = "../../silent", features = ["upgrade"] }
-tokio = { workspace = true, features = ["full"] }
 once_cell.workspace = true
+async-lock = "2"
+async-channel = "2"

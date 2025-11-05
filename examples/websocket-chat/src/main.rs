@@ -7,12 +7,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use async_channel as mpsc;
+use async_lock::RwLock;
 use once_cell::sync::Lazy;
-use tokio::sync::{RwLock, mpsc};
 
 use silent::prelude::*;
 
-type Users = RwLock<HashMap<usize, mpsc::UnboundedSender<Message>>>;
+type Users = RwLock<HashMap<usize, mpsc::Sender<Message>>>;
 
 static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
 static ONLINE_USERS: Lazy<Users> = Lazy::new(Users::default);
@@ -34,7 +35,7 @@ fn main() {
 
 async fn on_connect(
     parts: Arc<RwLock<WebSocketParts>>,
-    sender: mpsc::UnboundedSender<Message>,
+    sender: mpsc::Sender<Message>,
 ) -> Result<()> {
     let mut parts = parts.write().await;
     info!("{:?}", parts);
@@ -42,7 +43,7 @@ async fn on_connect(
     info!("new chat user: {}", my_id);
     parts.extensions_mut().insert(my_id);
     sender
-        .send(Message::text(format!("Hello User#{my_id}")))
+        .try_send(Message::text(format!("Hello User#{my_id}")))
         .unwrap();
     ONLINE_USERS.write().await.insert(my_id, sender);
     Ok(())
@@ -68,7 +69,7 @@ async fn on_receive(message: Message, parts: Arc<RwLock<WebSocketParts>>) -> Res
     let message = Message::text(format!("<User#{my_id}>: {msg}"));
     for (uid, tx) in ONLINE_USERS.read().await.iter() {
         if my_id != uid {
-            if let Err(_disconnected) = tx.send(message.clone()) {}
+            let _ = tx.try_send(message.clone());
         }
     }
     Ok(())

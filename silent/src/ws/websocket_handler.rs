@@ -1,10 +1,10 @@
 use crate::Result;
 use crate::ws::WebSocketParts;
 use crate::ws::message::Message;
+use async_channel::Sender as UnboundedSender;
+use async_lock::RwLock;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::UnboundedSender;
 
 #[derive(Clone, Default)]
 pub struct WebSocketHandler<

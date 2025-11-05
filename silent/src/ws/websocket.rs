@@ -4,6 +4,8 @@ use crate::ws::upgrade::{Upgraded, WebSocketParts};
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
+use async_channel::{Sender as UnboundedSender, unbounded as unbounded_channel};
+use async_lock::RwLock;
 use async_trait::async_trait;
 use async_tungstenite::WebSocketStream;
 use async_tungstenite::tokio::TokioAdapter;
@@ -17,8 +19,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 pub struct WebSocket {
     parts: Arc<RwLock<WebSocketParts>>,
@@ -203,7 +203,7 @@ where
         let (parts, ws) = self.into_parts();
         let (mut ws_tx, mut ws_rx) = ws.split();
 
-        let (tx, mut rx) = unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         debug!("on_connect: {:?}", parts);
         if let Some(on_connect) = on_connect {
             on_connect(parts.clone(), tx.clone()).await?;
@@ -212,7 +212,7 @@ where
         let receiver_parts = parts;
 
         let fut = async move {
-            while let Some(message) = rx.recv().await {
+            while let Ok(message) = rx.recv().await {
                 let message = if let Some(on_send) = on_send.clone() {
                     on_send(message.clone(), sender_parts.clone())
                         .await
@@ -225,7 +225,7 @@ where
                 ws_tx.send(message).await.unwrap();
             }
         };
-        tokio::task::spawn(fut);
+        async_global_executor::spawn(fut).detach();
         let fut = async move {
             while let Some(message) = ws_rx.next().await {
                 if let Ok(message) = message {
@@ -245,7 +245,7 @@ where
                 on_close(receiver_parts).await;
             }
         };
-        tokio::task::spawn(fut);
+        async_global_executor::spawn(fut).detach();
         Ok(())
     }
 }

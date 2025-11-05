@@ -8,3 +8,5 @@ publish = false
 
 [dependencies]
 silent = { path = "../../silent", features = ["upgrade"] }
+async-lock = "2"
+async-channel = "2"

@@ -59,7 +59,7 @@ session = ["cookie", "dep:async-session", "dep:async-lock"]
 sse = ["dep:pin-project"]
 static = ["server", "dep:urlencoding", "dep:async-compression", "dep:async-fs"]
 template = ["dep:tera"]
-upgrade = ["dep:async-tungstenite"]
+upgrade = ["dep:async-tungstenite", "dep:async-lock", "dep:async-global-executor", "dep:async-channel"]
 worker = ["dep:worker", "tokio/sync"]
 grpc = [
     "upgrade",
