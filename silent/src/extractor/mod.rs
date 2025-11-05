@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::{Request, Response};
 
-pub use self::from_request::FromRequest;
+pub use self::from_request::{FromRequest, cookie_param, header_param, path_param, query_param};
 pub use self::types::*;
 
 mod from_request;
@@ -284,5 +284,99 @@ mod tests {
                 .await
                 .unwrap();
         assert!(matches!(r, Ok(Json(U { name })) if name == "ok"));
+    }
+
+    #[tokio::test]
+    async fn test_single_field_extractors() {
+        // 测试 QueryParam
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test?name=alice&age=25");
+        let name = query_param::<String>(&mut req, "name").await.unwrap();
+        assert_eq!(name, "alice");
+
+        let age = query_param::<u32>(&mut req, "age").await.unwrap();
+        assert_eq!(age, 25);
+
+        // 测试 PathParam
+        let mut req = Request::empty();
+        req.set_path_params("id".to_owned(), crate::core::path_param::PathParam::Int(42));
+        let id = path_param::<i32>(&mut req, "id").await.unwrap();
+        assert_eq!(id, 42);
+
+        // 测试 HeaderParam
+        let mut req = Request::empty();
+        req.headers_mut().insert(
+            "content-type",
+            http::HeaderValue::from_static("application/json"),
+        );
+        let content_type = header_param::<String>(&mut req, "content-type")
+            .await
+            .unwrap();
+        assert_eq!(content_type, "application/json");
+
+        // 测试 CookieParam
+        let mut req = Request::empty();
+        req.headers_mut().insert(
+            "cookie",
+            http::HeaderValue::from_static("session=abc123; user=alice"),
+        );
+        let session = cookie_param::<String>(&mut req, "session").await.unwrap();
+        assert_eq!(session, "abc123");
+
+        let user = cookie_param::<String>(&mut req, "user").await.unwrap();
+        assert_eq!(user, "alice");
+    }
+
+    #[tokio::test]
+    async fn test_single_field_extractors_not_found() {
+        // 测试 QueryParam 不存在的情况
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test");
+        let result = query_param::<String>(&mut req, "missing").await;
+        assert!(result.is_err());
+
+        // 测试 PathParam 不存在的情况
+        let mut req = Request::empty();
+        let result = path_param::<String>(&mut req, "missing").await;
+        assert!(result.is_err());
+
+        // 测试 HeaderParam 不存在的情况
+        let mut req = Request::empty();
+        let result = header_param::<String>(&mut req, "missing").await;
+        assert!(result.is_err());
+
+        // 测试 CookieParam 不存在的情况
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("cookie", http::HeaderValue::from_static("session=abc123"));
+        let result = cookie_param::<String>(&mut req, "missing").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_single_field_extractors_type_conversion() {
+        // 测试类型转换：String -> i32
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test?count=123");
+        let count = query_param::<i32>(&mut req, "count").await.unwrap();
+        assert_eq!(count, 123);
+
+        // 测试类型转换：String -> bool
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test?active=true");
+        let active = query_param::<bool>(&mut req, "active").await.unwrap();
+        assert!(active);
+
+        // 测试类型转换：String -> f64
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test?price=99.99");
+        let price = query_param::<f64>(&mut req, "price").await.unwrap();
+        assert_eq!(price, 99.99);
+
+        // 测试类型转换：String -> u64
+        let mut req = Request::empty();
+        *req.uri_mut() = http::Uri::from_static("http://localhost/test?size=999");
+        let size = query_param::<u64>(&mut req, "size").await.unwrap();
+        assert_eq!(size, 999);
     }
 }
