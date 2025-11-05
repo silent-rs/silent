@@ -61,23 +61,21 @@ pub(crate) async fn handle_quic_connection(
 
 /// 内部测试缝隙：HTTP/3 请求-响应通道最小能力
 ///
-/// 仅用于本文件内部，帮助在不依赖真实 h3::RequestStream 的情况下做单测。
+/// 仅用于本文件内部，帮助在不依赖真实 h3::RequestStream 的的情况下做单测。
 /// 保持最小必要方法集合以避免泄露协议细节。
 trait H3RequestIo: Send {
-    fn recv_data<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Bytes>>> + Send + 'a>>;
-    fn send_response<'a>(
-        &'a mut self,
+    fn recv_data(
+        &mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send;
+    fn send_response(
+        &mut self,
         resp: Response<()>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
-    fn send_data<'a>(
-        &'a mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn send_data(
+        &mut self,
         data: Bytes,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
-    fn finish<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
+    fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send;
 }
 
 // 真实 H3 RequestStream 到 H3StreamIo 的适配器
@@ -90,49 +88,50 @@ impl RealH3Stream {
 }
 
 impl H3RequestIo for RealH3Stream {
-    fn recv_data<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<Bytes>>> + Send + 'a>>
-    {
-        Box::pin(async move {
+    #[allow(clippy::manual_async_fn)]
+    fn recv_data(
+        &mut self,
+    ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+        async move {
             match self.0.recv_data().await {
                 Ok(Some(mut chunk)) => Ok(Some(chunk.copy_to_bytes(chunk.remaining()))),
                 Ok(None) => Ok(None),
                 Err(e) => Err(anyhow!("读取 HTTP/3 请求体失败: {e}")),
             }
-        })
+        }
     }
-    fn send_response<'a>(
-        &'a mut self,
+    #[allow(clippy::manual_async_fn)]
+    fn send_response(
+        &mut self,
         resp: Response<()>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .send_response(resp)
                 .await
                 .map_err(|e| anyhow!("发送 HTTP/3 响应头失败: {e}"))
-        })
+        }
     }
-    fn send_data<'a>(
-        &'a mut self,
+    #[allow(clippy::manual_async_fn)]
+    fn send_data(
+        &mut self,
         data: Bytes,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .send_data(data)
                 .await
                 .map_err(|e| anyhow!("发送 HTTP/3 响应数据失败: {e}"))
-        })
+        }
     }
-    fn finish<'a>(
-        &'a mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
-        Box::pin(async move {
+    #[allow(clippy::manual_async_fn)]
+    fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+        async move {
             self.0
                 .finish()
                 .await
                 .map_err(|e| anyhow!("结束 HTTP/3 响应失败: {e}"))
-        })
+        }
     }
 }
 
@@ -165,9 +164,10 @@ async fn handle_http3_request(
 }
 
 // 提取后的实现，便于在测试中注入自定义流
-async fn handle_http3_request_impl(
+// 优化版本：使用泛型实现完全静态分派，消除动态分派开销
+async fn handle_http3_request_impl<T: H3RequestIo>(
     request: HttpRequest<()>,
-    stream: &mut dyn H3RequestIo,
+    stream: &mut T,
     remote: SocketAddr,
     routes: Arc<Route>,
 ) -> Result<()> {
@@ -243,9 +243,7 @@ mod tests {
     use crate::{Method, Response as SilentResponse};
     use anyhow::anyhow;
     use bytes::Bytes;
-    use http::Request as HttpRequest;
-    use http::Response as HttpResponse;
-    use http::StatusCode;
+    use http::{Request as HttpRequest, Response, StatusCode};
     use std::collections::VecDeque;
     use std::net::SocketAddr;
     use std::sync::Arc;
@@ -253,7 +251,7 @@ mod tests {
     // 伪造 H3 流，用于在不依赖真实 h3/quinn 的情况下测试 HTTP/3 处理路径
     struct FakeH3Stream {
         incoming: VecDeque<Bytes>,
-        pub sent_head: Option<HttpResponse<()>>,
+        pub sent_head: Option<Response<()>>,
         pub sent_data: Vec<Bytes>,
         pub finished: bool,
         fail_on_send_head: bool,
@@ -293,55 +291,52 @@ mod tests {
     }
 
     impl H3RequestIo for FakeH3Stream {
-        fn recv_data<'a>(
-            &'a mut self,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send + 'a>,
-        > {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn recv_data(
+            &mut self,
+        ) -> impl std::future::Future<Output = anyhow::Result<Option<Bytes>>> + Send {
+            async move {
                 if self.fail_on_recv_data {
                     return Err(anyhow!("recv_data_failed"));
                 }
                 Ok(self.incoming.pop_front())
-            })
+            }
         }
-        fn send_response<'a>(
-            &'a mut self,
-            resp: HttpResponse<()>,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn send_response(
+            &mut self,
+            resp: Response<()>,
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
                 if self.fail_on_send_head {
                     return Err(anyhow!("send_head_failed"));
                 }
                 self.sent_head = Some(resp);
                 Ok(())
-            })
+            }
         }
-        fn send_data<'a>(
-            &'a mut self,
+        #[allow(clippy::manual_async_fn)]
+        fn send_data(
+            &mut self,
             data: Bytes,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        ) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
                 if self.fail_on_send_data {
                     return Err(anyhow!("send_data_failed"));
                 }
                 self.sent_data.push(data);
                 Ok(())
-            })
+            }
         }
-        fn finish<'a>(
-            &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>>
-        {
-            Box::pin(async move {
+        #[allow(clippy::manual_async_fn)]
+        fn finish(&mut self) -> impl std::future::Future<Output = anyhow::Result<()>> + Send {
+            async move {
                 if self.fail_on_finish {
                     return Err(anyhow!("finish_failed"));
                 }
                 self.finished = true;
                 Ok(())
-            })
+            }
         }
     }
 
