@@ -18,6 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use tokio_util::compat::TokioAsyncReadCompatExt;
 
 pub struct WebSocket<S>
 where
@@ -42,8 +43,7 @@ where
         let (parts, upgraded) = upgraded.into_parts();
         Self {
             parts: Arc::new(RwLock::new(parts)),
-            upgrade: WebSocketStream::from_raw_socket(TokioAdapter::new(upgraded), role, config)
-                .await,
+            upgrade: WebSocketStream::from_raw_socket(upgraded, role, config).await,
         }
     }
 
