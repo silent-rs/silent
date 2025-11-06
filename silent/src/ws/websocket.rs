@@ -18,7 +18,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_util::compat::TokioAsyncReadCompatExt;
+// no direct compat usage here; constructed upstream
 
 pub struct WebSocket<S>
 where

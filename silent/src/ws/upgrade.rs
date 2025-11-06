@@ -10,6 +10,9 @@ use hyper::upgrade::Upgraded as HyperUpgraded;
 use hyper_util::rt::TokioIo;
 // server 路径在 hyper_service 内部完成 compat 适配
 use hyper::upgrade::Upgraded as HyperUpgraded;
+#[cfg(feature = "server")]
+use hyper_util::rt::TokioIo;
+// server 路径在 hyper_service 内部完成 compat 适配
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::sync::{Arc, Mutex};
@@ -58,14 +61,11 @@ impl WebSocketParts {
 pub struct Upgraded<S> {
     head: WebSocketParts,
     upgrade: S,
-    upgrade: HyperUpgraded,
 }
 
 #[allow(dead_code)]
 impl<S> Upgraded<S> {
     pub(crate) fn into_parts(self) -> (WebSocketParts, S) {
-impl Upgraded {
-    pub(crate) fn into_parts(self) -> (WebSocketParts, HyperUpgraded) {
         (self.head, self.upgrade)
     }
 
@@ -96,17 +96,27 @@ impl Upgraded {
 }
 
 // 注入式升级接收器：服务器侧在收到可升级请求时，创建 oneshot::Receiver 并注入到 Request.extensions 中。
-#[derive(Clone)]
-pub struct AsyncUpgradeRx(AsyncUpgradeInner);
+pub struct AsyncUpgradeRx<S>(AsyncUpgradeInner<S>);
 
-#[derive(Clone)]
-struct AsyncUpgradeInner(Arc<Mutex<Option<oneshot::Receiver<HyperUpgraded>>>>);
+struct AsyncUpgradeInner<S>(Arc<Mutex<Option<oneshot::Receiver<S>>>>);
 
-impl AsyncUpgradeRx {
-    pub fn new(rx: oneshot::Receiver<HyperUpgraded>) -> Self {
+impl<S> Clone for AsyncUpgradeInner<S> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<S> Clone for AsyncUpgradeRx<S> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<S> AsyncUpgradeRx<S> {
+    pub fn new(rx: oneshot::Receiver<S>) -> Self {
         Self(AsyncUpgradeInner(Arc::new(Mutex::new(Some(rx)))))
     }
-    pub fn take(&self) -> Option<oneshot::Receiver<HyperUpgraded>> {
+    pub fn take(&self) -> Option<oneshot::Receiver<S>> {
         // 忽略锁错误，按 None 处理
         self.0.0.lock().ok().and_then(|mut g| g.take())
     }
@@ -191,7 +201,7 @@ where
         .map_err(|e| SilentError::WsError(format!("upgrade await error: {e}")))?;
     // 从扩展中获取注入的升级接收器
     let rx = extensions
-        .remove::<AsyncUpgradeRx>()
+        .remove::<AsyncUpgradeRx<S>>()
         .ok_or_else(|| SilentError::WsError("No upgrade channel available".to_string()))?;
     let rx = rx
         .take()
