@@ -47,7 +47,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("route: \n{:?}", route);
     Server::new()
         .bind("0.0.0.0:50051".parse().unwrap())
-        .expect("Failed to bind to address")
         .serve(route)
         .await;
     Ok(())
