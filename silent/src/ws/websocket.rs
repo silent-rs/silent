@@ -1,6 +1,6 @@
 use crate::log::debug;
 use crate::ws::message::Message;
-use crate::ws::upgrade::{Upgraded, WebSocketParts};
+use crate::ws::upgrade::WebSocketParts;
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
@@ -9,33 +9,38 @@ use async_lock::RwLock;
 use async_trait::async_trait;
 use async_tungstenite::WebSocketStream;
 use async_tungstenite::tungstenite::protocol;
+use futures::io::{AsyncRead, AsyncWrite};
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
-use hyper::upgrade::Upgraded as HyperUpgraded;
-use hyper_util::rt::TokioIo;
+// no direct dependency on hyper types here
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio_util::compat::TokioAsyncReadCompatExt;
+// no direct compat usage here; constructed upstream
 
-pub struct WebSocket {
+pub struct WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     parts: Arc<RwLock<WebSocketParts>>,
-    upgrade: WebSocketStream<tokio_util::compat::Compat<TokioIo<HyperUpgraded>>>,
+    upgrade: WebSocketStream<S>,
 }
 
-unsafe impl Sync for WebSocket {}
+unsafe impl<S> Sync for WebSocket<S> where S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 
-impl WebSocket {
+impl<S> WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     #[inline]
     pub(crate) async fn from_raw_socket(
-        upgraded: Upgraded,
+        upgraded: crate::ws::upgrade::Upgraded<S>,
         role: protocol::Role,
         config: Option<protocol::WebSocketConfig>,
     ) -> Self {
         let (parts, upgraded) = upgraded.into_parts();
-        let upgraded = TokioIo::new(upgraded).compat();
         Self {
             parts: Arc::new(RwLock::new(parts)),
             upgrade: WebSocketStream::from_raw_socket(upgraded, role, config).await,
@@ -72,7 +77,10 @@ impl WebSocket {
     }
 }
 
-impl Sink<Message> for WebSocket {
+impl<S> Sink<Message> for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     type Error = SilentError;
 
     #[inline]
@@ -154,6 +162,7 @@ impl<
     FnOnReceiveFut,
     FnOnClose,
     FnOnCloseFut,
+    S,
 >
     WebSocketHandlerTrait<
         FnOnConnect,
@@ -164,8 +173,9 @@ impl<
         FnOnReceiveFut,
         FnOnClose,
         FnOnCloseFut,
-    > for WebSocket
+    > for WebSocket<S>
 where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     FnOnConnect: Fn(Arc<RwLock<WebSocketParts>>, UnboundedSender<Message>) -> FnOnConnectFut
         + Send
         + Sync
@@ -249,7 +259,10 @@ where
     }
 }
 
-impl Stream for WebSocket {
+impl<S> Stream for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     type Item = Result<Message>;
 
     #[inline]
