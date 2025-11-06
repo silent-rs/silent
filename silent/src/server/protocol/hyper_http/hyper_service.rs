@@ -3,6 +3,8 @@ use std::pin::Pin;
 
 use hyper::service::Service as HyperService;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
+#[cfg(feature = "upgrade")]
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::debug;
 
 use crate::core::res_body::ResBody;
@@ -51,7 +53,8 @@ where
         let on_upgrade = parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
         #[cfg(feature = "upgrade")]
         let (tx_opt, rx_opt) = if on_upgrade.is_some() {
-            let (tx, rx) = futures::channel::oneshot::channel::<hyper::upgrade::Upgraded>();
+            // 向上层注入 futures-io 兼容的升级流
+            let (tx, rx) = futures::channel::oneshot::channel::<crate::ws::ServerUpgradedIo>();
             (Some(tx), Some(rx))
         } else {
             (None, None)
@@ -72,7 +75,9 @@ where
             {
                 tokio::task::spawn(async move {
                     if let Ok(up) = on_upgrade.await {
-                        let _ = tx.send(up);
+                        // 将 Hyper 升级流适配为 futures-io
+                        let compat = hyper_util::rt::TokioIo::new(up).compat();
+                        let _ = tx.send(compat);
                     }
                 });
             }
