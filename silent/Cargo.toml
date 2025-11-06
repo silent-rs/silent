@@ -119,7 +119,7 @@ async-tungstenite = { version = "0.26", optional = true, default-features = fals
 tokio-util = { version = "0.7", features = ["compat"] }
 async-io = { version = "2" }
 async-fs = { version = "2", optional = true }
-async-global-executor = { version = "2", optional = true }
+async-global-executor = { version = "3", optional = true }
 async-channel = { version = "2", optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
