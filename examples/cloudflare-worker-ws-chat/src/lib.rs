@@ -21,7 +21,7 @@ static ONLINE_USERS: Lazy<RwLock<HashMap<usize, WebSocket>>> =
 
 #[cfg(target_arch = "wasm32")]
 #[worker::event(fetch)]
-pub async fn main(mut req: Request, _env: Env, _ctx: Context) -> Result<Response> {
+pub async fn main(req: Request, _env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
     let path = req.path();
