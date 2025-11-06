@@ -1,3 +1,30 @@
+# TODO（Server的bind方法失败时直接退出程序）
+
+> 分支: `fix/server-bind-exit-on-error`（自 `main` 切出）
+> 目标版本: v2.12
+> 优先级: P1
+> **状态**: ✅ 已完成
+
+## 变更摘要
+- 修改 `Server::bind()` 方法，失败时直接使用 `expect()` 退出程序而不是返回 `Result`
+- 修改 `Server::bind_unix()` 方法，失败时直接使用 `expect()` 退出程序而不是返回 `Result`
+- 移除示例中 `.bind()?.` 的 `?` 操作符，提升API易用性
+- 更新文档注释中的示例代码
+
+## 修改的文件
+- `silent/src/server/mod.rs`: 修改 `bind()` 和 `bind_unix()` 方法签名和实现
+- `silent-openapi/examples/security_example.rs`: 移除 `?` 操作符
+- `silent-openapi/examples/simple_example.rs`: 移除 `?` 操作符
+- `silent-openapi/examples/user_api.rs`: 移除 `?` 操作符
+
+## 验收标准
+- [x] `cargo fmt --all` 通过
+- [x] `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
+- [x] `cargo test -p silent --all-features` 全部通过（186个测试）
+- [x] 示例可正常编译运行
+
+---
+
 # TODO（完善萃取器文档和高级示例） ✅ 已完成
 
 > 分支: `feature/extractors-docs-and-examples`（自 `main` 切出）

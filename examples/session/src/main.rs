@@ -15,6 +15,5 @@ fn main() {
     });
     Server::new()
         .bind("127.0.0.1:8000".parse().unwrap())
-        .expect("Failed to bind to address")
         .run(route);
 }
