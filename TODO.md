@@ -1,3 +1,34 @@
+# TODO（修复 cargo nextest 全量测试报错）
+
+> 分支: `fix/nextest-silent-build`（自 `main` 切出）
+> 目标版本: v2.12
+> 优先级: P0
+> 状态: ✅ 已完成
+
+## 变更摘要
+- 适配 `tungstenite 0.28` 与 `async-tungstenite 0.32` 的 API 变更
+- `ws::message`：
+  - `Text(String)` → `Text(Utf8Bytes)`：改为 `s.into().into()`
+  - `Binary/Ping/Pong(Vec<u8>)` → `Bytes`：改为 `v.into().into()`
+  - `as_bytes()` 使用 `as_ref()` 代替私有的 `as_slice()`
+- `ws::websocket`：
+  - 删除对 `Sink<Message>` 的实现，改用 `WebSocketStream::{send, close, split}` 公共 API
+  - `close()` 改为调用底层 `self.upgrade.close(None).await`
+  - `split()` 代理到底层，返回 `WebSocketSender/WebSocketReceiver`
+  - 发送与接收路径分别改为使用 `Message { inner }` 的解包/封装
+
+## 修改的文件
+- `silent/src/ws/message.rs`
+- `silent/src/ws/websocket.rs`
+
+## 验收标准
+- [x] `cargo fmt --all --check` 通过
+- [x] `cargo clippy -p silent --all-features --all-targets --tests --benches -- -D warnings` 通过
+- [x] `cargo check -p silent --all-features` 通过
+- [x] `cargo nextest run -p silent --all-features` 全部通过（189 个测试）
+
+---
+
 # TODO（Server的bind方法失败时直接退出程序）
 
 > 分支: `fix/server-bind-exit-on-error`（自 `main` 切出）

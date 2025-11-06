@@ -1,18 +1,17 @@
+use crate::Result;
 use crate::log::debug;
 use crate::ws::message::Message;
 use crate::ws::upgrade::WebSocketParts;
 use crate::ws::websocket_handler::WebSocketHandler;
-use crate::{Result, SilentError};
 use anyhow::anyhow;
 use async_channel::{Sender as UnboundedSender, unbounded as unbounded_channel};
 use async_lock::RwLock;
 use async_trait::async_trait;
-use async_tungstenite::WebSocketStream;
 use async_tungstenite::tungstenite::protocol;
+use async_tungstenite::{WebSocketReceiver, WebSocketSender, WebSocketStream};
 use futures::io::{AsyncRead, AsyncWrite};
-use futures_util::sink::{Sink, SinkExt};
+use futures_util::ready;
 use futures_util::stream::{Stream, StreamExt};
-use futures_util::{future, ready};
 // no direct dependency on hyper types here
 use std::future::Future;
 use std::pin::Pin;
@@ -73,44 +72,25 @@ where
     #[allow(dead_code)]
     #[inline]
     pub async fn close(mut self) -> Result<()> {
-        future::poll_fn(|cx| Pin::new(&mut self).poll_close(cx)).await
+        self.upgrade
+            .close(None)
+            .await
+            .map_err(|e| anyhow!("close error: {}", e).into())
     }
 }
 
-impl<S> Sink<Message> for WebSocket<S>
+impl<S> WebSocket<S>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    type Error = SilentError;
-
     #[inline]
-    fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
-        Pin::new(&mut self.upgrade)
-            .poll_ready(cx)
-            .map_err(|e| anyhow!("poll_ready error: {}", e).into())
-    }
-
-    #[inline]
-    fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<()> {
-        Pin::new(&mut self.upgrade)
-            .start_send(item.inner)
-            .map_err(|e| anyhow!("start_send error: {}", e).into())
-    }
-
-    #[inline]
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<()>> {
-        Pin::new(&mut self.upgrade)
-            .poll_flush(cx)
-            .map_err(|e| anyhow!("poll_flush error: {}", e).into())
-    }
-
-    #[inline]
-    fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<()>> {
-        Pin::new(&mut self.upgrade)
-            .poll_close(cx)
-            .map_err(|e| anyhow!("poll_close error: {}", e).into())
+    pub fn split(self) -> (WebSocketSender<S>, WebSocketReceiver<S>) {
+        let Self { parts: _, upgrade } = self;
+        upgrade.split()
     }
 }
+
+// Removed Sink<Message> impl due to async-tungstenite >=0.32 API changes.
 
 #[async_trait]
 pub trait WebSocketHandlerTrait<
@@ -231,7 +211,7 @@ where
                 };
 
                 debug!("send message: {:?}", message);
-                ws_tx.send(message).await.unwrap();
+                ws_tx.send(message.inner).await.unwrap();
             }
         };
         async_global_executor::spawn(fut).detach();
@@ -243,7 +223,9 @@ where
                     }
                     debug!("receive message: {:?}", message);
                     if let Some(on_receive) = on_receive.clone()
-                        && on_receive(message, receiver_parts.clone()).await.is_err()
+                        && on_receive(Message { inner: message }, receiver_parts.clone())
+                            .await
+                            .is_err()
                     {
                         break;
                     }
