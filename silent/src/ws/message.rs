@@ -22,7 +22,7 @@ impl Message {
     #[inline]
     pub fn text<S: Into<String>>(s: S) -> Message {
         Message {
-            inner: protocol::Message::Text(s.into()),
+            inner: protocol::Message::Text(s.into().into()),
         }
     }
 
@@ -30,7 +30,7 @@ impl Message {
     #[inline]
     pub fn binary<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
-            inner: protocol::Message::Binary(v.into()),
+            inner: protocol::Message::Binary(v.into().into()),
         }
     }
 
@@ -38,7 +38,7 @@ impl Message {
     #[inline]
     pub fn ping<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
-            inner: protocol::Message::Ping(v.into()),
+            inner: protocol::Message::Ping(v.into().into()),
         }
     }
 
@@ -46,7 +46,7 @@ impl Message {
     #[inline]
     pub fn pong<V: Into<Vec<u8>>>(v: V) -> Message {
         Message {
-            inner: protocol::Message::Pong(v.into()),
+            inner: protocol::Message::Pong(v.into().into()),
         }
     }
 
@@ -122,9 +122,9 @@ impl Message {
     pub fn as_bytes(&self) -> &[u8] {
         match self.inner {
             protocol::Message::Text(ref s) => s.as_bytes(),
-            protocol::Message::Binary(ref v) => v.as_slice(),
-            protocol::Message::Ping(ref v) => v.as_slice(),
-            protocol::Message::Pong(ref v) => v.as_slice(),
+            protocol::Message::Binary(ref v) => v.as_ref(),
+            protocol::Message::Ping(ref v) => v.as_ref(),
+            protocol::Message::Pong(ref v) => v.as_ref(),
             protocol::Message::Close(_) => &[],
             protocol::Message::Frame(ref v) => v.payload(),
         }
