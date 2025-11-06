@@ -91,7 +91,7 @@ quic = [
 [dependencies]
 # Basic dependencies
 anyhow = "1"
-async-lock = { version = "2", optional = true }
+async-lock = { version = "3", optional = true }
 async-trait = "0.1"
 bytes = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
