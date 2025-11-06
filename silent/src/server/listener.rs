@@ -85,10 +85,12 @@ impl Listen for Listener {
             #[cfg(not(target_os = "windows"))]
             Listener::UnixListener(listener) => {
                 let accept_future = async move {
-                    let (stream, addr) = listener.accept().await?;
+                    let (stream, _peer_addr) = listener.accept().await?;
+                    // 使用本地地址（监听路径）作为远端信息注入，便于上层通过 x-real-ip 获取到 Unix 路径
+                    let local = stream.local_addr()?;
                     Ok((
                         Box::new(Stream::UnixStream(stream)) as Box<dyn Connection + Send + Sync>,
-                        SocketAddr::Unix(addr.into()),
+                        SocketAddr::Unix(local.into()),
                     ))
                 };
                 Box::pin(accept_future)

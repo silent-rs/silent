@@ -48,7 +48,10 @@ where
 
     #[inline]
     fn call(&self, req: HyperRequest<B>) -> Self::Future {
+        #[cfg(feature = "upgrade")]
         let (mut parts, body) = req.into_parts();
+        #[cfg(not(feature = "upgrade"))]
+        let (parts, body) = req.into_parts();
         #[cfg(feature = "upgrade")]
         let on_upgrade = parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
         #[cfg(feature = "upgrade")]

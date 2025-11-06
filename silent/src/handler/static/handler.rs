@@ -160,6 +160,7 @@ mod tests {
     use http::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_TYPE};
     use http_body_util::BodyExt;
 
+    use crate::core::path_param::PathString;
     use crate::prelude::*;
     use crate::{Handler, Request, SilentError, StatusCode};
 
@@ -179,6 +180,12 @@ mod tests {
 
 </body>
 </html>"#;
+    impl PathParam {
+        #[cfg(test)]
+        pub(crate) fn path_owned(value: String) -> Self {
+            PathParam::Path(PathString::Owned(value))
+        }
+    }
 
     fn create_static(path: &str) {
         if !std::path::Path::new(path).is_dir() {
