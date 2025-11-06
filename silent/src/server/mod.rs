@@ -50,16 +50,20 @@ impl Server {
     }
 
     #[inline]
-    pub fn bind(mut self, addr: SocketAddr) -> Result<Self, std::io::Error> {
-        self.listeners_builder.bind(addr)?;
-        Ok(self)
+    pub fn bind(mut self, addr: SocketAddr) -> Self {
+        self.listeners_builder
+            .bind(addr)
+            .expect("Failed to bind to address");
+        self
     }
 
     #[cfg(not(target_os = "windows"))]
     #[inline]
-    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Result<Self, std::io::Error> {
-        self.listeners_builder.bind_unix(path)?;
-        Ok(self)
+    pub fn bind_unix<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.listeners_builder
+            .bind_unix(&path)
+            .expect("Failed to bind to Unix socket");
+        self
     }
 
     #[inline]
@@ -101,7 +105,7 @@ impl Server {
     /// };
     ///
     /// let server = Server::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
     ///     .with_rate_limiter(config);
     /// ```
     pub fn with_rate_limiter(mut self, config: RateLimiterConfig) -> Self {
@@ -127,7 +131,7 @@ impl Server {
     /// use std::time::Duration;
     ///
     /// let server = Server::new()
-    ///     .bind("127.0.0.1:8080".parse().unwrap()).unwrap()
+    ///     .bind("127.0.0.1:8080".parse().unwrap())
     ///     .with_shutdown(Duration::from_secs(30));
     /// ```
     pub fn with_shutdown(mut self, graceful_wait: Duration) -> Self {
@@ -195,7 +199,6 @@ mod tests {
     async fn test_server_builder_chain() {
         let _ = Server::new()
             .bind("127.0.0.1:0".parse().unwrap())
-            .unwrap()
             .on_listen(|_addrs| {})
             .with_rate_limiter(RateLimiterConfig {
                 capacity: 1,

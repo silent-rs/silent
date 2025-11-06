@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
 
     routes.set_configs(Some(configs));
 
-    Server::new().bind(addr)?.serve(routes).await;
+    Server::new().bind(addr).serve(routes).await;
 
     Ok(())
 }
