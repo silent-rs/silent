@@ -2,13 +2,13 @@ use crate::core::req_body::ReqBody;
 use crate::header::{CONTENT_TYPE, HeaderMap};
 use crate::multer::{Field, Multipart};
 use crate::{SilentError, StatusCode};
+use async_fs::File;
+use futures::io::AsyncWriteExt;
 use multimap::MultiMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use tempfile::Builder;
 use textnonce::TextNonce;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 
 /// The extracted text fields and uploaded files from a `multipart/form-data` request.
 #[derive(Debug)]
@@ -131,12 +131,10 @@ impl FilePart {
     #[inline]
     pub async fn create(field: &mut Field<'_>) -> Result<FilePart, SilentError> {
         // Set up a file to capture the contents.
-        let mut path = tokio::task::spawn_blocking(|| {
-            Builder::new().prefix("silent_http_multipart").tempdir()
-        })
-        .await
-        .expect("Runtime spawn blocking poll error")?
-        .keep();
+        let mut path = Builder::new()
+            .prefix("silent_http_multipart")
+            .tempdir()?
+            .keep();
         let temp_dir = Some(path.clone());
         let name = field.file_name().map(|s| s.to_owned());
         path.push(format!(
@@ -167,9 +165,9 @@ impl Drop for FilePart {
         if let Some(temp_dir) = &self.temp_dir {
             let path = self.path.clone();
             let temp_dir = temp_dir.to_owned();
-            tokio::task::spawn_blocking(move || {
-                std::fs::remove_file(&path).ok();
-                std::fs::remove_dir(temp_dir).ok();
+            std::thread::spawn(move || {
+                let _ = std::fs::remove_file(&path);
+                let _ = std::fs::remove_dir(temp_dir);
             });
         }
     }

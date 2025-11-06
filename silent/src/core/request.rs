@@ -13,12 +13,12 @@ use http::{Extensions, HeaderMap, HeaderValue, Method, Uri, Version};
 use http::{Request as BaseRequest, StatusCode};
 use http_body_util::BodyExt;
 use mime::Mime;
+use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use serde::de::StdError;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::OnceCell;
 use url::form_urlencoded;
 
 /// 请求体
@@ -308,11 +308,22 @@ impl Request {
         if content_type.subtype() != mime::FORM_DATA {
             return Err(SilentError::ContentTypeError);
         }
+
+        // Check if already initialized
+        if self.form_data.get().is_some() {
+            return Ok(self.form_data.get().unwrap());
+        }
+
         let body = self.take_body();
         let headers = self.headers();
-        self.form_data
-            .get_or_try_init(|| async { FormData::read(headers, body).await })
-            .await
+        let form_data = FormData::read(headers, body).await.map_err(|e| {
+            SilentError::business_error(
+                StatusCode::BAD_REQUEST,
+                format!("Failed to read form data: {}", e),
+            )
+        })?;
+        self.form_data.get_or_init(|| form_data);
+        Ok(self.form_data.get().unwrap())
     }
 
     /// 解析表单数据（支持 multipart/form-data 和 application/x-www-form-urlencoded）

@@ -71,13 +71,6 @@ impl From<Uuid> for PathParam {
     }
 }
 
-impl PathParam {
-    #[allow(dead_code)]
-    pub(crate) fn path_owned(value: String) -> Self {
-        PathParam::Path(PathString::Owned(value))
-    }
-}
-
 impl<'a> TryFrom<&'a PathParam> for i32 {
     type Error = SilentError;
 
