@@ -3,7 +3,7 @@ mod handler_wrapper_websocket;
 mod message;
 mod route;
 mod types;
-mod upgrade;
+pub mod upgrade;
 mod websocket;
 mod websocket_handler;
 

@@ -52,7 +52,7 @@ impl WebSocketParts {
     }
 }
 
-pub(crate) struct Upgraded<S> {
+pub struct Upgraded<S> {
     head: WebSocketParts,
     upgrade: S,
 }
