@@ -28,7 +28,13 @@ impl Debug for SocketAddr {
             #[cfg(feature = "tls")]
             SocketAddr::TlsTcp(addr) => write!(f, "https://{addr}"),
             #[cfg(unix)]
-            SocketAddr::Unix(addr) => write!(f, "UnixSocketAddr({addr:?})"),
+            SocketAddr::Unix(addr) => {
+                if let Some(path) = addr.as_pathname() {
+                    write!(f, "unix://{}", path.display())
+                } else {
+                    write!(f, "unix:(unnamed)")
+                }
+            }
         }
     }
 }
@@ -42,7 +48,11 @@ impl Display for SocketAddr {
             SocketAddr::TlsTcp(addr) => write!(f, "{addr}"),
             #[cfg(unix)]
             SocketAddr::Unix(addr) => {
-                write!(f, "{:?}", addr.as_pathname())
+                if let Some(path) = addr.as_pathname() {
+                    write!(f, "{}", path.display())
+                } else {
+                    write!(f, "(unnamed)")
+                }
             }
         }
     }
@@ -104,13 +114,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_unix_socket_addr() {
-        use std::path::Path;
         let _ = std::fs::remove_file("/tmp/sock");
         let addr = std::os::unix::net::SocketAddr::from_pathname("/tmp/sock").unwrap();
         let socket_addr = SocketAddr::from(addr);
-        assert_eq!(
-            format!("{socket_addr}"),
-            format!("{:?}", Some(Path::new("/tmp/sock")))
-        );
+        assert_eq!(format!("{socket_addr}"), "/tmp/sock");
     }
 }

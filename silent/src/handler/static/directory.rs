@@ -1,7 +1,8 @@
 use std::path::Path;
 
+use async_fs::read_dir;
+use futures_util::StreamExt;
 use headers::ContentType;
-use tokio::fs::read_dir;
 
 use crate::{Response, SilentError, StatusCode};
 
@@ -17,14 +18,11 @@ pub(super) async fn render_directory_listing(
         })?;
 
     let mut entries = Vec::new();
-    while let Some(entry) = dir
-        .next_entry()
-        .await
-        .map_err(|err| SilentError::BusinessError {
+    while let Some(entry_res) = dir.next().await {
+        let entry = entry_res.map_err(|err| SilentError::BusinessError {
             code: StatusCode::INTERNAL_SERVER_ERROR,
             msg: format!("Read dir failed: {err}"),
-        })?
-    {
+        })?;
         let file_type = entry
             .file_type()
             .await

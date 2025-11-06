@@ -437,6 +437,18 @@ impl NetServer {
         let addrs = listeners.local_addrs().to_vec();
         if let Some(cb) = &self.listen_callback {
             (cb)(&addrs);
+        } else {
+            // 默认打印监听地址（逐行展示，更清晰）
+            if addrs.len() == 1 {
+                tracing::info!("listening on {}", format!("{:?}", addrs[0]));
+            } else {
+                let lines = addrs
+                    .iter()
+                    .map(|a| format!("  - {:?}", a))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                tracing::info!("listening on:\n{}", lines);
+            }
         }
 
         let mut join_set: JoinSet<()> = JoinSet::new();

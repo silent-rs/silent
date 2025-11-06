@@ -1,40 +1,46 @@
 use crate::log::debug;
 use crate::ws::message::Message;
-use crate::ws::upgrade::{Upgraded, WebSocketParts};
+use crate::ws::upgrade::WebSocketParts;
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::{Result, SilentError};
 use anyhow::anyhow;
+use async_channel::{Sender as UnboundedSender, unbounded as unbounded_channel};
+use async_lock::RwLock;
 use async_trait::async_trait;
+use async_tungstenite::WebSocketStream;
+use async_tungstenite::tungstenite::protocol;
+use futures::io::{AsyncRead, AsyncWrite};
 use futures_util::sink::{Sink, SinkExt};
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::{future, ready};
-use hyper::upgrade::Upgraded as HyperUpgraded;
-use hyper_util::rt::TokioIo;
+// no direct dependency on hyper types here
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol;
+// no direct compat usage here; constructed upstream
 
-pub struct WebSocket {
+pub struct WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     parts: Arc<RwLock<WebSocketParts>>,
-    upgrade: WebSocketStream<TokioIo<HyperUpgraded>>,
+    upgrade: WebSocketStream<S>,
 }
 
-unsafe impl Sync for WebSocket {}
+unsafe impl<S> Sync for WebSocket<S> where S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 
-impl WebSocket {
+impl<S> WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     #[inline]
     pub(crate) async fn from_raw_socket(
-        upgraded: Upgraded,
+        upgraded: crate::ws::upgrade::Upgraded<S>,
         role: protocol::Role,
         config: Option<protocol::WebSocketConfig>,
     ) -> Self {
         let (parts, upgraded) = upgraded.into_parts();
-        let upgraded = TokioIo::new(upgraded);
         Self {
             parts: Arc::new(RwLock::new(parts)),
             upgrade: WebSocketStream::from_raw_socket(upgraded, role, config).await,
@@ -71,7 +77,10 @@ impl WebSocket {
     }
 }
 
-impl Sink<Message> for WebSocket {
+impl<S> Sink<Message> for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     type Error = SilentError;
 
     #[inline]
@@ -153,6 +162,7 @@ impl<
     FnOnReceiveFut,
     FnOnClose,
     FnOnCloseFut,
+    S,
 >
     WebSocketHandlerTrait<
         FnOnConnect,
@@ -163,8 +173,9 @@ impl<
         FnOnReceiveFut,
         FnOnClose,
         FnOnCloseFut,
-    > for WebSocket
+    > for WebSocket<S>
 where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     FnOnConnect: Fn(Arc<RwLock<WebSocketParts>>, UnboundedSender<Message>) -> FnOnConnectFut
         + Send
         + Sync
@@ -201,7 +212,7 @@ where
         let (parts, ws) = self.into_parts();
         let (mut ws_tx, mut ws_rx) = ws.split();
 
-        let (tx, mut rx) = unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         debug!("on_connect: {:?}", parts);
         if let Some(on_connect) = on_connect {
             on_connect(parts.clone(), tx.clone()).await?;
@@ -210,7 +221,7 @@ where
         let receiver_parts = parts;
 
         let fut = async move {
-            while let Some(message) = rx.recv().await {
+            while let Ok(message) = rx.recv().await {
                 let message = if let Some(on_send) = on_send.clone() {
                     on_send(message.clone(), sender_parts.clone())
                         .await
@@ -223,7 +234,7 @@ where
                 ws_tx.send(message).await.unwrap();
             }
         };
-        tokio::task::spawn(fut);
+        async_global_executor::spawn(fut).detach();
         let fut = async move {
             while let Some(message) = ws_rx.next().await {
                 if let Ok(message) = message {
@@ -243,12 +254,15 @@ where
                 on_close(receiver_parts).await;
             }
         };
-        tokio::task::spawn(fut);
+        async_global_executor::spawn(fut).detach();
         Ok(())
     }
 }
 
-impl Stream for WebSocket {
+impl<S> Stream for WebSocket<S>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     type Item = Result<Message>;
 
     #[inline]

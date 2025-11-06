@@ -27,7 +27,7 @@ mod sse;
 #[cfg(feature = "template")]
 mod templates;
 #[cfg(feature = "upgrade")]
-mod ws;
+pub mod ws;
 
 // use silent_multer as multer;
 #[cfg(feature = "multipart")]

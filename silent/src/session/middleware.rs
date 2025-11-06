@@ -1,9 +1,9 @@
 use crate::{CookieExt, Handler, MiddleWareHandler, Next, Request, Response};
+use async_lock::RwLock;
 use async_session::{MemoryStore, Session, SessionStore};
 use async_trait::async_trait;
 use cookie::{Cookie, CookieJar};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 pub struct SessionMiddleware<T>
 where

@@ -1,4 +1,7 @@
+use async_channel::Sender as ChanSender;
+use async_lock::RwLock;
 use silent::prelude::*;
+use std::sync::Arc;
 
 fn main() {
     logger::fmt().init();
@@ -6,10 +9,16 @@ fn main() {
         Route::new("ws").ws(
             None,
             WebSocketHandler::new()
-                .on_connect(|_, _| async { Ok(()) })
-                .on_send(|msg, _| async { Ok(msg) })
-                .on_receive(|_, _| async { Ok(()) })
-                .on_close(|_| async {}),
+                .on_connect(
+                    |_parts: Arc<RwLock<WebSocketParts>>, _tx: ChanSender<Message>| async move {
+                        Ok(())
+                    },
+                )
+                .on_send(|msg: Message, _parts: Arc<RwLock<WebSocketParts>>| async move { Ok(msg) })
+                .on_receive(
+                    |_msg: Message, _parts: Arc<RwLock<WebSocketParts>>| async move { Ok(()) },
+                )
+                .on_close(|_parts: Arc<RwLock<WebSocketParts>>| async move {}),
         ),
     );
     Server::new().run(route);

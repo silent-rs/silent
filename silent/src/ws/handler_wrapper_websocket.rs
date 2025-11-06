@@ -3,12 +3,12 @@ use crate::ws::websocket::{WebSocket, WebSocketHandlerTrait};
 use crate::ws::websocket_handler::WebSocketHandler;
 use crate::ws::{Message, WebSocketParts, upgrade};
 use crate::{Handler, Request, Response, Result};
+use async_channel::Sender as UnboundedSender;
+use async_lock::RwLock;
 use async_trait::async_trait;
+use async_tungstenite::tungstenite::protocol;
 use std::future::Future;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio_tungstenite::tungstenite::protocol;
 use tracing::error;
 
 #[allow(clippy::type_complexity)]
@@ -146,7 +146,7 @@ where
         let res = websocket_handler(&req)?;
         let config = self.config;
         let handler = self.handler.clone();
-        tokio::task::spawn(async move {
+        async_global_executor::spawn(async move {
             match upgrade::on(req).await {
                 Ok(upgrade) => {
                     let ws =
@@ -159,7 +159,8 @@ where
                     error!("upgrade error: {}", e)
                 }
             }
-        });
+        })
+        .detach();
         Ok(res)
     }
 }
