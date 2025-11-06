@@ -23,42 +23,42 @@ pub struct SSEEvent {
 
 impl SSEEvent {
     /// Set Server-sent event data
-    /// data field(s) ("data:<content>")
+    /// data field(s) ("data:&lt;content&gt;")
     pub fn data<T: Into<String>>(mut self, data: T) -> SSEEvent {
         self.data = Some(DataType::Text(data.into()));
         self
     }
 
     /// Set Server-sent event data
-    /// data field(s) ("data:<content>")
+    /// data field(s) ("data:&lt;content&gt;")
     pub fn json_data<T: Serialize>(mut self, data: T) -> Result<SSEEvent, Error> {
         self.data = Some(DataType::Json(serde_json::to_string(&data)?));
         Ok(self)
     }
 
     /// Set Server-sent event comment
-    /// Comment field (":<comment-text>")
+    /// Comment field (":&lt;comment-text&gt;")
     pub fn comment<T: Into<String>>(mut self, comment: T) -> SSEEvent {
         self.comment = Some(comment.into());
         self
     }
 
     /// Set Server-sent events
-    /// SSEEvent name field ("event:<event-name>")
+    /// SSEEvent name field ("event:&lt;event-name&gt;")
     pub fn event<T: Into<String>>(mut self, event: T) -> SSEEvent {
         self.event = Some(event.into());
         self
     }
 
     /// Set Server-sent event retry duration
-    /// Retry timeout field ("retry:<timeout>")
+    /// Retry timeout field ("retry:&lt;timeout&gt;")
     pub fn retry(mut self, duration: Duration) -> SSEEvent {
         self.retry = Some(duration);
         self
     }
 
     /// Set Server-sent event id
-    /// Identifier field ("id:<identifier>")
+    /// Identifier field ("id:&lt;identifier&gt;")
     pub fn id<T: Into<String>>(mut self, id: T) -> SSEEvent {
         self.id = Some(id.into());
         self

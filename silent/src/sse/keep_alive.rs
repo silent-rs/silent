@@ -52,7 +52,7 @@ impl KeepAlive {
 
     /// Wrap an event stream with keep-alive functionality.
     ///
-    /// See [`keep_alive`](keep_alive) for more.
+    /// See [`KeepAlive`] for more.
     pub fn stream<S>(
         self,
         event_stream: S,

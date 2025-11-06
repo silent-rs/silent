@@ -185,3 +185,6 @@ worker = { version = "0.6", optional = true }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async", "async_tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[package.metadata.cargo-udeps.ignore]
+normal = ["worker"]
