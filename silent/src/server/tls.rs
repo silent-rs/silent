@@ -294,6 +294,8 @@ mod tests {
 
     #[test]
     fn test_https_config_error_on_invalid_der() {
+        // 确保在测试进程中安装 ring 加密提供者，避免 rustls 在覆盖率模式下无法自动选择 Provider
+        let _ = rustls::crypto::ring::default_provider().install_default();
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
         let base = std::env::temp_dir();

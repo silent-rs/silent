@@ -1,7 +1,7 @@
 # Silent Framework - 质量度量基线
 
-> 建立日期: 2025-01-20  
-> 分支: `feature/test-coverage-baseline`  
+> 建立日期: 2025-01-20
+> 分支: `feature/test-coverage-baseline`
 > 版本: v2.10.1
 
 ---
@@ -115,7 +115,7 @@
 ```
 warning: unresolved link to `keep_alive`
   --> silent/src/sse/keep_alive.rs:55:28
-   
+
 warning: unclosed HTML tag `<content>` (6 instances in sse/event.rs)
 ```
 
