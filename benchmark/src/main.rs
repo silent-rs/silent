@@ -62,16 +62,15 @@ fn build_route_c(state: AppState) -> Route {
                 .headers()
                 .get("if-none-match")
                 .and_then(|v| v.to_str().ok())
+                && im == state.etag
             {
-                if im == state.etag {
-                    let mut res = Response::empty();
-                    res.set_status(StatusCode::NOT_MODIFIED);
-                    res.set_header(
-                        header::HeaderName::from_static("etag"),
-                        header::HeaderValue::from_str(&state.etag).unwrap(),
-                    );
-                    return Ok(res);
-                }
+                let mut res = Response::empty();
+                res.set_status(StatusCode::NOT_MODIFIED);
+                res.set_header(
+                    header::HeaderName::from_static("etag"),
+                    header::HeaderValue::from_str(&state.etag).unwrap(),
+                );
+                return Ok(res);
             }
             let mut res = Response::empty();
             res.set_header(

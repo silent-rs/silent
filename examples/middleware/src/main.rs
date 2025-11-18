@@ -23,7 +23,7 @@ impl MiddleWareHandler for MiddleWare {
         self.count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let count = self.count.load(std::sync::atomic::Ordering::SeqCst);
         info!("pre_request count: {}", count);
-        if count % 2 == 0 {
+        if count.is_multiple_of(2) {
             error!("set pre_request error");
             return Err(SilentError::BusinessError {
                 code: StatusCode::BAD_REQUEST,

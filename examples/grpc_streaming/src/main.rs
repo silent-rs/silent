@@ -27,10 +27,10 @@ fn match_for_io_error(err_status: &Status) -> Option<&std::io::Error> {
 
         // h2::Error do not expose std::io::Error with `source()`
         // https://github.com/hyperium/h2/pull/462
-        if let Some(h2_err) = err.downcast_ref::<h2::Error>() {
-            if let Some(io_err) = h2_err.get_io() {
-                return Some(io_err);
-            }
+        if let Some(h2_err) = err.downcast_ref::<h2::Error>()
+            && let Some(io_err) = h2_err.get_io()
+        {
+            return Some(io_err);
         }
 
         err = err.source()?;
@@ -115,13 +115,13 @@ impl pb::echo_server::Echo for EchoServer {
                         .await
                         .expect("working rx"),
                     Err(err) => {
-                        if let Some(io_err) = match_for_io_error(&err) {
-                            if io_err.kind() == ErrorKind::BrokenPipe {
-                                // here you can handle special case when client
-                                // disconnected in unexpected way
-                                info!("\tclient disconnected: broken pipe");
-                                break;
-                            }
+                        if let Some(io_err) = match_for_io_error(&err)
+                            && io_err.kind() == ErrorKind::BrokenPipe
+                        {
+                            // here you can handle special case when client
+                            // disconnected in unexpected way
+                            info!("\tclient disconnected: broken pipe");
+                            break;
                         }
 
                         match tx.send(Err(err)).await {

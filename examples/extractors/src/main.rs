@@ -120,6 +120,7 @@ struct IdPath {
 
 // Header 结构体
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct HeadersQuery {
     #[serde(rename = "user-agent")]
     user_agent: Option<String>,
@@ -129,6 +130,7 @@ struct HeadersQuery {
 
 // Cookie 结构体
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct CookiesQuery {
     session: Option<String>,
     user: Option<String>,

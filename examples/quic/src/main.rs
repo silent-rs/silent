@@ -43,7 +43,7 @@ fn certificate_store() -> Result<silent::CertificateStore> {
     let builder = silent::CertificateStore::builder()
         .cert_path("./examples/tls/certs/localhost+2.pem")
         .key_path("./examples/tls/certs/localhost+2-key.pem");
-    builder.build().map_err(Into::into)
+    builder.build()
 }
 
 fn build_routes() -> Route {
