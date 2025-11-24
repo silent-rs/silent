@@ -3,13 +3,12 @@ use super::stream::Stream;
 #[cfg(feature = "tls")]
 use crate::CertificateStore;
 use crate::core::socket_addr::SocketAddr;
-use futures_util::StreamExt;
-use futures_util::stream::FuturesUnordered;
 use std::future::Future;
 use std::io::Result;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::pin::Pin;
+use tokio::time::{Duration, Instant, sleep_until};
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
 
@@ -226,9 +225,12 @@ impl ListenersBuilder {
             .flat_map(|listener| listener.local_addr())
             .collect();
         let listeners = self.listeners;
+        let backoff_states = (0..listeners.len()).map(|_| BackoffState::new()).collect();
         Ok(Listeners {
             listeners,
             local_addrs,
+            backoff_states,
+            next_index: 0,
         })
     }
 }
@@ -236,6 +238,8 @@ impl ListenersBuilder {
 pub struct Listeners {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
     local_addrs: Vec<SocketAddr>,
+    backoff_states: Vec<BackoffState>,
+    next_index: usize,
 }
 
 impl Listeners {
@@ -248,22 +252,88 @@ impl Listeners {
     pub async fn accept(
         &mut self,
     ) -> Option<Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> {
-        let mut listener_futures: FuturesUnordered<AcceptFuture<'_>> = self
-            .listeners
-            .iter()
-            .map(|listener| {
-                let fut: AcceptFuture<'_> = Box::pin(async move {
-                    let listener = listener.as_ref();
-                    listener.accept().await
-                });
-                fut
-            })
-            .collect();
-        listener_futures.next().await
+        if self.listeners.is_empty() {
+            return None;
+        }
+
+        loop {
+            let now = Instant::now();
+            let len = self.listeners.len();
+            let mut earliest_ready: Option<Instant> = None;
+            let mut selected: Option<usize> = None;
+
+            for offset in 0..len {
+                let idx = (self.next_index + offset) % len;
+                let state = &self.backoff_states[idx];
+                if state.is_ready(now) {
+                    selected = Some(idx);
+                    break;
+                }
+                earliest_ready = match earliest_ready {
+                    Some(inst) => Some(inst.min(state.next_ready)),
+                    None => Some(state.next_ready),
+                };
+            }
+
+            if let Some(idx) = selected {
+                self.next_index = (idx + 1) % len;
+                let res = self.listeners[idx].accept().await;
+                match res {
+                    Ok(conn) => {
+                        self.backoff_states[idx].on_success();
+                        return Some(Ok(conn));
+                    }
+                    Err(e) => {
+                        self.backoff_states[idx].on_error();
+                        return Some(Err(e));
+                    }
+                }
+            } else if let Some(next_ready) = earliest_ready {
+                sleep_until(next_ready).await;
+                continue;
+            } else {
+                return None;
+            }
+        }
     }
 
     pub fn local_addrs(&self) -> &[SocketAddr] {
         &self.local_addrs
+    }
+}
+
+/// 监听错误的退避状态。
+#[derive(Clone, Debug)]
+struct BackoffState {
+    current: Duration,
+    max: Duration,
+    next_ready: Instant,
+}
+
+impl BackoffState {
+    const BASE: Duration = Duration::from_millis(50);
+    const MAX: Duration = Duration::from_secs(2);
+
+    fn new() -> Self {
+        Self {
+            current: Self::BASE,
+            max: Self::MAX,
+            next_ready: Instant::now(),
+        }
+    }
+
+    fn is_ready(&self, now: Instant) -> bool {
+        now >= self.next_ready
+    }
+
+    fn on_success(&mut self) {
+        self.current = Self::BASE;
+        self.next_ready = Instant::now();
+    }
+
+    fn on_error(&mut self) {
+        self.next_ready = Instant::now() + self.current;
+        self.current = std::cmp::min(self.current * 2, self.max);
     }
 }
 
