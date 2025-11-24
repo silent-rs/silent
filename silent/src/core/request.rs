@@ -373,6 +373,12 @@ impl Request {
                     .or(Err(SilentError::BodyEmpty))?
                     .to_bytes()
                     .to_vec(),
+                ReqBody::LimitedIncoming(body) => body
+                    .collect()
+                    .await
+                    .or(Err(SilentError::BodyEmpty))?
+                    .to_bytes()
+                    .to_vec(),
                 ReqBody::Once(bytes) => bytes.to_vec(),
                 ReqBody::Empty => return Err(SilentError::BodyEmpty),
             };
@@ -436,6 +442,11 @@ impl Request {
         let body = self.take_body();
         let bytes = match body {
             ReqBody::Incoming(body) => body
+                .collect()
+                .await
+                .or(Err(SilentError::JsonEmpty))?
+                .to_bytes(),
+            ReqBody::LimitedIncoming(body) => body
                 .collect()
                 .await
                 .or(Err(SilentError::JsonEmpty))?

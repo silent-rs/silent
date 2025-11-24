@@ -1,4 +1,5 @@
 use super::ConnectionService;
+use super::config::ServerConfig;
 use super::listener::{Listen, ListenersBuilder};
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use std::io;
@@ -133,6 +134,7 @@ pub struct NetServer {
     listen_callback: Option<ListenCallback>,
     rate_limiter: Option<RateLimiter>,
     shutdown_cfg: ShutdownConfig,
+    config: ServerConfig,
 }
 
 impl Default for NetServer {
@@ -163,6 +165,7 @@ impl NetServer {
             listen_callback: None,
             rate_limiter: None,
             shutdown_cfg: ShutdownConfig::default(),
+            config: ServerConfig::default(),
         }
     }
 
@@ -170,6 +173,7 @@ impl NetServer {
         listeners_builder: ListenersBuilder,
         shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
         listen_callback: Option<ListenCallback>,
+        config: ServerConfig,
     ) -> Self {
         Self {
             listeners_builder,
@@ -177,6 +181,7 @@ impl NetServer {
             listen_callback,
             rate_limiter: None,
             shutdown_cfg: ShutdownConfig::default(),
+            config,
         }
     }
 
@@ -435,6 +440,7 @@ impl NetServer {
     ) -> io::Result<()> {
         let mut listeners = self.listeners_builder.listen()?;
         let addrs = listeners.local_addrs().to_vec();
+        let handler_timeout = self.config.connection_limits.handler_timeout;
         if let Some(cb) = &self.listen_callback {
             (cb)(&addrs);
         } else {
@@ -475,25 +481,49 @@ impl NetServer {
                                 let semaphore = rate.semaphore.clone();
                                 let max_wait = rate.max_wait;
                                 let handler = handler.clone();
+                                let peer = peer_addr.clone();
                                 join_set.spawn(async move {
                                     match tokio::time::timeout(max_wait, semaphore.acquire_owned()).await {
                                         Ok(Ok(_permit)) => {
-                                            if let Err(err) = handler.call(stream, peer_addr).await {
+                                            if let Some(timeout) = handler_timeout {
+                                                match tokio::time::timeout(timeout, handler.call(stream, peer.clone())).await {
+                                                    Ok(res) => {
+                                                        if let Err(err) = res {
+                                                            tracing::error!("Failed to serve connection: {:?}", err);
+                                                        }
+                                                    }
+                                                    Err(_) => {
+                                                        tracing::warn!("Connection handler timed out for peer: {}", peer);
+                                                    }
+                                                }
+                                            } else if let Err(err) = handler.call(stream, peer.clone()).await {
                                                 tracing::error!("Failed to serve connection: {:?}", err);
                                             }
                                         }
                                         Ok(Err(_)) => {
-                                            tracing::warn!("Rate limiter closed, dropping connection: {}", peer_addr);
+                                            tracing::warn!("Rate limiter closed, dropping connection: {}", peer);
                                         }
                                         Err(_) => {
-                                            tracing::warn!("Rate limiter timeout, dropping connection: {}", peer_addr);
+                                            tracing::warn!("Rate limiter timeout, dropping connection: {}", peer);
                                         }
                                     }
                                 });
                             } else {
                                 let handler = handler.clone();
+                                let peer = peer_addr.clone();
                                 join_set.spawn(async move {
-                                    if let Err(err) = handler.call(stream, peer_addr).await {
+                                    if let Some(timeout) = handler_timeout {
+                                        match tokio::time::timeout(timeout, handler.call(stream, peer.clone())).await {
+                                            Ok(res) => {
+                                                if let Err(err) = res {
+                                                    tracing::error!("Failed to serve connection: {:?}", err);
+                                                }
+                                            }
+                                            Err(_) => {
+                                                tracing::warn!("Connection handler timed out for peer: {}", peer);
+                                            }
+                                        }
+                                    } else if let Err(err) = handler.call(stream, peer.clone()).await {
                                         tracing::error!("Failed to serve connection: {:?}", err);
                                     }
                                 });

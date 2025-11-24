@@ -19,6 +19,7 @@ use crate::{Handler, Request, Response};
 pub struct HyperServiceHandler<H: Handler> {
     pub(crate) remote_addr: SocketAddr,
     pub(crate) routes: H,
+    pub(crate) max_body_size: Option<usize>,
 }
 
 impl<H: Handler + Clone> HyperServiceHandler<H> {
@@ -27,6 +28,16 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
         Self {
             remote_addr,
             routes,
+            max_body_size: None,
+        }
+    }
+
+    #[inline]
+    pub fn with_limits(remote_addr: SocketAddr, routes: H, max_body_size: Option<usize>) -> Self {
+        Self {
+            remote_addr,
+            routes,
+            max_body_size,
         }
     }
     #[inline]
@@ -66,7 +77,8 @@ where
         if let Some(rx) = rx_opt {
             parts.extensions.insert(crate::ws::AsyncUpgradeRx::new(rx));
         }
-        let request = HyperRequest::from_parts(parts, body.into());
+        let body = body.into().with_limit(self.max_body_size);
+        let request = HyperRequest::from_parts(parts, body);
         let request = HyperHttpProtocol::into_internal(request);
         debug!("Request: \n{:#?}", request);
         let response = self.handle(request);

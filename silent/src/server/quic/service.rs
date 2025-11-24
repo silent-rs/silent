@@ -17,6 +17,7 @@ use std::{net::SocketAddr, sync::Arc};
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
     routes: Arc<Route>,
+    max_body_size: Option<usize>,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
@@ -42,7 +43,9 @@ pub(crate) async fn handle_quic_connection(
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
                 tokio::spawn(async move {
-                    if let Err(err) = handle_request(resolver, remote, routes, handler).await {
+                    if let Err(err) =
+                        handle_request(resolver, remote, routes, handler, max_body_size).await
+                    {
                         error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
                     }
                 });
@@ -140,6 +143,7 @@ async fn handle_request(
     remote: SocketAddr,
     routes: Arc<Route>,
     handler: Arc<dyn WebTransportHandler>,
+    max_body_size: Option<usize>,
 ) -> Result<()> {
     let (request, stream) = resolver
         .resolve_request()
@@ -149,7 +153,7 @@ async fn handle_request(
     if request.method() == Method::CONNECT && matches!(protocol, Some(H3Protocol::WEB_TRANSPORT)) {
         handle_webtransport_request(request, stream, remote, handler).await
     } else {
-        handle_http3_request(request, stream, remote, routes).await
+        handle_http3_request(request, stream, remote, routes, max_body_size).await
     }
 }
 
@@ -158,9 +162,10 @@ async fn handle_http3_request(
     stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
     routes: Arc<Route>,
+    max_body_size: Option<usize>,
 ) -> Result<()> {
     let mut stream = RealH3Stream::new(stream);
-    handle_http3_request_impl(request, &mut stream, remote, routes).await
+    handle_http3_request_impl(request, &mut stream, remote, routes, max_body_size).await
 }
 
 // 提取后的实现，便于在测试中注入自定义流
@@ -170,10 +175,16 @@ async fn handle_http3_request_impl<T: H3RequestIo>(
     stream: &mut T,
     remote: SocketAddr,
     routes: Arc<Route>,
+    max_body_size: Option<usize>,
 ) -> Result<()> {
     let mut body_buf = BytesMut::new();
     while let Some(bytes) = stream.recv_data().await? {
         if !bytes.is_empty() {
+            if let Some(max) = max_body_size
+                && body_buf.len() + bytes.len() > max
+            {
+                return Err(anyhow!("HTTP/3 request body exceeds limit"));
+            }
             body_buf.extend_from_slice(&bytes);
         }
     }
@@ -380,7 +391,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34567".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("http3 impl should succeed");
 
@@ -402,7 +413,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34568".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("http3 impl should succeed on empty body");
         assert!(stream.sent_head.is_some());
@@ -419,7 +430,7 @@ mod tests {
         let req = make_request("/err");
         let remote: SocketAddr = "127.0.0.1:34569".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect_err("should bubble up head send error");
         let msg = format!("{err:#}");
@@ -475,7 +486,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34570".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect_err("should bubble up send data error");
         let msg = format!("{err:#}");
@@ -493,7 +504,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34571".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect_err("should bubble up finish error");
         let msg = format!("{err:#}");
@@ -511,7 +522,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34572".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect_err("should bubble up recv error");
         let msg = format!("{err:#}");
@@ -532,7 +543,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34573".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("large body should succeed");
 
@@ -554,7 +565,7 @@ mod tests {
         let remote: SocketAddr = "127.0.0.1:34574".parse().unwrap();
 
         // 无效 UTF-8 数据应该被正确处理并回显
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("invalid utf8 body should be handled");
 
@@ -584,7 +595,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34575".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect_err("should fail on send data");
         let msg = format!("{err:#}");
@@ -607,7 +618,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34576".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("mixed chunks should succeed");
 
@@ -631,7 +642,7 @@ mod tests {
         let remote: SocketAddr = "127.0.0.1:34577".parse().unwrap();
 
         // 不需要特殊设置，测试正常路径即可
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("normal path should succeed");
 
@@ -647,7 +658,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34578".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        handle_http3_request_impl(req, &mut stream, remote, routes, None)
             .await
             .expect("empty response should succeed");
 

@@ -8,6 +8,7 @@ use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
+use crate::server::config::{ConnectionLimits, global_server_config};
 use crate::server::connection::BoxedConnection;
 use crate::server::connection_service::{ConnectionFuture, ConnectionService};
 use crate::server::protocol::hyper_http::HyperServiceHandler;
@@ -37,13 +38,15 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RouteConnectionService {
     route: Route,
+    limits: ConnectionLimits,
 }
 
 impl RouteConnectionService {
     /// 创建新的 RouteConnectionService 实例
     #[inline]
     pub fn new(route: Route) -> Self {
-        Self { route }
+        let limits = global_server_config().connection_limits.clone();
+        Self { route, limits }
     }
 
     /// 获取内部路由的引用
@@ -60,6 +63,7 @@ impl RouteConnectionService {
         root_route: Route,
         stream: BoxedConnection,
         peer: CoreSocketAddr,
+        limits: ConnectionLimits,
     ) -> ConnectionFuture {
         #[allow(unused_mut)]
         let mut root_route = root_route;
@@ -71,11 +75,15 @@ impl RouteConnectionService {
         root_route.hook_first(SchedulerMiddleware::new());
 
         let routes = root_route.convert_to_route_tree();
+        let max_body_size = limits.max_body_size;
         Box::pin(async move {
             let io = TokioIo::new(stream);
             let builder = Builder::new(TokioExecutor::new());
             builder
-                .serve_connection_with_upgrades(io, HyperServiceHandler::new(peer, routes))
+                .serve_connection_with_upgrades(
+                    io,
+                    HyperServiceHandler::with_limits(peer, routes, max_body_size),
+                )
                 .await
         })
     }
@@ -91,23 +99,33 @@ impl ConnectionService for RouteConnectionService {
                 Ok(quic) => {
                     // QUIC 连接处理
                     let routes = Arc::new(self.route.clone());
+                    let max_body_size = self.limits.max_body_size;
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
-                        crate::quic::service::handle_quic_connection(incoming, routes)
-                            .await
-                            .map_err(Into::into)
+                        crate::quic::service::handle_quic_connection(
+                            incoming,
+                            routes,
+                            max_body_size,
+                        )
+                        .await
+                        .map_err(Into::into)
                     })
                 }
                 Err(stream) => {
                     // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
-                    Self::handle_http_connection(self.route.clone(), stream, peer)
+                    Self::handle_http_connection(
+                        self.route.clone(),
+                        stream,
+                        peer,
+                        self.limits.clone(),
+                    )
                 }
             }
         }
 
         // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
         #[cfg(not(feature = "quic"))]
-        Self::handle_http_connection(self.route.clone(), stream, peer)
+        Self::handle_http_connection(self.route.clone(), stream, peer, self.limits.clone())
     }
 }
 

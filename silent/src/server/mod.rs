@@ -11,10 +11,13 @@ pub mod stream;
 pub mod tls;
 #[cfg(feature = "tls")]
 pub use tls::{CertificateStore, CertificateStoreBuilder};
+mod config;
 
+pub use config::{ConnectionLimits, ServerConfig};
 pub use route_connection::RouteConnectionService;
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
+use config::set_global_server_config;
 pub use connection_service::{BoxError, ConnectionFuture, ConnectionService};
 use listener::{Listen, ListenersBuilder};
 pub use net_server::RateLimiterConfig;
@@ -30,6 +33,7 @@ pub struct Server {
     listen_callback: Option<ListenCallback>,
     rate_limiter_config: Option<RateLimiterConfig>,
     graceful_shutdown_duration: Option<Duration>,
+    config: ServerConfig,
 }
 
 impl Default for Server {
@@ -46,6 +50,7 @@ impl Server {
             listen_callback: None,
             rate_limiter_config: None,
             graceful_shutdown_duration: None,
+            config: ServerConfig::default(),
         }
     }
 
@@ -139,16 +144,32 @@ impl Server {
         self
     }
 
+    /// 配置统一入口（连接限速、超时、请求体大小等）。
+    #[inline]
+    pub fn with_config(mut self, config: ServerConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// 设置连接级别超时/请求体大小限制。
+    #[inline]
+    pub fn with_connection_limits(mut self, limits: ConnectionLimits) -> Self {
+        self.config.connection_limits = limits;
+        self
+    }
+
     pub async fn serve<H>(self, handler: H)
     where
         H: ConnectionService + Clone,
     {
         // 将网络层职责完全委托给通用 NetServer
         // 注意: 调度器会在 NetServer::serve_connection_loop 中启动
+        set_global_server_config(self.config.clone());
         let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
+            self.config.clone(),
         );
 
         // 应用限流配置
@@ -170,10 +191,12 @@ impl Server {
     {
         // 将网络层职责完全委托给通用 NetServer
         // 注意: 调度器会在 NetServer::serve_connection_loop 中启动
+        set_global_server_config(self.config.clone());
         let mut net_server = net_server::NetServer::from_parts(
             self.listeners_builder,
             self.shutdown_callback,
             self.listen_callback,
+            self.config.clone(),
         );
 
         // 应用限流配置
