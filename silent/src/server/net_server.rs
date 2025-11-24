@@ -482,6 +482,7 @@ impl NetServer {
                                 let max_wait = rate.max_wait;
                                 let handler = handler.clone();
                                 let peer = peer_addr.clone();
+                                tracing::debug!(%peer, "accepted connection");
                                 join_set.spawn(async move {
                                     match tokio::time::timeout(max_wait, semaphore.acquire_owned()).await {
                                         Ok(Ok(_permit)) => {
@@ -511,6 +512,7 @@ impl NetServer {
                             } else {
                                 let handler = handler.clone();
                                 let peer = peer_addr.clone();
+                                tracing::debug!(%peer, "accepted connection");
                                 join_set.spawn(async move {
                                     if let Some(timeout) = handler_timeout {
                                         match tokio::time::timeout(timeout, handler.call(stream, peer.clone())).await {

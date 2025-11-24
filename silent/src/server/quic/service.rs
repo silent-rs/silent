@@ -183,6 +183,7 @@ async fn handle_http3_request_impl<T: H3RequestIo>(
             if let Some(max) = max_body_size
                 && body_buf.len() + bytes.len() > max
             {
+                warn!(%remote, size = body_buf.len() + bytes.len(), limit = max, "HTTP/3 request body exceeds limit");
                 return Err(anyhow!("HTTP/3 request body exceeds limit"));
             }
             body_buf.extend_from_slice(&bytes);

@@ -11,6 +11,7 @@ use std::pin::Pin;
 use tokio::time::{Duration, Instant, sleep_until};
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
+use tracing::trace;
 
 /// 接受连接的 Future。
 ///
@@ -281,10 +282,20 @@ impl Listeners {
                 match res {
                     Ok(conn) => {
                         self.backoff_states[idx].on_success();
+                        trace!(
+                            listener = ?self.local_addrs.get(idx),
+                            backoff = ?self.backoff_states[idx].current,
+                            "accept ok"
+                        );
                         return Some(Ok(conn));
                     }
                     Err(e) => {
                         self.backoff_states[idx].on_error();
+                        trace!(
+                            listener = ?self.local_addrs.get(idx),
+                            backoff = ?self.backoff_states[idx].current,
+                            "accept error, apply backoff"
+                        );
                         return Some(Err(e));
                     }
                 }
