@@ -1,7 +1,11 @@
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::route::Route;
+#[cfg(feature = "metrics")]
+use crate::server::metrics::{
+    record_http3_body_oversize, record_webtransport_accept, record_webtransport_error,
+};
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request};
@@ -12,7 +16,7 @@ use h3::server::{RequestResolver, RequestStream};
 use h3_quinn::Connection as H3QuinnConnection;
 use http::{Method, Request as HttpRequest, Response, StatusCode};
 use http_body_util::BodyExt;
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Instant};
 
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
@@ -145,13 +149,21 @@ async fn handle_request(
     handler: Arc<dyn WebTransportHandler>,
     max_body_size: Option<usize>,
 ) -> Result<()> {
+    let accept_at = Instant::now();
     let (request, stream) = resolver
         .resolve_request()
         .await
         .map_err(|err| anyhow!("解析 HTTP/3 请求失败: {err}"))?;
     let protocol = request.extensions().get::<H3Protocol>().cloned();
+    debug!(
+        %remote,
+        method = ?request.method(),
+        path = %request.uri(),
+        proto = ?protocol,
+        "HTTP/3 request received"
+    );
     if request.method() == Method::CONNECT && matches!(protocol, Some(H3Protocol::WEB_TRANSPORT)) {
-        handle_webtransport_request(request, stream, remote, handler).await
+        handle_webtransport_request(request, stream, remote, handler, accept_at).await
     } else {
         handle_http3_request(request, stream, remote, routes, max_body_size).await
     }
@@ -183,7 +195,14 @@ async fn handle_http3_request_impl<T: H3RequestIo>(
             if let Some(max) = max_body_size
                 && body_buf.len() + bytes.len() > max
             {
-                warn!(%remote, size = body_buf.len() + bytes.len(), limit = max, "HTTP/3 request body exceeds limit");
+                warn!(
+                    %remote,
+                    size = body_buf.len() + bytes.len(),
+                    limit = max,
+                    "HTTP/3 request body exceeds limit"
+                );
+                #[cfg(feature = "metrics")]
+                record_http3_body_oversize();
                 return Err(anyhow!("HTTP/3 request body exceeds limit"));
             }
             body_buf.extend_from_slice(&bytes);
@@ -223,16 +242,33 @@ async fn handle_webtransport_request(
     mut stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
     handler: Arc<dyn WebTransportHandler>,
+    accept_at: Instant,
 ) -> Result<()> {
+    let handshake_start = Instant::now();
     let handshake = build_webtransport_handshake_response(&request);
     stream
         .send_response(handshake)
         .await
         .map_err(|err| anyhow!("发送 WebTransport 握手响应失败: {err}"))?;
-    info!(%remote, "WebTransport 会话建立");
+    info!(
+        %remote,
+        accept_elapsed = ?accept_at.elapsed(),
+        handshake_elapsed = ?handshake_start.elapsed(),
+        "WebTransport 会话建立"
+    );
+    record_webtransport_accept();
     let session = Arc::new(QuicSession::new(remote));
     let mut channel = WebTransportStream::new(stream);
-    handler.handle(session, &mut channel).await
+    let started = Instant::now();
+    let res = handler.handle(session, &mut channel).await;
+    match &res {
+        Ok(_) => info!(%remote, handle_elapsed = ?started.elapsed(), "WebTransport 会话结束"),
+        Err(err) => {
+            record_webtransport_error();
+            warn!(%remote, error = ?err, "WebTransport 会话异常结束")
+        }
+    }
+    res
 }
 
 fn build_webtransport_handshake_response(request: &HttpRequest<()>) -> Response<()> {

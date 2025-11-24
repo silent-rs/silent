@@ -12,6 +12,8 @@ pub mod tls;
 #[cfg(feature = "tls")]
 pub use tls::{CertificateStore, CertificateStoreBuilder};
 mod config;
+#[cfg(feature = "metrics")]
+pub mod metrics;
 
 pub use config::{ConnectionLimits, ServerConfig};
 pub use route_connection::RouteConnectionService;

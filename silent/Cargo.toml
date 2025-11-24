@@ -38,6 +38,7 @@ full = [
     "grpc",
     "tls",
     "quic",
+    "metrics",
 ]
 multipart = [
     "server",
@@ -59,7 +60,12 @@ session = ["cookie", "dep:async-session", "dep:async-lock"]
 sse = ["dep:pin-project"]
 static = ["server", "dep:urlencoding", "dep:async-compression", "dep:async-fs"]
 template = ["dep:tera"]
-upgrade = ["dep:async-tungstenite", "dep:async-lock", "dep:async-global-executor", "dep:async-channel"]
+upgrade = [
+    "dep:async-tungstenite",
+    "dep:async-lock",
+    "dep:async-global-executor",
+    "dep:async-channel",
+]
 worker = ["dep:worker", "tokio/sync"]
 grpc = [
     "upgrade",
@@ -70,7 +76,12 @@ grpc = [
     "dep:async-lock",
     "dep:async-global-executor",
 ]
-scheduler = ["server", "dep:cron", "dep:async-lock", "dep:async-global-executor"]
+scheduler = [
+    "server",
+    "dep:cron",
+    "dep:async-lock",
+    "dep:async-global-executor",
+]
 test = ["tokio/macros", "tokio/rt"]
 tls = [
     "dep:tokio-rustls",
@@ -79,14 +90,8 @@ tls = [
     "dep:rustls-pki-types",
     "server",
 ]
-quic = [
-    "tls",
-    "dep:quinn",
-    "dep:h3",
-    "dep:h3-quinn",
-    "dep:scru128",
-    "dep:rand",
-]
+quic = ["tls", "dep:quinn", "dep:h3", "dep:h3-quinn", "dep:scru128", "dep:rand"]
+metrics = ["dep:metrics"]
 
 [dependencies]
 # Basic dependencies
@@ -103,6 +108,7 @@ http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
+metrics = { workspace = true, optional = true }
 memchr = "2.7"
 mime = "0.3"
 once_cell = { version = "1", default-features = false, features = ["std"] }
@@ -115,7 +121,9 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", optional = true }
 tokio-stream = { version = "0.1", features = ["net"], optional = true }
-async-tungstenite = { version = "0.32", optional = true, default-features = false, features = ["tokio-runtime"] }
+async-tungstenite = { version = "0.32", optional = true, default-features = false, features = [
+    "tokio-runtime",
+] }
 tokio-util = { version = "0.7", features = ["compat"] }
 async-io = { version = "2" }
 async-fs = { version = "2", optional = true }
@@ -126,7 +134,11 @@ tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }
 uuid = "1.17"
-async-compression = { version = "0.4", optional = true, features = ["futures-io", "brotli", "gzip"] }
+async-compression = { version = "0.4", optional = true, features = [
+    "futures-io",
+    "brotli",
+    "gzip",
+] }
 
 # Scheduler
 cron = { version = "0.15", optional = true }
