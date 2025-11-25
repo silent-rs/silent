@@ -26,6 +26,7 @@ pub struct QuicTransportConfig {
     pub max_bidirectional_streams: Option<u32>,
     pub max_unidirectional_streams: Option<u32>,
     pub max_datagram_recv_size: Option<usize>,
+    pub alpn_protocols: Option<Vec<Vec<u8>>>,
 }
 
 impl Default for QuicTransportConfig {
@@ -36,6 +37,7 @@ impl Default for QuicTransportConfig {
             max_bidirectional_streams: Some(128),
             max_unidirectional_streams: Some(32),
             max_datagram_recv_size: Some(64 * 1024),
+            alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
         }
     }
 }
@@ -50,7 +52,12 @@ impl QuicEndpointListener {
         store: &CertificateStore,
         transport: QuicTransportConfig,
     ) -> Self {
-        let rustls_config = store.rustls_server_config(&[b"h3", b"h3-29"]).unwrap();
+        let alpn = transport
+            .alpn_protocols
+            .clone()
+            .unwrap_or_else(|| vec![b"h3".to_vec(), b"h3-29".to_vec()]);
+        let alpn_refs: Vec<&[u8]> = alpn.iter().map(|v| v.as_slice()).collect();
+        let rustls_config = store.rustls_server_config(&alpn_refs).unwrap();
         let mut server_config =
             ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(rustls_config).unwrap()));
 
