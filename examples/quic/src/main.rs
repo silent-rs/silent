@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
             max_bidirectional_streams: Some(256),
             max_unidirectional_streams: Some(64),
             max_datagram_recv_size: Some(128 * 1024),
+            enable_datagram: true,
             alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
         }),
         ..Default::default()

@@ -22,6 +22,7 @@ use std::{net::SocketAddr, sync::Arc, time::Instant};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
     routes: Arc<Route>,
@@ -30,6 +31,7 @@ pub(crate) async fn handle_quic_connection(
     max_wt_frame: Option<usize>,
     wt_read_timeout: Option<std::time::Duration>,
     max_wt_sessions: Option<usize>,
+    enable_datagram: bool,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
@@ -39,9 +41,11 @@ pub(crate) async fn handle_quic_connection(
     let handler = Arc::new(super::echo::EchoHandler);
 
     let mut builder = h3::server::builder();
+    builder.enable_extended_connect(true);
+    if enable_datagram {
+        builder.enable_datagram(true);
+    }
     builder
-        .enable_extended_connect(true)
-        .enable_datagram(true)
         .enable_webtransport(true)
         .max_webtransport_sessions(max_wt_sessions.unwrap_or(32) as u64);
     let mut h3_conn = builder

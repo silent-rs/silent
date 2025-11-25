@@ -27,6 +27,7 @@ pub struct QuicTransportConfig {
     pub max_bidirectional_streams: Option<u32>,
     pub max_unidirectional_streams: Option<u32>,
     pub max_datagram_recv_size: Option<usize>,
+    pub enable_datagram: bool,
     pub alpn_protocols: Option<Vec<Vec<u8>>>,
 }
 
@@ -38,6 +39,7 @@ impl Default for QuicTransportConfig {
             max_bidirectional_streams: Some(128),
             max_unidirectional_streams: Some(32),
             max_datagram_recv_size: Some(64 * 1024),
+            enable_datagram: true,
             alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
         }
     }
@@ -93,6 +95,10 @@ impl QuicEndpointListener {
             }
             if let Some(max_dgram) = transport.max_datagram_recv_size {
                 transport_config.datagram_receive_buffer_size(Some(max_dgram));
+            }
+            if !transport.enable_datagram {
+                transport_config.datagram_send_buffer_size(0);
+                transport_config.datagram_receive_buffer_size(None);
             }
         }
 
