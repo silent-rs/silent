@@ -90,6 +90,11 @@ impl QuicEndpointListener {
         }
     }
 
+    /// 基于当前 QUIC 监听端口生成 Alt-Svc 中间件，自动对齐端口。
+    pub fn alt_svc_middleware(&self) -> crate::quic::AltSvcMiddleware {
+        crate::quic::AltSvcMiddleware::new(self.endpoint.local_addr().unwrap().port())
+    }
+
     pub fn with_http_fallback(self) -> HybridListener {
         let bind_addr = self.endpoint.local_addr().unwrap();
         let tcp_listener =
