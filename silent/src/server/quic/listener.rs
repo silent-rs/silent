@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use quinn::Endpoint;
 use quinn::ServerConfig;
+use quinn::VarInt;
 use quinn::crypto::rustls::QuicServerConfig;
 use tracing::error;
 
@@ -18,14 +19,63 @@ pub struct QuicEndpointListener {
     store: CertificateStore,
 }
 
+#[derive(Clone, Debug)]
+pub struct QuicTransportConfig {
+    pub keep_alive_interval: Option<Duration>,
+    pub max_idle_timeout: Option<Duration>,
+    pub max_bidirectional_streams: Option<u32>,
+    pub max_unidirectional_streams: Option<u32>,
+    pub max_datagram_recv_size: Option<usize>,
+}
+
+impl Default for QuicTransportConfig {
+    fn default() -> Self {
+        Self {
+            keep_alive_interval: Some(Duration::from_secs(30)),
+            max_idle_timeout: Some(Duration::from_secs(60)),
+            max_bidirectional_streams: Some(128),
+            max_unidirectional_streams: Some(32),
+            max_datagram_recv_size: Some(64 * 1024),
+        }
+    }
+}
+
 impl QuicEndpointListener {
     pub fn new(bind_addr: SocketAddr, store: &CertificateStore) -> Self {
+        Self::new_with_config(bind_addr, store, QuicTransportConfig::default())
+    }
+
+    pub fn new_with_config(
+        bind_addr: SocketAddr,
+        store: &CertificateStore,
+        transport: QuicTransportConfig,
+    ) -> Self {
         let rustls_config = store.rustls_server_config(&[b"h3", b"h3-29"]).unwrap();
         let mut server_config =
             ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(rustls_config).unwrap()));
 
         if let Some(transport_config) = Arc::get_mut(&mut server_config.transport) {
-            transport_config.keep_alive_interval(Some(Duration::from_secs(30)));
+            if let Some(keep_alive) = transport.keep_alive_interval {
+                transport_config.keep_alive_interval(Some(keep_alive));
+            }
+            if let Some(idle) = transport.max_idle_timeout
+                && let Ok(timeout) = quinn::IdleTimeout::try_from(idle)
+            {
+                transport_config.max_idle_timeout(Some(timeout));
+            }
+            if let Some(bidi) = transport.max_bidirectional_streams
+                && let Ok(v) = VarInt::try_from(bidi as u64)
+            {
+                transport_config.max_concurrent_bidi_streams(v);
+            }
+            if let Some(uni) = transport.max_unidirectional_streams
+                && let Ok(v) = VarInt::try_from(uni as u64)
+            {
+                transport_config.max_concurrent_uni_streams(v);
+            }
+            if let Some(max_dgram) = transport.max_datagram_recv_size {
+                transport_config.datagram_receive_buffer_size(Some(max_dgram));
+            }
         }
 
         let endpoint = Endpoint::server(server_config, bind_addr)
