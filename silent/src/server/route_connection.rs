@@ -103,6 +103,7 @@ impl ConnectionService for RouteConnectionService {
                     let max_body_size = self.limits.max_body_size;
                     let max_wt_frame = self.limits.max_webtransport_frame_size;
                     let wt_read_timeout = self.limits.webtransport_read_timeout;
+                    let max_wt_sessions = self.limits.max_webtransport_sessions;
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
                         crate::quic::service::handle_quic_connection(
@@ -112,6 +113,7 @@ impl ConnectionService for RouteConnectionService {
                             read_timeout,
                             max_wt_frame,
                             wt_read_timeout,
+                            max_wt_sessions,
                         )
                         .await
                         .map_err(Into::into)

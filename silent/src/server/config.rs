@@ -14,6 +14,8 @@ pub struct ConnectionLimits {
     pub max_webtransport_frame_size: Option<usize>,
     /// WebTransport 读取超时。
     pub webtransport_read_timeout: Option<Duration>,
+    /// WebTransport 会话并发上限。
+    pub max_webtransport_sessions: Option<usize>,
 }
 
 /// Server 级配置入口。
@@ -41,6 +43,7 @@ static CONFIG_REGISTRY: ServerConfigRegistry = ServerConfigRegistry {
             h3_read_timeout: None,
             max_webtransport_frame_size: None,
             webtransport_read_timeout: None,
+            max_webtransport_sessions: None,
         },
         #[cfg(feature = "quic")]
         quic_transport: None,

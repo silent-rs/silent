@@ -29,6 +29,7 @@ pub(crate) async fn handle_quic_connection(
     read_timeout: Option<std::time::Duration>,
     max_wt_frame: Option<usize>,
     wt_read_timeout: Option<std::time::Duration>,
+    max_wt_sessions: Option<usize>,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
@@ -42,7 +43,7 @@ pub(crate) async fn handle_quic_connection(
         .enable_extended_connect(true)
         .enable_datagram(true)
         .enable_webtransport(true)
-        .max_webtransport_sessions(32);
+        .max_webtransport_sessions(max_wt_sessions.unwrap_or(32) as u64);
     let mut h3_conn = builder
         .build(H3QuinnConnection::new(connection.clone()))
         .await
