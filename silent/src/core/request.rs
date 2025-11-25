@@ -367,20 +367,13 @@ impl Request {
             // 如果没有缓存，则从请求体中读取并缓存
             let body = self.take_body();
             let bytes = match body {
-                ReqBody::Incoming(body) => body
-                    .collect()
-                    .await
-                    .or(Err(SilentError::BodyEmpty))?
-                    .to_bytes()
-                    .to_vec(),
-                ReqBody::LimitedIncoming(body) => body
-                    .collect()
-                    .await
-                    .or(Err(SilentError::BodyEmpty))?
-                    .to_bytes()
-                    .to_vec(),
-                ReqBody::Once(bytes) => bytes.to_vec(),
                 ReqBody::Empty => return Err(SilentError::BodyEmpty),
+                other => other
+                    .collect()
+                    .await
+                    .or(Err(SilentError::BodyEmpty))?
+                    .to_bytes()
+                    .to_vec(),
             };
 
             if bytes.is_empty() {
@@ -441,18 +434,12 @@ impl Request {
 
         let body = self.take_body();
         let bytes = match body {
-            ReqBody::Incoming(body) => body
-                .collect()
-                .await
-                .or(Err(SilentError::JsonEmpty))?
-                .to_bytes(),
-            ReqBody::LimitedIncoming(body) => body
-                .collect()
-                .await
-                .or(Err(SilentError::JsonEmpty))?
-                .to_bytes(),
-            ReqBody::Once(bytes) => bytes,
             ReqBody::Empty => return Err(SilentError::JsonEmpty),
+            other => other
+                .collect()
+                .await
+                .or(Err(SilentError::JsonEmpty))?
+                .to_bytes(),
         };
 
         if bytes.is_empty() {

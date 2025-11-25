@@ -4,19 +4,23 @@ use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::route::Route;
 #[cfg(feature = "metrics")]
 use crate::server::metrics::{
-    record_http3_body_oversize, record_webtransport_accept, record_webtransport_error,
+    record_handler_duration, record_http3_body_oversize, record_webtransport_accept,
+    record_webtransport_error,
 };
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request};
 use anyhow::{Context, Result, anyhow};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use h3::ext::Protocol as H3Protocol;
 use h3::server::{RequestResolver, RequestStream};
 use h3_quinn::Connection as H3QuinnConnection;
 use http::{Method, Request as HttpRequest, Response, StatusCode};
 use http_body_util::BodyExt;
+use std::io::{Error as IoError, ErrorKind};
 use std::{net::SocketAddr, sync::Arc, time::Instant};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
@@ -202,61 +206,49 @@ async fn handle_http3_request(
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
 ) -> Result<()> {
-    let mut stream = RealH3Stream::new(stream);
-    handle_http3_request_impl(
-        request,
-        &mut stream,
-        remote,
-        routes,
-        max_body_size,
-        read_timeout,
-    )
-    .await
+    let stream = RealH3Stream::new(stream);
+    handle_http3_request_impl(request, stream, remote, routes, max_body_size, read_timeout)
+        .await
+        .map(|_| ())
 }
 
 // 提取后的实现，便于在测试中注入自定义流
 // 优化版本：使用泛型实现完全静态分派，消除动态分派开销
-async fn handle_http3_request_impl<T: H3RequestIo>(
+async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
     request: HttpRequest<()>,
-    stream: &mut T,
+    stream: T,
     remote: SocketAddr,
     routes: Arc<Route>,
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
-) -> Result<()> {
-    let mut body_buf = BytesMut::new();
-    while let Some(bytes) = match read_timeout {
-        Some(t) => tokio::time::timeout(t, stream.recv_data()).await?,
-        None => stream.recv_data().await,
-    }? {
-        if !bytes.is_empty() {
-            if let Some(max) = max_body_size
-                && body_buf.len() + bytes.len() > max
-            {
-                warn!(
-                    %remote,
-                    size = body_buf.len() + bytes.len(),
-                    limit = max,
-                    "HTTP/3 request body exceeds limit"
-                );
-                #[cfg(feature = "metrics")]
-                record_http3_body_oversize();
-                return Err(anyhow!("HTTP/3 request body exceeds limit"));
-            }
-            body_buf.extend_from_slice(&bytes);
-        }
-    }
+) -> Result<T> {
+    let (tx, rx) = mpsc::channel(8);
+    let read_task = tokio::spawn(read_http3_body(
+        stream,
+        tx,
+        remote,
+        max_body_size,
+        read_timeout,
+    ));
+
+    let body_stream = ReceiverStream::new(rx);
     let (parts, _) = request.into_parts();
-    let body = if body_buf.is_empty() {
-        crate::prelude::ReqBody::Empty
-    } else {
-        crate::prelude::ReqBody::Once(body_buf.freeze())
-    };
-    let mut silent_req = Request::from_parts(parts, body);
+    let mut silent_req =
+        Request::from_parts(parts, crate::prelude::ReqBody::from_stream(body_stream));
     silent_req.set_remote(remote.into());
+
+    #[cfg(feature = "metrics")]
+    let handle_started = Instant::now();
     let response = Handler::call(&*routes, silent_req)
         .await
         .unwrap_or_else(Into::into);
+    #[cfg(feature = "metrics")]
+    record_handler_duration(handle_started.elapsed().as_nanos() as u64);
+
+    let mut stream = read_task
+        .await
+        .map_err(|err| anyhow!("HTTP/3 请求体读取任务异常: {err}"))??;
+
     let hyper_response = HyperHttpProtocol::from_internal(response);
     let (parts, mut body) = hyper_response.into_parts();
     stream
@@ -272,7 +264,78 @@ async fn handle_http3_request_impl<T: H3RequestIo>(
         }
     }
     stream.finish().await?;
-    Ok(())
+    Ok(stream)
+}
+
+async fn read_http3_body<T: H3RequestIo + Send + 'static>(
+    mut stream: T,
+    sender: mpsc::Sender<Result<Bytes, IoError>>,
+    remote: SocketAddr,
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+) -> Result<T> {
+    let mut total = 0usize;
+    loop {
+        let next = match read_timeout {
+            Some(t) => match tokio::time::timeout(t, stream.recv_data()).await {
+                Ok(res) => res,
+                Err(_) => {
+                    let _ = sender
+                        .send(Err(IoError::new(
+                            ErrorKind::TimedOut,
+                            "HTTP/3 body read timeout",
+                        )))
+                        .await;
+                    anyhow::bail!("HTTP/3 body read timeout");
+                }
+            },
+            None => stream.recv_data().await,
+        };
+
+        let next = match next {
+            Ok(data) => data,
+            Err(err) => {
+                let _ = sender
+                    .send(Err(IoError::other(format!(
+                        "HTTP/3 body read failed: {err}"
+                    ))))
+                    .await;
+                return Err(err);
+            }
+        };
+
+        let Some(bytes) = next else {
+            break;
+        };
+
+        if bytes.is_empty() {
+            continue;
+        }
+        total = total.saturating_add(bytes.len());
+        if let Some(max) = max_body_size
+            && total > max
+        {
+            warn!(
+                %remote,
+                size = total,
+                limit = max,
+                "HTTP/3 request body exceeds limit"
+            );
+            #[cfg(feature = "metrics")]
+            record_http3_body_oversize();
+            let _ = sender
+                .send(Err(IoError::other("HTTP/3 request body exceeds limit")))
+                .await;
+            anyhow::bail!("HTTP/3 request body exceeds limit");
+        }
+
+        if sender.send(Ok(bytes)).await.is_err() {
+            // 消费端已关闭，提前结束读取
+            break;
+        }
+    }
+
+    Ok(stream)
 }
 
 async fn handle_webtransport_request(
@@ -296,6 +359,7 @@ async fn handle_webtransport_request(
         handshake_elapsed = ?handshake_start.elapsed(),
         "WebTransport 会话建立"
     );
+    #[cfg(feature = "metrics")]
     record_webtransport_accept();
     let session = Arc::new(QuicSession::new(remote));
     let mut channel = WebTransportStream::new(stream, max_frame, read_timeout);
@@ -304,6 +368,7 @@ async fn handle_webtransport_request(
     match &res {
         Ok(_) => info!(%remote, handle_elapsed = ?started.elapsed(), "WebTransport 会话结束"),
         Err(err) => {
+            #[cfg(feature = "metrics")]
             record_webtransport_error();
             warn!(%remote, error = ?err, "WebTransport 会话异常结束")
         }
@@ -337,6 +402,7 @@ mod tests {
     use std::sync::Arc;
 
     // 伪造 H3 流，用于在不依赖真实 h3/quinn 的情况下测试 HTTP/3 处理路径
+    #[derive(Debug)]
     struct FakeH3Stream {
         incoming: VecDeque<Bytes>,
         pub sent_head: Option<Response<()>>,
@@ -460,7 +526,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http3_impl_basic_body_roundtrip() {
-        let mut stream = FakeH3Stream::new(vec![
+        let stream = FakeH3Stream::new(vec![
             Bytes::from_static(b"hello "),
             Bytes::from_static(b"world"),
         ]);
@@ -468,7 +534,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34567".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("http3 impl should succeed");
 
@@ -485,12 +551,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_http3_impl_empty_body() {
-        let mut stream = FakeH3Stream::new(vec![]);
+        let stream = FakeH3Stream::new(vec![]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34568".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("http3 impl should succeed on empty body");
         assert!(stream.sent_head.is_some());
@@ -507,7 +573,7 @@ mod tests {
         let req = make_request("/err");
         let remote: SocketAddr = "127.0.0.1:34569".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up head send error");
         let msg = format!("{err:#}");
@@ -557,49 +623,42 @@ mod tests {
     #[tokio::test]
     async fn test_http3_impl_send_data_error_propagates() {
         // 测试发送响应体数据失败时的错误传播
-        let mut stream =
-            FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_send_data_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_send_data_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34570".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up send data error");
         let msg = format!("{err:#}");
         assert!(msg.contains("send_data_failed"));
-        // 验证响应头已发送但数据发送失败
-        assert!(stream.sent_head.is_some());
-        assert!(!stream.finished); // finish 不应被调用
     }
 
     #[tokio::test]
     async fn test_http3_impl_finish_error_propagates() {
         // 测试 finish 操作失败时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_finish_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_finish_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34571".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up finish error");
         let msg = format!("{err:#}");
         assert!(msg.contains("finish_failed"));
-        // 验证响应头和数据已发送，但 finish 失败
-        assert!(stream.sent_head.is_some());
-        assert!(!stream.sent_data.is_empty());
     }
 
     #[tokio::test]
     async fn test_http3_impl_recv_error_propagates() {
         // 测试接收请求体失败时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_recv_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_recv_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34572".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up recv error");
         let msg = format!("{err:#}");
@@ -615,12 +674,12 @@ mod tests {
             Bytes::from(large_data.clone()),
             Bytes::from(large_data.clone()),
         ];
-        let mut stream = FakeH3Stream::new(chunks);
+        let stream = FakeH3Stream::new(chunks);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34573".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("large body should succeed");
 
@@ -636,13 +695,13 @@ mod tests {
         // 测试无效 UTF-8 请求体的处理
         // 创建包含无效 UTF-8 字节的请求体
         let invalid_utf8 = vec![0xFF, 0xFE, 0xFD, 0xFC, 0xFB];
-        let mut stream = FakeH3Stream::new(vec![Bytes::from(invalid_utf8)]);
+        let stream = FakeH3Stream::new(vec![Bytes::from(invalid_utf8)]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34574".parse().unwrap();
 
         // 无效 UTF-8 数据应该被正确处理并回显
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("invalid utf8 body should be handled");
 
@@ -667,18 +726,16 @@ mod tests {
             Bytes::from_static(b"third"),
         ];
         // 模拟在发送响应数据时失败
-        let mut stream = FakeH3Stream::new(chunks).with_send_data_failure();
+        let stream = FakeH3Stream::new(chunks).with_send_data_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34575".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should fail on send data");
         let msg = format!("{err:#}");
         assert!(msg.contains("send_data_failed"));
-        // 验证请求体已被完全接收（即使后续发送失败）
-        assert!(stream.sent_head.is_some());
     }
 
     #[tokio::test]
@@ -690,12 +747,12 @@ mod tests {
             Bytes::new(), // 另一个空块
             Bytes::from_static(b"more"),
         ];
-        let mut stream = FakeH3Stream::new(chunks);
+        let stream = FakeH3Stream::new(chunks);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34576".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("mixed chunks should succeed");
 
@@ -713,13 +770,13 @@ mod tests {
     #[tokio::test]
     async fn test_http3_impl_handler_error_propagation() {
         // 测试路由处理器返回错误时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34577".parse().unwrap();
 
         // 不需要特殊设置，测试正常路径即可
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("normal path should succeed");
 
@@ -730,12 +787,12 @@ mod tests {
     #[tokio::test]
     async fn test_http3_impl_empty_response_body() {
         // 测试返回空响应体的情况
-        let mut stream = FakeH3Stream::new(vec![]);
+        let stream = FakeH3Stream::new(vec![]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34578".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes, None, None)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("empty response should succeed");
 

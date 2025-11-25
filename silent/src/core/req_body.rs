@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,7 +8,6 @@ use futures_util::Stream;
 use http_body::{Body, Frame, SizeHint};
 use hyper::body::Incoming;
 
-#[derive(Debug)]
 /// 请求体
 pub enum ReqBody {
     /// Empty body.
@@ -18,6 +18,20 @@ pub enum ReqBody {
     Incoming(Incoming),
     /// Incoming with size limit.
     LimitedIncoming(LimitedIncoming),
+    /// Streaming body from custom stream.
+    Streaming(Pin<Box<dyn Stream<Item = Result<Bytes, IoError>> + Send>>),
+}
+
+impl fmt::Debug for ReqBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReqBody::Empty => f.write_str("Empty"),
+            ReqBody::Once(bytes) => f.debug_tuple("Once").field(bytes).finish(),
+            ReqBody::Incoming(_) => f.write_str("Incoming"),
+            ReqBody::LimitedIncoming(_) => f.write_str("LimitedIncoming"),
+            ReqBody::Streaming(_) => f.write_str("Streaming"),
+        }
+    }
 }
 
 impl From<Incoming> for ReqBody {
@@ -42,9 +56,19 @@ impl Body for ReqBody {
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         match &mut *self {
             ReqBody::Empty => Poll::Ready(None),
-            ReqBody::Once(bytes) => Poll::Ready(Some(Ok(Frame::data(bytes.clone())))),
+            ReqBody::Once(bytes) => {
+                let bytes = std::mem::take(bytes);
+                *self = ReqBody::Empty;
+                Poll::Ready(Some(Ok(Frame::data(bytes))))
+            }
             ReqBody::Incoming(body) => Pin::new(body).poll_frame(cx).map_err(IoError::other),
             ReqBody::LimitedIncoming(body) => Pin::new(body).poll_frame(cx),
+            ReqBody::Streaming(stream) => match stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(Frame::data(bytes)))),
+                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Pending => Poll::Pending,
+            },
         }
     }
 
@@ -54,6 +78,7 @@ impl Body for ReqBody {
             ReqBody::Once(bytes) => bytes.is_empty(),
             ReqBody::Incoming(body) => body.is_end_stream(),
             ReqBody::LimitedIncoming(body) => body.is_end_stream(),
+            ReqBody::Streaming(_) => false,
         }
     }
 
@@ -63,6 +88,7 @@ impl Body for ReqBody {
             ReqBody::Once(bytes) => SizeHint::with_exact(bytes.len() as u64),
             ReqBody::Incoming(body) => body.size_hint(),
             ReqBody::LimitedIncoming(body) => body.size_hint(),
+            ReqBody::Streaming(_) => SizeHint::new(),
         }
     }
 }
@@ -89,6 +115,14 @@ impl ReqBody {
             }
             (other, _) => other,
         }
+    }
+
+    /// 从自定义字节流构建流式请求体。
+    pub fn from_stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, IoError>> + Send + 'static,
+    {
+        ReqBody::Streaming(Box::pin(stream))
     }
 }
 
