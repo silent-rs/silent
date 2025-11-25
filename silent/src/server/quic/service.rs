@@ -1,4 +1,4 @@
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::route::Route;
@@ -53,22 +53,26 @@ pub(crate) async fn handle_quic_connection(
             Ok(Some(resolver)) => {
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
-                tokio::spawn(async move {
-                    if let Err(err) = handle_request(
-                        resolver,
-                        remote,
-                        routes,
-                        handler,
-                        max_body_size,
-                        read_timeout,
-                        max_wt_frame,
-                        wt_read_timeout,
-                    )
-                    .await
-                    {
-                        error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
+                let span = info_span!("h3_request_task", %remote);
+                tokio::spawn(
+                    async move {
+                        if let Err(err) = handle_request(
+                            resolver,
+                            remote,
+                            routes,
+                            handler,
+                            max_body_size,
+                            read_timeout,
+                            max_wt_frame,
+                            wt_read_timeout,
+                        )
+                        .await
+                        {
+                            error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
+                        }
                     }
-                });
+                    .instrument(span),
+                );
             }
             Ok(None) => break,
             Err(err) => {
@@ -174,6 +178,13 @@ async fn handle_request(
         .resolve_request()
         .await
         .map_err(|err| anyhow!("解析 HTTP/3 请求失败: {err}"))?;
+    let span = info_span!(
+        "h3_request",
+        %remote,
+        method = %request.method(),
+        uri = %request.uri()
+    );
+    let _guard = span.enter();
     let protocol = request.extensions().get::<H3Protocol>().cloned();
     debug!(
         %remote,

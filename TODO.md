@@ -18,18 +18,18 @@
 - ✅ Metrics/Tracing 钩子（accept/限流/超时/HTTP3/WebTransport/关停，含可选 metrics feature 与示例）
 
 ## 下一步（依据 PLAN v2.13-M3 收尾项）
-- 补充 QUIC 生产化参数暴露与文档（idle_timeout、max_streams、max_datagram_size 等）
-- 补充 Alt-Svc/ALPN 自动对齐与证书热载说明
-- 覆盖 WebTransport/Datagram 的体积/速率限制配置与观测（计数、直方图）
+- 🔄 QUIC 生产化参数：暴露 idle_timeout/max_streams/datagram 上限，提供默认值与文档。
+- 🔄 Alt-Svc/ALPN 对齐与证书热载说明。
+- 🔄 WebTransport/Datagram 体积/速率限制与观测（计数、直方图）。
 
 ## 新增待办（QUIC 生产级落地）
-- HTTP/3 请求体流式处理：去除一次性聚合 `BytesMut`，支持请求体大小上限与读写超时（H3/WebTransport/Datagram）。
-- 连接/流保护：增加 per-connection/per-request 超时、流并发上限、datagram 大小与速率限制，暴露 quinn transport 配置（idle_timeout、max_streams、窗口）并文档化。
-- 可观测性：在 accept/握手/请求处理/流关闭/错误路径增加 tracing span 与 metrics（含 rate-limit 命中、流重置、处理耗时、Alt-Svc 命中等）。
-- 配置一致性：HybridListener 自动注入 Alt-Svc 端口；支持自定义 ALPN；提供证书热更新接口；确认 HTTP3 路径继承 HTTP1/2 中间件（日志/鉴权/限流）。
-- 性能与内存：响应侧分块/backpressure，避免大响应占用内存。
-- 测试与互操作：新增端到端回归/丢包高 RTT 场景基准（可用 quinn-cli/Chromium）；补充 0-RTT/重传/迁移策略说明与验证。
-- 示例与文档：提供生产化 WebTransport/HTTP3 示例（替代 Echo），文档列出必需配置（防护、证书、Alt-Svc、监控）。
+- ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时。
+- 🟡 连接/流保护：每连接/每流并发、datagram 大小与速率限制；quinn transport 参数默认值与文档化。
+- 🟡 可观测性：accept/握手/请求/流关闭/错误的 tracing span 与 metrics（含 rate-limit 命中、流重置、处理耗时、Alt-Svc 命中）。
+- 🟡 配置一致性：HybridListener 自动 Alt-Svc 端口；自定义 ALPN；证书热更新；HTTP3 路径继承 HTTP1/2 中间件验证。
+- 🟡 性能与内存：响应侧分块/backpressure，避免大响应占用内存。
+- 🟡 测试与互操作：端到端回归、丢包/高 RTT、0-RTT/重传/迁移策略说明与验证。
+- 🟡 示例与文档：生产化 WebTransport/HTTP3 示例（替代 Echo），列出防护、证书、Alt-Svc、监控的必需配置。
 
 ## 验收标准
 - 新配置结构可同时作用于 TCP/TLS/QUIC，默认值落地，可通过测试或示例验证
