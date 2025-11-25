@@ -15,7 +15,7 @@ crate-type = ["cdylib"]
 
 
 [dependencies]
-worker = "0.6.6"
+worker = "0.7.0"
 console_error_panic_hook = "0.1"
 silent = { path = "../../silent", default-features = false, features = [
     "worker",
