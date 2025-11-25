@@ -60,6 +60,8 @@ pub use crate::server::quic::{HybridListener, QuicEndpointListener};
 pub use crate::server::{BoxError, ConnectionFuture, ConnectionService, Server};
 #[cfg(all(feature = "server", feature = "tls"))]
 pub use crate::server::{CertificateStore, CertificateStoreBuilder};
+#[cfg(feature = "server")]
+pub use crate::server::{ConnectionLimits, ServerConfig};
 pub use error::SilentError;
 pub use error::SilentResult as Result;
 pub use handler::Handler;

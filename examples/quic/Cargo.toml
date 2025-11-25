@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-silent = { path = "../../silent", features = ["quic"] }
+silent = { path = "../../silent", features = ["server", "quic"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rustls = { version = "0.23" }

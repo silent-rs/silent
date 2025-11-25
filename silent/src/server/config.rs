@@ -20,6 +20,9 @@ pub struct ConnectionLimits {
 #[derive(Clone, Debug, Default)]
 pub struct ServerConfig {
     pub connection_limits: ConnectionLimits,
+    /// QUIC 传输参数（仅在 `quic` 特性开启时生效）。
+    #[cfg(feature = "quic")]
+    pub quic_transport: Option<crate::server::quic::QuicTransportConfig>,
 }
 
 /// 运行时可查询的配置注册表，便于 RouteConnectionService 获取 Server 配置。
@@ -39,6 +42,8 @@ static CONFIG_REGISTRY: ServerConfigRegistry = ServerConfigRegistry {
             max_webtransport_frame_size: None,
             webtransport_read_timeout: None,
         },
+        #[cfg(feature = "quic")]
+        quic_transport: None,
     }),
 };
 

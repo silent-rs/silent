@@ -11,6 +11,7 @@ use crate::AcceptFuture;
 use crate::BoxedConnection;
 use crate::CertificateStore;
 use crate::Listen;
+use crate::server::config::ServerConfig as ServerOptions;
 use crate::server::listener::TlsListener;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 
@@ -45,6 +46,16 @@ impl Default for QuicTransportConfig {
 impl QuicEndpointListener {
     pub fn new(bind_addr: SocketAddr, store: &CertificateStore) -> Self {
         Self::new_with_config(bind_addr, store, QuicTransportConfig::default())
+    }
+
+    /// 基于 ServerConfig 中的 quic_transport 构建监听器。
+    pub fn from_server_config(
+        bind_addr: SocketAddr,
+        store: &CertificateStore,
+        config: &ServerOptions,
+    ) -> Self {
+        let transport = config.quic_transport.clone().unwrap_or_default();
+        Self::new_with_config(bind_addr, store, transport)
     }
 
     pub fn new_with_config(

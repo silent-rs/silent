@@ -1,6 +1,8 @@
 use anyhow::{Result, anyhow};
 use silent::QuicEndpointListener;
 use silent::prelude::*;
+use silent::{ServerConfig, quic::QuicTransportConfig};
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -13,11 +15,27 @@ async fn main() -> Result<()> {
     // 端口与绑定地址由用户显式设置
     let bind_addr: std::net::SocketAddr = "127.0.0.1:4433".parse().unwrap();
     let store = certificate_store()?;
+    let server_config = ServerConfig {
+        quic_transport: Some(QuicTransportConfig {
+            keep_alive_interval: Some(Duration::from_secs(15)),
+            max_idle_timeout: Some(Duration::from_secs(120)),
+            max_bidirectional_streams: Some(256),
+            max_unidirectional_streams: Some(64),
+            max_datagram_recv_size: Some(128 * 1024),
+            alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
+        }),
+        ..Default::default()
+    };
 
     // QUIC listener with HTTP fallback (自动附加 HTTP/1.1 + TLS listener)
-    let listener = QuicEndpointListener::new(bind_addr, &store).with_http_fallback();
+    let listener = QuicEndpointListener::from_server_config(bind_addr, &store, &server_config)
+        .with_http_fallback();
 
-    Server::new().listen(listener).serve(routes).await;
+    Server::new()
+        .with_config(server_config)
+        .listen(listener)
+        .serve(routes)
+        .await;
 
     Ok(())
 }
