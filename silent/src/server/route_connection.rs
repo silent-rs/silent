@@ -99,13 +99,19 @@ impl ConnectionService for RouteConnectionService {
                 Ok(quic) => {
                     // QUIC 连接处理
                     let routes = Arc::new(self.route.clone());
+                    let read_timeout = self.limits.h3_read_timeout;
                     let max_body_size = self.limits.max_body_size;
+                    let max_wt_frame = self.limits.max_webtransport_frame_size;
+                    let wt_read_timeout = self.limits.webtransport_read_timeout;
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
                         crate::quic::service::handle_quic_connection(
                             incoming,
                             routes,
                             max_body_size,
+                            read_timeout,
+                            max_wt_frame,
+                            wt_read_timeout,
                         )
                         .await
                         .map_err(Into::into)

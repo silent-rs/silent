@@ -8,6 +8,12 @@ pub struct ConnectionLimits {
     pub handler_timeout: Option<Duration>,
     /// HTTP 请求体大小上限（字节）。`None` 表示不限制。
     pub max_body_size: Option<usize>,
+    /// QUIC/HTTP3 请求体读取超时。
+    pub h3_read_timeout: Option<Duration>,
+    /// WebTransport 单帧/消息大小上限（字节）。
+    pub max_webtransport_frame_size: Option<usize>,
+    /// WebTransport 读取超时。
+    pub webtransport_read_timeout: Option<Duration>,
 }
 
 /// Server 级配置入口。
@@ -29,6 +35,9 @@ static CONFIG_REGISTRY: ServerConfigRegistry = ServerConfigRegistry {
         connection_limits: ConnectionLimits {
             handler_timeout: None,
             max_body_size: None,
+            h3_read_timeout: None,
+            max_webtransport_frame_size: None,
+            webtransport_read_timeout: None,
         },
     }),
 };

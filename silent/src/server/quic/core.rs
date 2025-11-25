@@ -1,9 +1,10 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use h3::server::RequestStream;
 use scru128::Scru128Id;
+use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct QuicSession {
@@ -26,15 +27,38 @@ impl QuicSession {
 
 pub struct WebTransportStream {
     inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
+    max_frame_size: Option<usize>,
+    read_timeout: Option<Duration>,
 }
 
 impl WebTransportStream {
-    pub(crate) fn new(inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>) -> Self {
-        Self { inner }
+    pub(crate) fn new(
+        inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
+        max_frame_size: Option<usize>,
+        read_timeout: Option<Duration>,
+    ) -> Self {
+        Self {
+            inner,
+            max_frame_size,
+            read_timeout,
+        }
     }
     pub async fn recv_data(&mut self) -> Result<Option<Bytes>> {
-        match self.inner.recv_data().await? {
-            Some(mut buf) => Ok(Some(buf.copy_to_bytes(buf.remaining()))),
+        let fut = self.inner.recv_data();
+        let maybe = match self.read_timeout {
+            Some(t) => timeout(t, fut).await??,
+            None => fut.await?,
+        };
+        match maybe {
+            Some(mut buf) => {
+                let data = buf.copy_to_bytes(buf.remaining());
+                if let Some(max) = self.max_frame_size
+                    && data.len() > max
+                {
+                    anyhow::bail!("WebTransport frame exceeds limit");
+                }
+                Ok(Some(data))
+            }
             None => Ok(None),
         }
     }
