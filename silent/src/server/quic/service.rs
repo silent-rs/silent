@@ -5,7 +5,7 @@ use crate::route::Route;
 #[cfg(feature = "metrics")]
 use crate::server::metrics::{
     record_handler_duration, record_http3_body_oversize, record_webtransport_accept,
-    record_webtransport_error,
+    record_webtransport_error, record_webtransport_handshake_duration,
 };
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
@@ -363,18 +363,23 @@ async fn handle_webtransport_request(
     max_frame: Option<usize>,
     read_timeout: Option<std::time::Duration>,
 ) -> Result<()> {
+    let span = info_span!("webtransport_session", %remote);
+    let _guard = span.enter();
     let handshake_start = Instant::now();
     let handshake = build_webtransport_handshake_response(&request);
     stream
         .send_response(handshake)
         .await
         .map_err(|err| anyhow!("发送 WebTransport 握手响应失败: {err}"))?;
+    let handshake_elapsed = handshake_start.elapsed();
     info!(
         %remote,
         accept_elapsed = ?accept_at.elapsed(),
-        handshake_elapsed = ?handshake_start.elapsed(),
+        handshake_elapsed = ?handshake_elapsed,
         "WebTransport 会话建立"
     );
+    #[cfg(feature = "metrics")]
+    record_webtransport_handshake_duration(handshake_elapsed.as_nanos() as u64);
     #[cfg(feature = "metrics")]
     record_webtransport_accept();
     let session = Arc::new(QuicSession::new(remote));

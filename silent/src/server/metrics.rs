@@ -110,6 +110,11 @@ pub fn record_webtransport_error() {
     counter!("silent.server.webtransport.error").increment(1);
 }
 
+#[cfg(feature = "quic")]
+pub fn record_webtransport_handshake_duration(dur_ns: u64) {
+    histogram!("silent.server.webtransport.handshake_ns").record(dur_ns as f64);
+}
+
 pub fn record_handler_duration(handle_ns: u64) {
     histogram!("silent.server.handler.duration_ns").record(handle_ns as f64);
 }
