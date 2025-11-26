@@ -56,6 +56,8 @@ pub use crate::server::protocol::Protocol;
 pub use crate::server::quic;
 #[cfg(feature = "quic")]
 pub use crate::server::quic::{HybridListener, QuicEndpointListener};
+#[cfg(all(feature = "server", feature = "tls"))]
+pub use crate::server::tls::ReloadableCertificateStore;
 #[cfg(feature = "server")]
 pub use crate::server::{BoxError, ConnectionFuture, ConnectionService, Server};
 #[cfg(all(feature = "server", feature = "tls"))]

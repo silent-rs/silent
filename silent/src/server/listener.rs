@@ -1,8 +1,8 @@
 use super::connection::Connection;
 use super::stream::Stream;
-#[cfg(feature = "tls")]
-use crate::CertificateStore;
 use crate::core::socket_addr::SocketAddr;
+#[cfg(feature = "tls")]
+use crate::{CertificateStore, ReloadableCertificateStore};
 use std::future::Future;
 use std::io::Result;
 #[cfg(not(target_os = "windows"))]
@@ -119,6 +119,13 @@ impl Listener {
     pub fn tls_with_cert(self, cert: &CertificateStore) -> TlsListener {
         self.tls(TlsAcceptor::from(cert.https_config().unwrap()))
     }
+
+    pub fn tls_with_reloadable(self, store: ReloadableCertificateStore) -> ReloadableTlsListener {
+        ReloadableTlsListener {
+            listener: self,
+            store,
+        }
+    }
 }
 
 #[cfg(feature = "tls")]
@@ -128,11 +135,40 @@ pub struct TlsListener {
 }
 
 #[cfg(feature = "tls")]
+pub struct ReloadableTlsListener {
+    pub listener: Listener,
+    pub store: ReloadableCertificateStore,
+}
+
+#[cfg(feature = "tls")]
 impl Listen for TlsListener {
     fn accept(&self) -> AcceptFuture<'_> {
         let accept_future = async move {
             let (stream, addr) = self.listener.accept().await?;
             let tls_stream = self.acceptor.accept(stream).await?;
+            Ok((
+                Box::new(tls_stream) as Box<dyn Connection + Send + Sync>,
+                addr,
+            ))
+        };
+        Box::pin(accept_future)
+    }
+
+    fn local_addr(&self) -> Result<SocketAddr> {
+        self.listener.local_addr()?.tls()
+    }
+}
+
+#[cfg(feature = "tls")]
+impl Listen for ReloadableTlsListener {
+    fn accept(&self) -> AcceptFuture<'_> {
+        let store = self.store.clone();
+        let accept_future = async move {
+            let (stream, addr) = self.listener.accept().await?;
+            let acceptor = store
+                .https_acceptor()
+                .map_err(|e| std::io::Error::other(format!("reload tls acceptor failed: {e}")))?;
+            let tls_stream = acceptor.accept(stream).await?;
             Ok((
                 Box::new(tls_stream) as Box<dyn Connection + Send + Sync>,
                 addr,
