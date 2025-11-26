@@ -29,10 +29,15 @@ pub struct WebTransportStream {
     inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     max_frame_size: Option<usize>,
     read_timeout: Option<Duration>,
+    #[allow(dead_code)]
     max_datagram_size: Option<usize>,
+    #[allow(dead_code)]
     datagram_per_sec: Option<u64>,
+    #[allow(dead_code)]
     datagram_tokens: u64,
+    #[allow(dead_code)]
     last_refill: Instant,
+    #[allow(dead_code)]
     record_drop: bool,
 }
 
@@ -56,6 +61,7 @@ impl WebTransportStream {
             record_drop,
         }
     }
+    #[allow(dead_code)]
     fn refill(&mut self) {
         if let Some(rate) = self.datagram_per_sec {
             let now = Instant::now();
@@ -84,6 +90,9 @@ impl WebTransportStream {
             None => Ok(None),
         }
     }
+    /// 带限速/体积校验的 Datagram 发送占位接口。
+    ///
+    /// 目前 h3 RequestStream 尚未暴露 datagram 发送，调用方应根据返回的 Err 做降级或回退。
     #[allow(dead_code)]
     pub fn try_send_datagram(&mut self, data: Bytes) -> Result<()> {
         self.refill();
@@ -106,7 +115,6 @@ impl WebTransportStream {
             }
             self.datagram_tokens -= 1;
         }
-        // h3 RequestStream 不直接暴露 datagram 发送；预留接口，后续可接入底层通道。
         anyhow::bail!("Datagram send not supported in this adapter yet");
     }
     pub async fn send_data(&mut self, data: Bytes) -> Result<()> {

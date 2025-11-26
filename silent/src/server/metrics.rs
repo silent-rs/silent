@@ -116,11 +116,13 @@ pub fn record_webtransport_handshake_duration(dur_ns: u64) {
 }
 
 #[cfg(feature = "quic")]
+#[allow(dead_code)]
 pub fn record_webtransport_datagram_dropped() {
     counter!("silent.server.webtransport.datagram_dropped").increment(1);
 }
 
 #[cfg(feature = "quic")]
+#[allow(dead_code)]
 pub fn record_webtransport_rate_limited() {
     counter!("silent.server.webtransport.datagram_rate_limited").increment(1);
 }
