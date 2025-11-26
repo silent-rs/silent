@@ -2,6 +2,7 @@ use crate::Next;
 use crate::Request;
 use crate::Response as SilentResponse;
 use crate::{Handler, MiddleWareHandler};
+use tracing::debug;
 
 /// Alt-Svc 中间件，用于通知客户端可以使用 HTTP/3
 #[derive(Clone)]
@@ -24,6 +25,7 @@ impl MiddleWareHandler for AltSvcMiddleware {
             let val = format!("h3=\":{}\"; ma=86400", port);
             if let Ok(h) = http::HeaderValue::from_str(&val) {
                 response.headers_mut().insert("alt-svc", h);
+                debug!(quic_port = port, "Alt-Svc header injected");
             }
         }
         Ok(response)

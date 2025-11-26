@@ -4,6 +4,7 @@
 > 目标版本: v2.13
 > 优先级: P0
 > 状态: 🟢 已完成当前阶段（M1/M2/M3 基础可观测）
+> 验证: cargo check --all / cargo clippy --all-targets --all-features --tests --benches -- -D warnings / cargo nextest run --all-features 已通过（当前分支）
 
 ## 目标
 - 统一 server 配置入口（限流、超时、请求体大小、ALPN/Alt-Svc 等），提供默认值与覆盖策略
@@ -18,22 +19,22 @@
 - ✅ Metrics/Tracing 钩子（accept/限流/超时/HTTP3/WebTransport/关停，含可选 metrics feature 与示例）
 
 ## 下一步（依据 PLAN v2.13-M3 收尾项）
-- 🔄 QUIC 生产化参数：暴露 idle_timeout/max_streams/datagram 上限，提供默认值与文档。
-- 🔄 Alt-Svc/ALPN 对齐与证书热载说明。
-- 🔄 WebTransport/Datagram 体积/速率限制与观测（计数、直方图）。
+- ✅ QUIC 生产化参数：idle_timeout/max_streams/datagram 默认值与文档已落地（docs/quic-transport.md），QuicTransportConfig 接入监听器。
+- 🟡 Alt-Svc/ALPN/证书热载：Alt-Svc 自动端口与 ALPN 自定义已提供，TLS 热载已通过 ReloadableCertificateStore + tls_with_reloadable 支持（docs/quic-ops.md），QUIC 证书仍需重建 listener。
+- 🟡 WebTransport/Datagram 体积/速率限制与观测：size/rate 占位与 metrics 已接入（core.rs/service.rs），需对接底层 datagram send/recv API 并补观测验证。
 
-## 新增待办（QUIC 生产级落地）
-- ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时。
-- 🟡 连接/流保护：每连接/每流并发、datagram 大小与速率限制；quinn transport 参数默认值与文档化。
-- 🟡 可观测性：accept/握手/请求/流关闭/错误的 tracing span 与 metrics（含 rate-limit 命中、流重置、处理耗时、Alt-Svc 命中）。
-- 🟡 配置一致性：HybridListener 自动 Alt-Svc 端口；自定义 ALPN；证书热更新；HTTP3 路径继承 HTTP1/2 中间件验证。
-- 🟡 性能与内存：响应侧分块/backpressure，避免大响应占用内存。
-- 🟡 测试与互操作：端到端回归、丢包/高 RTT、0-RTT/重传/迁移策略说明与验证。
-- 🟡 示例与文档：生产化 WebTransport/HTTP3 示例（替代 Echo），列出防护、证书、Alt-Svc、监控的必需配置。
+## 当前待办（QUIC 生产级落地）
+- ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时（已在 service.rs 内单测验证）。
+- 🟡 连接/流保护：并发/限速占位已有（QuicTransportConfig + WebTransportStream），需补实际 datagram send/recv 支持与拒绝策略验证。
+- 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
+- 🟡 配置一致性：HybridListener Alt-Svc 已对齐，ALPN 可配置；TLS 证书热更新已支持，HTTP3 中间件继承验证与 QUIC 热载方案待补。
+- 🟡 性能与内存：当前仅在大块响应后 yield，需评估响应分块/写入限速/背压策略。
+- 🟡 测试与互操作：补高 RTT/丢包/0-RTT/迁移等端到端矩阵，覆盖 HTTP3/WebTransport/Datagram。
+- 🟡 示例与文档：已有基础文档与 metrics 示例，并在 quic-ops 补充 TLS 热载示例；需新增生产化 WebTransport/HTTP3 示例（替代 Echo）并列出防护/证书/Alt-Svc/监控配置清单。
 
 ## 验收标准
 - 新配置结构可同时作用于 TCP/TLS/QUIC，默认值落地，可通过测试或示例验证
 - 超时与请求体大小限制在 HTTP/1.1、HTTP/2、HTTP/3 路径均生效，并有验证用例或实验性测试
 - listener 退避策略对连续 accept 错误不会忙等，多监听器公平竞争有测试或明确说明
 - Metrics/Tracing 埋点清单落实到代码，暴露关键指标与 span 字段（含 peer 与 listener 信息）
-- 基础回归通过：至少 `cargo check --all`（必要时特性开关）验证
+- 基础回归通过：至少 `cargo check --all`（必要时特性开关）验证；当前分支已通过 cargo check/clippy/nextest

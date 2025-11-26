@@ -62,7 +62,18 @@ pub(crate) async fn handle_quic_connection(
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
                 let dgram_cfg = (max_datagram_size, datagram_rate, datagram_drop_metric);
-                let span = info_span!("h3_request_task", %remote);
+                let span = info_span!(
+                    "h3_request_task",
+                    %remote,
+                    max_body_size = ?max_body_size,
+                    read_timeout = ?read_timeout,
+                    max_wt_frame = ?max_wt_frame,
+                    wt_read_timeout = ?wt_read_timeout,
+                    max_wt_sessions = ?max_wt_sessions,
+                    datagram_max = ?dgram_cfg.0,
+                    datagram_rate = ?dgram_cfg.1,
+                    datagram_drop_metric = dgram_cfg.2
+                );
                 tokio::spawn(
                     async move {
                         if let Err(err) = handle_request(
@@ -377,7 +388,18 @@ async fn handle_webtransport_request(
     read_timeout: Option<std::time::Duration>,
     datagram_limits: (Option<usize>, Option<u64>, bool),
 ) -> Result<()> {
-    let span = info_span!("webtransport_session", %remote);
+    let session = Arc::new(QuicSession::new(remote));
+    let session_id = session.id().to_string();
+    let span = info_span!(
+        "webtransport_session",
+        %remote,
+        session_id = %session_id,
+        max_frame = ?max_frame,
+        read_timeout = ?read_timeout,
+        datagram_max = ?datagram_limits.0,
+        datagram_rate = ?datagram_limits.1,
+        datagram_drop_metric = datagram_limits.2
+    );
     let _guard = span.enter();
     let handshake_start = Instant::now();
     let handshake = build_webtransport_handshake_response(&request);
@@ -396,25 +418,35 @@ async fn handle_webtransport_request(
     record_webtransport_handshake_duration(handshake_elapsed.as_nanos() as u64);
     #[cfg(feature = "metrics")]
     record_webtransport_accept();
-    let session = Arc::new(QuicSession::new(remote));
+    let (max_dgram, dgram_rate, record_drop) = datagram_limits;
     let mut channel = WebTransportStream::new(
         stream,
         max_frame,
         read_timeout,
-        datagram_limits.0,
-        datagram_limits.1,
-        datagram_limits.2,
+        max_dgram,
+        dgram_rate,
+        record_drop,
     );
     // 占位发送（当前 h3 未暴露 datagram 发送），用于触发限速/体积配置的编译时检查。
     let _ = channel.try_send_datagram(Bytes::new());
     let started = Instant::now();
     let res = handler.handle(session, &mut channel).await;
     match &res {
-        Ok(_) => info!(%remote, handle_elapsed = ?started.elapsed(), "WebTransport 会话结束"),
+        Ok(_) => info!(
+            %remote,
+            session_id = %session_id,
+            handle_elapsed = ?started.elapsed(),
+            "WebTransport 会话结束"
+        ),
         Err(err) => {
             #[cfg(feature = "metrics")]
             record_webtransport_error();
-            warn!(%remote, error = ?err, "WebTransport 会话异常结束")
+            warn!(
+                %remote,
+                session_id = %session_id,
+                error = ?err,
+                "WebTransport 会话异常结束"
+            )
         }
     }
     res

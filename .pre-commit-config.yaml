@@ -53,7 +53,7 @@ repos:
       - id: cargo-test
         name: cargo test
         description: unit test for the project
-        entry: bash -c 'cargo nextest run --all-features'
+        entry: bash -c 'cargo nextest run --all --all-features'
         language: rust
         files: \.rs$
         pass_filenames: false

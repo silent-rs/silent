@@ -4,12 +4,27 @@
 - 推荐使用 `QuicEndpointListener::alt_svc_middleware()`，自动注入当前 QUIC 端口，避免与 HTTP 端口漂移。
 - 自定义 ALPN：在 `QuicTransportConfig.alpn_protocols` 中配置（默认 `["h3", "h3-29"]`）。确保 TLS 证书的 SAN 覆盖对应域名。
 
-## 证书热载（建议流程）
-- 当前实现未内置热载 API，可通过外部重启或重建 `CertificateStore` 的方式完成：
-  1. 监控证书文件变更（inotify/fsevents）。
-  2. 创建新的 `CertificateStore` 并重建 `QuicEndpointListener`/`Server`。
-  3. 使用优雅关停（`Server::with_shutdown`）切换。
-- 若需要内置热载，可在 `CertificateStore` 外包装热载句柄（后续可扩展）。
+## 证书热载
+- HTTP/1.1/HTTP/2 已内置支持：使用 `ReloadableCertificateStore::from_paths` + `Listener::tls_with_reloadable`，文件变更后调用 `reload()` 即可。
+- 示例：
+```rust
+use silent::{ReloadableCertificateStore, Server};
+use silent::server::listener::Listener;
+
+let store = ReloadableCertificateStore::from_paths("cert.pem", "key.pem", None)?;
+let listener = Listener::bind(("0.0.0.0", 443))?.tls_with_reloadable(store.clone());
+
+tokio::spawn(async move {
+    // 监听文件变更后调用 reload（示意）
+    loop {
+        // watch/fsnotify ...
+        store.reload()?;
+    }
+});
+
+Server::new().listen(listener).serve(routes).await;
+```
+- QUIC 证书仍需重建 `QuicEndpointListener`（Quinn Endpoint 配置不可热更），可先构建新 listener 后优雅关停旧服务。
 
 ## 高延迟/丢包回归建议
 - 客户端建议使用 `quinn`/`quinn-cli` 或 Chromium/`curl --http3`。
