@@ -283,7 +283,12 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
             if data.is_empty() {
                 continue;
             }
+            let len = data.len();
             stream.send_data(data).await?;
+            // 简易 backpressure：大块发送后让出调度，避免长时间占用执行器。
+            if len > 64 * 1024 {
+                tokio::task::yield_now().await;
+            }
         }
     }
     stream.finish().await?;
