@@ -26,7 +26,7 @@
 ## 当前待办（QUIC 生产级落地）
 - ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时（已在 service.rs 内单测验证）。
 - 🟡 连接/流保护：并发/限速占位已有（QuicTransportConfig + WebTransportStream），需补实际 datagram send/recv 支持与拒绝策略验证。
-- 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，HTTP3 中间件继承单测已添加；仍需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
+- 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，HTTP3 中间件继承单测已添加；新增 HTTP3 读超时计数与 WebTransport 会话时长直方图，仍需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
 - 🟡 配置一致性：HybridListener Alt-Svc 已对齐，ALPN 可配置；TLS 证书热更新已支持，HTTP3 中间件继承验证与 QUIC 热载方案待补。
 - 🟡 性能与内存：当前仅在大块响应后 yield，需评估响应分块/写入限速/背压策略。
 - 🟡 测试与互操作：补高 RTT/丢包/0-RTT/迁移等端到端矩阵，覆盖 HTTP3/WebTransport/Datagram。

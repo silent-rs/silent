@@ -97,6 +97,11 @@ pub fn record_http3_body_oversize() {
 }
 
 #[cfg(feature = "quic")]
+pub fn record_http3_read_timeout() {
+    counter!("silent.server.http3.read_timeout").increment(1);
+}
+
+#[cfg(feature = "quic")]
 pub fn record_webtransport_accept() {
     inc(&server_metrics().webtransport_accept);
 
@@ -113,6 +118,11 @@ pub fn record_webtransport_error() {
 #[cfg(feature = "quic")]
 pub fn record_webtransport_handshake_duration(dur_ns: u64) {
     histogram!("silent.server.webtransport.handshake_ns").record(dur_ns as f64);
+}
+
+#[cfg(feature = "quic")]
+pub fn record_webtransport_session_duration(dur_ns: u64) {
+    histogram!("silent.server.webtransport.session_ns").record(dur_ns as f64);
 }
 
 #[cfg(feature = "quic")]

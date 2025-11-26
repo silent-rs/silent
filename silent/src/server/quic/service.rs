@@ -4,8 +4,9 @@ use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::route::Route;
 #[cfg(feature = "metrics")]
 use crate::server::metrics::{
-    record_handler_duration, record_http3_body_oversize, record_webtransport_accept,
-    record_webtransport_error, record_webtransport_handshake_duration,
+    record_handler_duration, record_http3_body_oversize, record_http3_read_timeout,
+    record_webtransport_accept, record_webtransport_error, record_webtransport_handshake_duration,
+    record_webtransport_session_duration,
 };
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
@@ -324,6 +325,8 @@ async fn read_http3_body<T: H3RequestIo + Send + 'static>(
                             "HTTP/3 body read timeout",
                         )))
                         .await;
+                    #[cfg(feature = "metrics")]
+                    record_http3_read_timeout();
                     anyhow::bail!("HTTP/3 body read timeout");
                 }
             },
@@ -448,6 +451,8 @@ async fn handle_webtransport_request(
             )
         }
     }
+    #[cfg(feature = "metrics")]
+    record_webtransport_session_duration(started.elapsed().as_nanos() as u64);
     res
 }
 
