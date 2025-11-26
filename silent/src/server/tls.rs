@@ -4,7 +4,7 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, Privat
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio_rustls::TlsAcceptor;
 
 #[derive(Clone)]
@@ -22,6 +22,14 @@ impl KeyDer {
     }
 }
 
+fn ensure_crypto_provider() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        // 尝试安装 ring 提供者；若已安装则忽略错误。
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 #[derive(Clone)]
 pub struct CertificateStore {
     cert_chain: Vec<Vec<u8>>,
@@ -35,6 +43,7 @@ impl CertificateStore {
     }
 
     pub fn rustls_server_config(&self, alpn: &[&[u8]]) -> Result<rustls::ServerConfig> {
+        ensure_crypto_provider();
         let chain: Vec<CertificateDer<'static>> = self
             .cert_chain
             .iter()

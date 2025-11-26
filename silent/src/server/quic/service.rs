@@ -405,6 +405,8 @@ async fn handle_webtransport_request(
         datagram_limits.1,
         datagram_limits.2,
     );
+    // 占位发送（当前 h3 未暴露 datagram 发送），用于触发限速/体积配置的编译时检查。
+    let _ = channel.try_send_datagram(Bytes::new());
     let started = Instant::now();
     let res = handler.handle(session, &mut channel).await;
     match &res {

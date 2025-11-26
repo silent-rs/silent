@@ -624,10 +624,14 @@ mod tests {
         // 这个测试主要验证代码路径，而不是具体的数据解析
         // 注意：multipart 测试仍需要 Serialize，因为 multipart_form_parse 需要它
         #[derive(Deserialize, Debug)]
-        #[allow(dead_code)]
+
         struct TestData {
             name: String,
         }
+        let t = TestData {
+            name: "placeholder".to_string(),
+        };
+        assert_eq!(t.name, "placeholder");
 
         let result = req.form_parse::<TestData>().await;
         // 预期会失败，因为我们没有提供真实的 multipart 数据

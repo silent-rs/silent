@@ -54,13 +54,11 @@ where
     /// Receive another message.
     ///
     /// Returns `None` if the stream has closed.
-    #[allow(dead_code)]
     pub async fn recv(&mut self) -> Option<Result<Message>> {
         self.next().await
     }
 
     /// Send a message.
-    #[allow(dead_code)]
     pub async fn send(&mut self, msg: Message) -> Result<()> {
         self.upgrade
             .send(msg.inner)
@@ -69,7 +67,6 @@ where
     }
 
     /// Gracefully close this websocket.
-    #[allow(dead_code)]
     #[inline]
     pub async fn close(mut self) -> Result<()> {
         self.upgrade

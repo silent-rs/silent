@@ -49,13 +49,6 @@ impl RouteConnectionService {
         Self { route, limits }
     }
 
-    /// 获取内部路由的引用
-    #[inline]
-    #[allow(dead_code)]
-    pub fn route(&self) -> &Route {
-        &self.route
-    }
-
     /// 处理 HTTP 连接（HTTP/1.1 或 HTTP/2）
     ///
     /// 直接使用 hyper 的 auto builder 处理连接，无需额外的 Serve 中间层。
@@ -168,13 +161,13 @@ mod tests {
     fn test_route_connection_service_creation() {
         let route = Route::new("");
         let service = RouteConnectionService::new(route.clone());
-        assert_eq!(service.route().path, route.path);
+        assert_eq!(service.route.path, route.path);
     }
 
     #[test]
     fn test_from_trait() {
         let route = Route::new("test");
         let service = RouteConnectionService::from(route.clone());
-        assert_eq!(service.route().path, route.path);
+        assert_eq!(service.route.path, route.path);
     }
 }

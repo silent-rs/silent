@@ -6,6 +6,6 @@ pub(crate) mod req_body;
 pub(crate) mod request;
 pub(crate) mod res_body;
 pub(crate) mod response;
-#[allow(dead_code)]
+
 pub(crate) mod serde;
 pub(crate) mod socket_addr;

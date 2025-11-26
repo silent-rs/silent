@@ -116,13 +116,11 @@ pub fn record_webtransport_handshake_duration(dur_ns: u64) {
 }
 
 #[cfg(feature = "quic")]
-#[allow(dead_code)]
 pub fn record_webtransport_datagram_dropped() {
     counter!("silent.server.webtransport.datagram_dropped").increment(1);
 }
 
 #[cfg(feature = "quic")]
-#[allow(dead_code)]
 pub fn record_webtransport_rate_limited() {
     counter!("silent.server.webtransport.datagram_rate_limited").increment(1);
 }
@@ -141,4 +139,14 @@ pub fn record_shutdown_duration(tag: &'static str, dur_ns: u64) {
         "phase" => tag
     )
     .record(dur_ns as f64);
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_datagram_metrics_noop() {
+        super::record_webtransport_datagram_dropped();
+        super::record_webtransport_rate_limited();
+    }
 }
