@@ -26,6 +26,12 @@ Server::new().listen(listener).serve(routes).await;
 ```
 - QUIC 证书仍需重建 `QuicEndpointListener`（Quinn Endpoint 配置不可热更），可先构建新 listener 后优雅关停旧服务。
 
+## QUIC 证书切换验证流程
+1. 使用新证书构建新的 `CertificateStore` 与 `QuicEndpointListener`，挂到备用端口（如 4434），启动新 `Server`。
+2. 通过 ALB/反向代理或 DNS 将 HTTP/3/Alt-Svc 指向新端口，确认 `curl --http3`/浏览器握手成功。
+3. 使用 `Server::with_shutdown` 触发旧实例优雅关停，确保已有会话完成后再关闭旧 QUIC endpoint。
+4. 可选：HTTP/1.1/2 路径可直接用 `ReloadableCertificateStore` 热载证书，保持回退链路可用。
+
 ## 高延迟/丢包回归建议
 - 客户端建议使用 `quinn`/`quinn-cli` 或 Chromium/`curl --http3`。
 - 注入网络条件：`tc netem`（Linux）或 Clumsy（Windows）模拟 RTT/丢包/抖动。

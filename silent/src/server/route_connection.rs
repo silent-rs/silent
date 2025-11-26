@@ -39,6 +39,8 @@ use std::sync::Arc;
 pub struct RouteConnectionService {
     route: Route,
     limits: ConnectionLimits,
+    #[cfg(feature = "quic")]
+    webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler>,
 }
 
 impl RouteConnectionService {
@@ -46,7 +48,25 @@ impl RouteConnectionService {
     #[inline]
     pub fn new(route: Route) -> Self {
         let limits = global_server_config().connection_limits.clone();
-        Self { route, limits }
+        #[cfg(feature = "quic")]
+        let webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler> =
+            Arc::new(crate::server::quic::EchoHandler);
+        Self {
+            route,
+            limits,
+            #[cfg(feature = "quic")]
+            webtransport_handler,
+        }
+    }
+
+    /// 为 WebTransport 提供自定义处理器，替代默认的 EchoHandler。
+    #[cfg(feature = "quic")]
+    pub fn with_webtransport_handler(
+        mut self,
+        handler: Arc<dyn crate::server::quic::WebTransportHandler>,
+    ) -> Self {
+        self.webtransport_handler = handler;
+        self
     }
 
     /// 处理 HTTP 连接（HTTP/1.1 或 HTTP/2）
@@ -105,6 +125,7 @@ impl ConnectionService for RouteConnectionService {
                     let max_datagram_size = self.limits.webtransport_datagram_max_size;
                     let datagram_rate = self.limits.webtransport_datagram_rate;
                     let datagram_drop_metric = self.limits.webtransport_datagram_drop_metric;
+                    let webtransport_handler = self.webtransport_handler.clone();
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
                         crate::quic::service::handle_quic_connection(
@@ -119,6 +140,7 @@ impl ConnectionService for RouteConnectionService {
                             max_datagram_size,
                             datagram_rate,
                             datagram_drop_metric,
+                            webtransport_handler,
                         )
                         .await
                         .map_err(Into::into)

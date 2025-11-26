@@ -20,17 +20,17 @@
 
 ## 下一步（依据 PLAN v2.13-M3 收尾项）
 - ✅ QUIC 生产化参数：idle_timeout/max_streams/datagram 默认值与文档已落地（docs/quic-transport.md），QuicTransportConfig 接入监听器。
-- 🟡 Alt-Svc/ALPN/证书热载：Alt-Svc 自动端口与 ALPN 自定义已提供，TLS 热载已通过 ReloadableCertificateStore + tls_with_reloadable 支持（docs/quic-ops.md），QUIC 证书仍需重建 listener。
+- 🟡 Alt-Svc/ALPN/证书热载：Alt-Svc 自动端口与 ALPN 自定义已提供，TLS 热载已通过 ReloadableCertificateStore + tls_with_reloadable 支持（docs/quic-ops.md），QUIC 证书仍需重建 listener（已补切换验证流程）。
 - 🟡 WebTransport/Datagram 体积/速率限制与观测：size/rate 占位与 metrics 已接入（core.rs/service.rs），需对接底层 datagram send/recv API 并补观测验证。
 
 ## 当前待办（QUIC 生产级落地）
 - ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时（已在 service.rs 内单测验证）。
 - 🟡 连接/流保护：并发/限速占位已有（QuicTransportConfig + WebTransportStream），需补实际 datagram send/recv 支持与拒绝策略验证。
-- 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
+- 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，HTTP3 中间件继承单测已添加；仍需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
 - 🟡 配置一致性：HybridListener Alt-Svc 已对齐，ALPN 可配置；TLS 证书热更新已支持，HTTP3 中间件继承验证与 QUIC 热载方案待补。
 - 🟡 性能与内存：当前仅在大块响应后 yield，需评估响应分块/写入限速/背压策略。
 - 🟡 测试与互操作：补高 RTT/丢包/0-RTT/迁移等端到端矩阵，覆盖 HTTP3/WebTransport/Datagram。
-- 🟡 示例与文档：已有基础文档与 metrics 示例，并在 quic-ops 补充 TLS 热载示例；需新增生产化 WebTransport/HTTP3 示例（替代 Echo）并列出防护/证书/Alt-Svc/监控配置清单。
+- 🟢 示例与文档：新增生产化 WebTransport/HTTP3 示例（examples/quic，带中间件与自定义 WebTransport Handler），补充 TLS/QUIC 证书切换说明与运行指南（quic-ops、examples/quic/README.md）。
 
 ## 验收标准
 - 新配置结构可同时作用于 TCP/TLS/QUIC，默认值落地，可通过测试或示例验证

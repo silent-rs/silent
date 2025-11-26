@@ -45,6 +45,8 @@ pub use crate::core::{next::Next, request::Request, response::Response};
 pub use crate::grpc::{GrpcHandler, GrpcRegister};
 pub use crate::middleware::{MiddleWareHandler, middlewares};
 #[cfg(feature = "server")]
+pub use crate::server::RouteConnectionService;
+#[cfg(feature = "server")]
 pub use crate::server::connection::{BoxedConnection, Connection};
 #[cfg(feature = "server")]
 pub use crate::server::listener::{AcceptFuture, Listen, Listener, Listeners, ListenersBuilder};

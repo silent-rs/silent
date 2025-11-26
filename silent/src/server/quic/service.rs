@@ -35,13 +35,12 @@ pub(crate) async fn handle_quic_connection(
     max_datagram_size: Option<usize>,
     datagram_rate: Option<u64>,
     datagram_drop_metric: bool,
+    handler: Arc<dyn WebTransportHandler>,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
     let remote = connection.remote_address();
     info!(%remote, "客户端连接建立");
-
-    let handler = Arc::new(super::echo::EchoHandler);
 
     let mut builder = h3::server::builder();
     builder.enable_extended_connect(true);
@@ -467,12 +466,14 @@ fn build_webtransport_handshake_response(request: &HttpRequest<()>) -> Response<
 #[cfg(all(test, feature = "quic"))]
 mod tests {
     use super::{H3RequestIo, build_webtransport_handshake_response, handle_http3_request_impl};
+    use crate::middleware::MiddleWareHandler;
+    use crate::prelude::Next;
     use crate::prelude::{ReqBody, Request as SilentRequest, ResBody};
     use crate::route::Route;
-    use crate::{Method, Response as SilentResponse};
+    use crate::{Handler, Method, Response as SilentResponse};
     use anyhow::anyhow;
     use bytes::Bytes;
-    use http::{Request as HttpRequest, Response, StatusCode};
+    use http::{HeaderValue, Request as HttpRequest, Response, StatusCode};
     use std::collections::VecDeque;
     use std::net::SocketAddr;
     use std::sync::Arc;
@@ -841,6 +842,47 @@ mod tests {
             .flat_map(|b| b.iter().cloned())
             .collect();
         assert_eq!(echoed, b"datamore");
+    }
+
+    #[derive(Clone)]
+    struct HeaderMiddleware;
+
+    #[async_trait::async_trait]
+    impl MiddleWareHandler for HeaderMiddleware {
+        async fn handle(&self, req: SilentRequest, next: &Next) -> crate::Result<SilentResponse> {
+            let mut resp = next.call(req).await?;
+            resp.headers_mut()
+                .insert("x-middleware", HeaderValue::from_static("hit"));
+            Ok(resp)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http3_middlewares_are_applied() {
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"body")]);
+        let mut root = Route::new_root().hook(HeaderMiddleware);
+        root.push(Route::new("").post(|mut req: SilentRequest| async move {
+            let body = http_body_util::BodyExt::collect(req.take_body())
+                .await?
+                .to_bytes();
+            let mut resp = SilentResponse::empty();
+            resp.set_body(ResBody::from(body));
+            Ok(resp)
+        }));
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34579".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, Arc::new(root), None, None)
+            .await
+            .expect("middleware should be applied");
+
+        let head = stream.sent_head.unwrap();
+        assert_eq!(
+            head.headers()
+                .get("x-middleware")
+                .and_then(|v| v.to_str().ok()),
+            Some("hit")
+        );
     }
 
     #[tokio::test]
