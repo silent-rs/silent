@@ -14,6 +14,7 @@ server_config.quic_transport = Some(QuicTransportConfig {
     max_bidirectional_streams: Some(256),                 // 双向流并发
     max_unidirectional_streams: Some(64),                 // 单向流并发
     max_datagram_recv_size: Some(128 * 1024),             // Datagram 接收上限
+    enable_datagram: true,                                // 可关闭 Datagram
     alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
 });
 
@@ -32,4 +33,8 @@ Server::new()
 - `max_idle_timeout`: 连接空闲超时。
 - `max_bidirectional_streams` / `max_unidirectional_streams`: 并发流上限。
 - `max_datagram_recv_size`: Datagram 接收缓冲上限，避免大包占用内存。
+- `enable_datagram`: 是否开启 Datagram 支持，关闭时会清空 send/recv buffer。
 - `alpn_protocols`: ALPN 列表，默认 `["h3", "h3-29"]`，可根据业务调整。
+
+## WebTransport 会话并发
+通过 `ConnectionLimits::max_webtransport_sessions` 控制 WebTransport 会话数（默认 32）。在 `ServerConfig.connection_limits` 里设置后，会传递给 QUIC handler。
