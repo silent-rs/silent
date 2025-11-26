@@ -32,6 +32,9 @@ pub(crate) async fn handle_quic_connection(
     wt_read_timeout: Option<std::time::Duration>,
     max_wt_sessions: Option<usize>,
     enable_datagram: bool,
+    max_datagram_size: Option<usize>,
+    datagram_rate: Option<u64>,
+    datagram_drop_metric: bool,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
@@ -58,6 +61,7 @@ pub(crate) async fn handle_quic_connection(
             Ok(Some(resolver)) => {
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
+                let dgram_cfg = (max_datagram_size, datagram_rate, datagram_drop_metric);
                 let span = info_span!("h3_request_task", %remote);
                 tokio::spawn(
                     async move {
@@ -70,6 +74,7 @@ pub(crate) async fn handle_quic_connection(
                             read_timeout,
                             max_wt_frame,
                             wt_read_timeout,
+                            dgram_cfg,
                         )
                         .await
                         {
@@ -177,6 +182,7 @@ async fn handle_request(
     read_timeout: Option<std::time::Duration>,
     max_wt_frame: Option<usize>,
     wt_read_timeout: Option<std::time::Duration>,
+    datagram_limits: (Option<usize>, Option<u64>, bool),
 ) -> Result<()> {
     let accept_at = Instant::now();
     let (request, stream) = resolver
@@ -207,6 +213,7 @@ async fn handle_request(
             accept_at,
             max_wt_frame,
             wt_read_timeout,
+            datagram_limits,
         )
         .await
     } else {
@@ -354,6 +361,7 @@ async fn read_http3_body<T: H3RequestIo + Send + 'static>(
     Ok(stream)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_webtransport_request(
     request: HttpRequest<()>,
     mut stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
@@ -362,6 +370,7 @@ async fn handle_webtransport_request(
     accept_at: Instant,
     max_frame: Option<usize>,
     read_timeout: Option<std::time::Duration>,
+    datagram_limits: (Option<usize>, Option<u64>, bool),
 ) -> Result<()> {
     let span = info_span!("webtransport_session", %remote);
     let _guard = span.enter();
@@ -383,7 +392,14 @@ async fn handle_webtransport_request(
     #[cfg(feature = "metrics")]
     record_webtransport_accept();
     let session = Arc::new(QuicSession::new(remote));
-    let mut channel = WebTransportStream::new(stream, max_frame, read_timeout);
+    let mut channel = WebTransportStream::new(
+        stream,
+        max_frame,
+        read_timeout,
+        datagram_limits.0,
+        datagram_limits.1,
+        datagram_limits.2,
+    );
     let started = Instant::now();
     let res = handler.handle(session, &mut channel).await;
     match &res {

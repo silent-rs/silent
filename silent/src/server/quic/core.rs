@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration, time::Instant};
 
 use anyhow::Result;
 use bytes::{Buf, Bytes};
@@ -29,6 +29,11 @@ pub struct WebTransportStream {
     inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     max_frame_size: Option<usize>,
     read_timeout: Option<Duration>,
+    max_datagram_size: Option<usize>,
+    datagram_per_sec: Option<u64>,
+    datagram_tokens: u64,
+    last_refill: Instant,
+    record_drop: bool,
 }
 
 impl WebTransportStream {
@@ -36,11 +41,28 @@ impl WebTransportStream {
         inner: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
         max_frame_size: Option<usize>,
         read_timeout: Option<Duration>,
+        max_datagram_size: Option<usize>,
+        datagram_per_sec: Option<u64>,
+        record_drop: bool,
     ) -> Self {
         Self {
             inner,
             max_frame_size,
             read_timeout,
+            max_datagram_size,
+            datagram_per_sec,
+            datagram_tokens: datagram_per_sec.unwrap_or(0),
+            last_refill: Instant::now(),
+            record_drop,
+        }
+    }
+    fn refill(&mut self) {
+        if let Some(rate) = self.datagram_per_sec {
+            let now = Instant::now();
+            let elapsed = now.saturating_duration_since(self.last_refill);
+            let refill = rate.saturating_mul(elapsed.as_secs());
+            self.datagram_tokens = (self.datagram_tokens + refill).min(rate);
+            self.last_refill = now;
         }
     }
     pub async fn recv_data(&mut self) -> Result<Option<Bytes>> {
@@ -61,6 +83,31 @@ impl WebTransportStream {
             }
             None => Ok(None),
         }
+    }
+    #[allow(dead_code)]
+    pub fn try_send_datagram(&mut self, data: Bytes) -> Result<()> {
+        self.refill();
+        if let Some(max) = self.max_datagram_size
+            && data.len() > max
+        {
+            #[cfg(feature = "metrics")]
+            if self.record_drop {
+                crate::server::metrics::record_webtransport_datagram_dropped();
+            }
+            anyhow::bail!("Datagram frame exceeds limit");
+        }
+        if self.datagram_per_sec.is_some() {
+            if self.datagram_tokens == 0 {
+                #[cfg(feature = "metrics")]
+                if self.record_drop {
+                    crate::server::metrics::record_webtransport_rate_limited();
+                }
+                anyhow::bail!("Datagram rate limited");
+            }
+            self.datagram_tokens -= 1;
+        }
+        // h3 RequestStream 不直接暴露 datagram 发送；预留接口，后续可接入底层通道。
+        anyhow::bail!("Datagram send not supported in this adapter yet");
     }
     pub async fn send_data(&mut self, data: Bytes) -> Result<()> {
         Ok(self.inner.send_data(data).await?)

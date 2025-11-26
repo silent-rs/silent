@@ -109,6 +109,9 @@ impl ConnectionService for RouteConnectionService {
                         .as_ref()
                         .map(|c| c.enable_datagram)
                         .unwrap_or(true);
+                    let max_datagram_size = self.limits.webtransport_datagram_max_size;
+                    let datagram_rate = self.limits.webtransport_datagram_rate;
+                    let datagram_drop_metric = self.limits.webtransport_datagram_drop_metric;
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
                         crate::quic::service::handle_quic_connection(
@@ -120,6 +123,9 @@ impl ConnectionService for RouteConnectionService {
                             wt_read_timeout,
                             max_wt_sessions,
                             enable_datagram,
+                            max_datagram_size,
+                            datagram_rate,
+                            datagram_drop_metric,
                         )
                         .await
                         .map_err(Into::into)

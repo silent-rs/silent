@@ -115,6 +115,16 @@ pub fn record_webtransport_handshake_duration(dur_ns: u64) {
     histogram!("silent.server.webtransport.handshake_ns").record(dur_ns as f64);
 }
 
+#[cfg(feature = "quic")]
+pub fn record_webtransport_datagram_dropped() {
+    counter!("silent.server.webtransport.datagram_dropped").increment(1);
+}
+
+#[cfg(feature = "quic")]
+pub fn record_webtransport_rate_limited() {
+    counter!("silent.server.webtransport.datagram_rate_limited").increment(1);
+}
+
 pub fn record_handler_duration(handle_ns: u64) {
     histogram!("silent.server.handler.duration_ns").record(handle_ns as f64);
 }

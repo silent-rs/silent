@@ -16,6 +16,12 @@ pub struct ConnectionLimits {
     pub webtransport_read_timeout: Option<Duration>,
     /// WebTransport 会话并发上限。
     pub max_webtransport_sessions: Option<usize>,
+    /// WebTransport 每帧大小上限（datagram/stream 共享）；None 表示不限制。
+    pub webtransport_datagram_max_size: Option<usize>,
+    /// WebTransport 每连接 datagram 速率（每秒）上限。
+    pub webtransport_datagram_rate: Option<u64>,
+    /// WebTransport datagram 丢弃计数（只做观测）。
+    pub webtransport_datagram_drop_metric: bool,
 }
 
 /// Server 级配置入口。
@@ -44,6 +50,9 @@ static CONFIG_REGISTRY: ServerConfigRegistry = ServerConfigRegistry {
             max_webtransport_frame_size: None,
             webtransport_read_timeout: None,
             max_webtransport_sessions: None,
+            webtransport_datagram_max_size: None,
+            webtransport_datagram_rate: None,
+            webtransport_datagram_drop_metric: false,
         },
         #[cfg(feature = "quic")]
         quic_transport: None,
