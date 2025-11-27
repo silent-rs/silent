@@ -16,7 +16,7 @@ pub(crate) enum NextInstance {
 }
 
 impl Next {
-    pub(crate) fn build_from_slice(
+    pub(crate) fn build(
         endpoint: Arc<dyn Handler>,
         middlewares: &[Arc<dyn MiddleWareHandler>],
     ) -> Self {
@@ -34,14 +34,6 @@ impl Next {
             };
         }
         next
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn build(
-        endpoint: Arc<dyn Handler>,
-        middlewares: Vec<Arc<dyn MiddleWareHandler>>,
-    ) -> Self {
-        Self::build_from_slice(endpoint, middlewares.as_slice())
     }
 }
 

@@ -11,7 +11,6 @@ use hyper_util::rt::TokioIo;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct WebSocketParts {
     path_params: HashMap<String, PathParam>,
@@ -57,7 +56,6 @@ pub struct Upgraded<S> {
     upgrade: S,
 }
 
-#[allow(dead_code)]
 impl<S> Upgraded<S> {
     pub(crate) fn into_parts(self) -> (WebSocketParts, S) {
         (self.head, self.upgrade)
@@ -148,7 +146,7 @@ pub(crate) async fn on(mut req: Request) -> Result<Upgraded<ServerUpgradedIo>> {
 }
 
 // 通用版本：非 server 运行时（如 wasm 宿主）可注入任意实现 futures-io 的连接类型
-#[allow(dead_code)]
+
 pub async fn on_generic<S>(mut req: Request) -> Result<Upgraded<S>>
 where
     S: Send + 'static,

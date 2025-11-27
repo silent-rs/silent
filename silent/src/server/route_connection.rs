@@ -8,6 +8,7 @@ use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use crate::route::Route;
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
+use crate::server::config::{ConnectionLimits, global_server_config};
 use crate::server::connection::BoxedConnection;
 use crate::server::connection_service::{ConnectionFuture, ConnectionService};
 use crate::server::protocol::hyper_http::HyperServiceHandler;
@@ -37,20 +38,35 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RouteConnectionService {
     route: Route,
+    limits: ConnectionLimits,
+    #[cfg(feature = "quic")]
+    webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler>,
 }
 
 impl RouteConnectionService {
     /// 创建新的 RouteConnectionService 实例
     #[inline]
     pub fn new(route: Route) -> Self {
-        Self { route }
+        let limits = global_server_config().connection_limits.clone();
+        #[cfg(feature = "quic")]
+        let webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler> =
+            Arc::new(crate::server::quic::EchoHandler);
+        Self {
+            route,
+            limits,
+            #[cfg(feature = "quic")]
+            webtransport_handler,
+        }
     }
 
-    /// 获取内部路由的引用
-    #[inline]
-    #[allow(dead_code)]
-    pub fn route(&self) -> &Route {
-        &self.route
+    /// 为 WebTransport 提供自定义处理器，替代默认的 EchoHandler。
+    #[cfg(feature = "quic")]
+    pub fn with_webtransport_handler(
+        mut self,
+        handler: Arc<dyn crate::server::quic::WebTransportHandler>,
+    ) -> Self {
+        self.webtransport_handler = handler;
+        self
     }
 
     /// 处理 HTTP 连接（HTTP/1.1 或 HTTP/2）
@@ -60,6 +76,7 @@ impl RouteConnectionService {
         root_route: Route,
         stream: BoxedConnection,
         peer: CoreSocketAddr,
+        limits: ConnectionLimits,
     ) -> ConnectionFuture {
         #[allow(unused_mut)]
         let mut root_route = root_route;
@@ -71,11 +88,15 @@ impl RouteConnectionService {
         root_route.hook_first(SchedulerMiddleware::new());
 
         let routes = root_route.convert_to_route_tree();
+        let max_body_size = limits.max_body_size;
         Box::pin(async move {
             let io = TokioIo::new(stream);
             let builder = Builder::new(TokioExecutor::new());
             builder
-                .serve_connection_with_upgrades(io, HyperServiceHandler::new(peer, routes))
+                .serve_connection_with_upgrades(
+                    io,
+                    HyperServiceHandler::with_limits(peer, routes, max_body_size),
+                )
                 .await
         })
     }
@@ -91,23 +112,55 @@ impl ConnectionService for RouteConnectionService {
                 Ok(quic) => {
                     // QUIC 连接处理
                     let routes = Arc::new(self.route.clone());
+                    let read_timeout = self.limits.h3_read_timeout;
+                    let max_body_size = self.limits.max_body_size;
+                    let max_wt_frame = self.limits.max_webtransport_frame_size;
+                    let wt_read_timeout = self.limits.webtransport_read_timeout;
+                    let max_wt_sessions = self.limits.max_webtransport_sessions;
+                    let enable_datagram = global_server_config()
+                        .quic_transport
+                        .as_ref()
+                        .map(|c| c.enable_datagram)
+                        .unwrap_or(true);
+                    let max_datagram_size = self.limits.webtransport_datagram_max_size;
+                    let datagram_rate = self.limits.webtransport_datagram_rate;
+                    let datagram_drop_metric = self.limits.webtransport_datagram_drop_metric;
+                    let webtransport_handler = self.webtransport_handler.clone();
                     Box::pin(async move {
                         let incoming = quic.into_incoming();
-                        crate::quic::service::handle_quic_connection(incoming, routes)
-                            .await
-                            .map_err(Into::into)
+                        crate::quic::service::handle_quic_connection(
+                            incoming,
+                            routes,
+                            max_body_size,
+                            read_timeout,
+                            max_wt_frame,
+                            wt_read_timeout,
+                            max_wt_sessions,
+                            enable_datagram,
+                            max_datagram_size,
+                            datagram_rate,
+                            datagram_drop_metric,
+                            webtransport_handler,
+                        )
+                        .await
+                        .map_err(Into::into)
                     })
                 }
                 Err(stream) => {
                     // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
-                    Self::handle_http_connection(self.route.clone(), stream, peer)
+                    Self::handle_http_connection(
+                        self.route.clone(),
+                        stream,
+                        peer,
+                        self.limits.clone(),
+                    )
                 }
             }
         }
 
         // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
         #[cfg(not(feature = "quic"))]
-        Self::handle_http_connection(self.route.clone(), stream, peer)
+        Self::handle_http_connection(self.route.clone(), stream, peer, self.limits.clone())
     }
 }
 
@@ -130,13 +183,13 @@ mod tests {
     fn test_route_connection_service_creation() {
         let route = Route::new("");
         let service = RouteConnectionService::new(route.clone());
-        assert_eq!(service.route().path, route.path);
+        assert_eq!(service.route.path, route.path);
     }
 
     #[test]
     fn test_from_trait() {
         let route = Route::new("test");
         let service = RouteConnectionService::from(route.clone());
-        assert_eq!(service.route().path, route.path);
+        assert_eq!(service.route.path, route.path);
     }
 }

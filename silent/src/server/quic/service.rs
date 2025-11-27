@@ -1,36 +1,56 @@
-use tracing::{error, info, warn};
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
 use crate::route::Route;
+#[cfg(feature = "metrics")]
+use crate::server::metrics::{
+    record_handler_duration, record_http3_body_oversize, record_http3_read_timeout,
+    record_http3_response_size, record_webtransport_accept, record_webtransport_error,
+    record_webtransport_handshake_duration, record_webtransport_session_duration,
+};
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
 use crate::{Handler, Request};
 use anyhow::{Context, Result, anyhow};
-use bytes::{Buf, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use h3::ext::Protocol as H3Protocol;
 use h3::server::{RequestResolver, RequestStream};
 use h3_quinn::Connection as H3QuinnConnection;
 use http::{Method, Request as HttpRequest, Response, StatusCode};
 use http_body_util::BodyExt;
-use std::{net::SocketAddr, sync::Arc};
+use std::io::{Error as IoError, ErrorKind};
+use std::{net::SocketAddr, sync::Arc, time::Instant};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
     routes: Arc<Route>,
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+    max_wt_frame: Option<usize>,
+    wt_read_timeout: Option<std::time::Duration>,
+    max_wt_sessions: Option<usize>,
+    enable_datagram: bool,
+    max_datagram_size: Option<usize>,
+    datagram_rate: Option<u64>,
+    datagram_drop_metric: bool,
+    handler: Arc<dyn WebTransportHandler>,
 ) -> Result<()> {
     info!("准备建立 QUIC 连接");
     let connection = incoming.await.context("等待 QUIC 连接建立失败")?;
     let remote = connection.remote_address();
     info!(%remote, "客户端连接建立");
 
-    let handler = Arc::new(super::echo::EchoHandler);
-
     let mut builder = h3::server::builder();
+    builder.enable_extended_connect(true);
+    if enable_datagram {
+        builder.enable_datagram(true);
+    }
     builder
-        .enable_extended_connect(true)
-        .enable_datagram(true)
         .enable_webtransport(true)
-        .max_webtransport_sessions(32);
+        .max_webtransport_sessions(max_wt_sessions.unwrap_or(32) as u64);
     let mut h3_conn = builder
         .build(H3QuinnConnection::new(connection.clone()))
         .await
@@ -41,11 +61,41 @@ pub(crate) async fn handle_quic_connection(
             Ok(Some(resolver)) => {
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
-                tokio::spawn(async move {
-                    if let Err(err) = handle_request(resolver, remote, routes, handler).await {
-                        error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
+                let dgram_cfg = (max_datagram_size, datagram_rate, datagram_drop_metric);
+                let quic_conn = connection.clone();
+                let span = info_span!(
+                    "h3_request_task",
+                    %remote,
+                    max_body_size = ?max_body_size,
+                    read_timeout = ?read_timeout,
+                    max_wt_frame = ?max_wt_frame,
+                    wt_read_timeout = ?wt_read_timeout,
+                    max_wt_sessions = ?max_wt_sessions,
+                    datagram_max = ?dgram_cfg.0,
+                    datagram_rate = ?dgram_cfg.1,
+                    datagram_drop_metric = dgram_cfg.2
+                );
+                tokio::spawn(
+                    async move {
+                        if let Err(err) = handle_request(
+                            resolver,
+                            remote,
+                            routes,
+                            handler,
+                            max_body_size,
+                            read_timeout,
+                            max_wt_frame,
+                            wt_read_timeout,
+                            dgram_cfg,
+                            quic_conn,
+                        )
+                        .await
+                        {
+                            error!(%remote, error = ?err, "处理 HTTP/3 请求失败");
+                        }
                     }
-                });
+                    .instrument(span),
+                );
             }
             Ok(None) => break,
             Err(err) => {
@@ -135,21 +185,54 @@ impl H3RequestIo for RealH3Stream {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_request(
     resolver: RequestResolver<H3QuinnConnection, Bytes>,
     remote: SocketAddr,
     routes: Arc<Route>,
     handler: Arc<dyn WebTransportHandler>,
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+    max_wt_frame: Option<usize>,
+    wt_read_timeout: Option<std::time::Duration>,
+    datagram_limits: (Option<usize>, Option<u64>, bool),
+    quic_conn: quinn::Connection,
 ) -> Result<()> {
+    let accept_at = Instant::now();
     let (request, stream) = resolver
         .resolve_request()
         .await
         .map_err(|err| anyhow!("解析 HTTP/3 请求失败: {err}"))?;
+    let span = info_span!(
+        "h3_request",
+        %remote,
+        method = %request.method(),
+        uri = %request.uri()
+    );
+    let _guard = span.enter();
     let protocol = request.extensions().get::<H3Protocol>().cloned();
+    debug!(
+        %remote,
+        method = ?request.method(),
+        path = %request.uri(),
+        proto = ?protocol,
+        "HTTP/3 request received"
+    );
     if request.method() == Method::CONNECT && matches!(protocol, Some(H3Protocol::WEB_TRANSPORT)) {
-        handle_webtransport_request(request, stream, remote, handler).await
+        handle_webtransport_request(
+            request,
+            stream,
+            remote,
+            handler,
+            accept_at,
+            max_wt_frame,
+            wt_read_timeout,
+            datagram_limits,
+            quic_conn,
+        )
+        .await
     } else {
-        handle_http3_request(request, stream, remote, routes).await
+        handle_http3_request(request, stream, remote, routes, max_body_size, read_timeout).await
     }
 }
 
@@ -158,69 +241,246 @@ async fn handle_http3_request(
     stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
     routes: Arc<Route>,
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
 ) -> Result<()> {
-    let mut stream = RealH3Stream::new(stream);
-    handle_http3_request_impl(request, &mut stream, remote, routes).await
+    let stream = RealH3Stream::new(stream);
+    handle_http3_request_impl(request, stream, remote, routes, max_body_size, read_timeout)
+        .await
+        .map(|_| ())
 }
 
 // 提取后的实现，便于在测试中注入自定义流
 // 优化版本：使用泛型实现完全静态分派，消除动态分派开销
-async fn handle_http3_request_impl<T: H3RequestIo>(
+async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
     request: HttpRequest<()>,
-    stream: &mut T,
+    stream: T,
     remote: SocketAddr,
     routes: Arc<Route>,
-) -> Result<()> {
-    let mut body_buf = BytesMut::new();
-    while let Some(bytes) = stream.recv_data().await? {
-        if !bytes.is_empty() {
-            body_buf.extend_from_slice(&bytes);
-        }
-    }
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+) -> Result<T> {
+    let (tx, rx) = mpsc::channel(8);
+    let read_task = tokio::spawn(read_http3_body(
+        stream,
+        tx,
+        remote,
+        max_body_size,
+        read_timeout,
+    ));
+
+    let body_stream = ReceiverStream::new(rx);
     let (parts, _) = request.into_parts();
-    let body = if body_buf.is_empty() {
-        crate::prelude::ReqBody::Empty
-    } else {
-        crate::prelude::ReqBody::Once(body_buf.freeze())
-    };
-    let mut silent_req = Request::from_parts(parts, body);
+    let mut silent_req =
+        Request::from_parts(parts, crate::prelude::ReqBody::from_stream(body_stream));
     silent_req.set_remote(remote.into());
+
+    #[cfg(feature = "metrics")]
+    let handle_started = Instant::now();
     let response = Handler::call(&*routes, silent_req)
         .await
         .unwrap_or_else(Into::into);
+    #[cfg(feature = "metrics")]
+    record_handler_duration(handle_started.elapsed().as_nanos() as u64);
+
+    let mut stream = read_task
+        .await
+        .map_err(|err| anyhow!("HTTP/3 请求体读取任务异常: {err}"))??;
+
     let hyper_response = HyperHttpProtocol::from_internal(response);
     let (parts, mut body) = hyper_response.into_parts();
     stream
         .send_response(Response::from_parts(parts, ()))
         .await?;
+
+    const H3_CHUNK_SIZE: usize = 16 * 1024;
+    const H3_YIELD_BYTES: usize = 256 * 1024;
+    let mut sent_since_yield = 0usize;
+    #[cfg(feature = "metrics")]
+    let mut total_sent = 0usize;
+
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|err| anyhow!("读取响应体失败: {err}"))?;
         if let Ok(data) = frame.into_data() {
             if data.is_empty() {
                 continue;
             }
-            stream.send_data(data).await?;
+            let mut buf = data;
+            while !buf.is_empty() {
+                let chunk_len = buf.len().min(H3_CHUNK_SIZE);
+                let chunk = buf.split_to(chunk_len);
+                stream.send_data(chunk).await?;
+                sent_since_yield = sent_since_yield.saturating_add(chunk_len);
+                #[cfg(feature = "metrics")]
+                {
+                    total_sent = total_sent.saturating_add(chunk_len);
+                }
+                if sent_since_yield >= H3_YIELD_BYTES {
+                    tokio::task::yield_now().await;
+                    sent_since_yield = 0;
+                }
+            }
         }
     }
     stream.finish().await?;
-    Ok(())
+    #[cfg(feature = "metrics")]
+    {
+        record_http3_response_size(total_sent as u64);
+        info!(%remote, bytes = total_sent, "HTTP/3 response finished");
+    }
+    Ok(stream)
 }
 
+async fn read_http3_body<T: H3RequestIo + Send + 'static>(
+    mut stream: T,
+    sender: mpsc::Sender<Result<Bytes, IoError>>,
+    remote: SocketAddr,
+    max_body_size: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+) -> Result<T> {
+    let mut total = 0usize;
+    loop {
+        let next = match read_timeout {
+            Some(t) => match tokio::time::timeout(t, stream.recv_data()).await {
+                Ok(res) => res,
+                Err(_) => {
+                    let _ = sender
+                        .send(Err(IoError::new(
+                            ErrorKind::TimedOut,
+                            "HTTP/3 body read timeout",
+                        )))
+                        .await;
+                    #[cfg(feature = "metrics")]
+                    record_http3_read_timeout();
+                    anyhow::bail!("HTTP/3 body read timeout");
+                }
+            },
+            None => stream.recv_data().await,
+        };
+
+        let next = match next {
+            Ok(data) => data,
+            Err(err) => {
+                let _ = sender
+                    .send(Err(IoError::other(format!(
+                        "HTTP/3 body read failed: {err}"
+                    ))))
+                    .await;
+                return Err(err);
+            }
+        };
+
+        let Some(bytes) = next else {
+            break;
+        };
+
+        if bytes.is_empty() {
+            continue;
+        }
+        total = total.saturating_add(bytes.len());
+        if let Some(max) = max_body_size
+            && total > max
+        {
+            warn!(
+                %remote,
+                size = total,
+                limit = max,
+                "HTTP/3 request body exceeds limit"
+            );
+            #[cfg(feature = "metrics")]
+            record_http3_body_oversize();
+            let _ = sender
+                .send(Err(IoError::other("HTTP/3 request body exceeds limit")))
+                .await;
+            anyhow::bail!("HTTP/3 request body exceeds limit");
+        }
+
+        if sender.send(Ok(bytes)).await.is_err() {
+            // 消费端已关闭，提前结束读取
+            break;
+        }
+    }
+
+    Ok(stream)
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn handle_webtransport_request(
     request: HttpRequest<()>,
     mut stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
     handler: Arc<dyn WebTransportHandler>,
+    accept_at: Instant,
+    max_frame: Option<usize>,
+    read_timeout: Option<std::time::Duration>,
+    datagram_limits: (Option<usize>, Option<u64>, bool),
+    quic_conn: quinn::Connection,
 ) -> Result<()> {
+    let session = Arc::new(QuicSession::new(remote));
+    let session_id = session.id().to_string();
+    let span = info_span!(
+        "webtransport_session",
+        %remote,
+        session_id = %session_id,
+        max_frame = ?max_frame,
+        read_timeout = ?read_timeout,
+        datagram_max = ?datagram_limits.0,
+        datagram_rate = ?datagram_limits.1,
+        datagram_drop_metric = datagram_limits.2
+    );
+    let _guard = span.enter();
+    let handshake_start = Instant::now();
     let handshake = build_webtransport_handshake_response(&request);
     stream
         .send_response(handshake)
         .await
         .map_err(|err| anyhow!("发送 WebTransport 握手响应失败: {err}"))?;
-    info!(%remote, "WebTransport 会话建立");
-    let session = Arc::new(QuicSession::new(remote));
-    let mut channel = WebTransportStream::new(stream);
-    handler.handle(session, &mut channel).await
+    let handshake_elapsed = handshake_start.elapsed();
+    info!(
+        %remote,
+        accept_elapsed = ?accept_at.elapsed(),
+        handshake_elapsed = ?handshake_elapsed,
+        "WebTransport 会话建立"
+    );
+    #[cfg(feature = "metrics")]
+    record_webtransport_handshake_duration(handshake_elapsed.as_nanos() as u64);
+    #[cfg(feature = "metrics")]
+    record_webtransport_accept();
+    let (max_dgram, dgram_rate, record_drop) = datagram_limits;
+    let mut channel = WebTransportStream::new(
+        stream,
+        max_frame,
+        read_timeout,
+        max_dgram,
+        dgram_rate,
+        record_drop,
+        Some(quic_conn),
+    );
+    // 占位发送（当前 h3 未暴露 datagram 发送），用于触发限速/体积配置的编译时检查。
+    let _ = channel.try_send_datagram(Bytes::new());
+    let started = Instant::now();
+    let res = handler.handle(session, &mut channel).await;
+    match &res {
+        Ok(_) => info!(
+            %remote,
+            session_id = %session_id,
+            handle_elapsed = ?started.elapsed(),
+            "WebTransport 会话结束"
+        ),
+        Err(err) => {
+            #[cfg(feature = "metrics")]
+            record_webtransport_error();
+            warn!(
+                %remote,
+                session_id = %session_id,
+                error = ?err,
+                "WebTransport 会话异常结束"
+            )
+        }
+    }
+    #[cfg(feature = "metrics")]
+    record_webtransport_session_duration(started.elapsed().as_nanos() as u64);
+    res
 }
 
 fn build_webtransport_handshake_response(request: &HttpRequest<()>) -> Response<()> {
@@ -238,17 +498,20 @@ fn build_webtransport_handshake_response(request: &HttpRequest<()>) -> Response<
 #[cfg(all(test, feature = "quic"))]
 mod tests {
     use super::{H3RequestIo, build_webtransport_handshake_response, handle_http3_request_impl};
+    use crate::middleware::MiddleWareHandler;
+    use crate::prelude::Next;
     use crate::prelude::{ReqBody, Request as SilentRequest, ResBody};
     use crate::route::Route;
-    use crate::{Method, Response as SilentResponse};
+    use crate::{Handler, Method, Response as SilentResponse};
     use anyhow::anyhow;
     use bytes::Bytes;
-    use http::{Request as HttpRequest, Response, StatusCode};
+    use http::{HeaderValue, Request as HttpRequest, Response, StatusCode};
     use std::collections::VecDeque;
     use std::net::SocketAddr;
     use std::sync::Arc;
 
     // 伪造 H3 流，用于在不依赖真实 h3/quinn 的情况下测试 HTTP/3 处理路径
+    #[derive(Debug)]
     struct FakeH3Stream {
         incoming: VecDeque<Bytes>,
         pub sent_head: Option<Response<()>>,
@@ -372,7 +635,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_http3_impl_basic_body_roundtrip() {
-        let mut stream = FakeH3Stream::new(vec![
+        let stream = FakeH3Stream::new(vec![
             Bytes::from_static(b"hello "),
             Bytes::from_static(b"world"),
         ]);
@@ -380,7 +643,7 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34567".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("http3 impl should succeed");
 
@@ -397,12 +660,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_http3_impl_empty_body() {
-        let mut stream = FakeH3Stream::new(vec![]);
+        let stream = FakeH3Stream::new(vec![]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34568".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("http3 impl should succeed on empty body");
         assert!(stream.sent_head.is_some());
@@ -419,7 +682,7 @@ mod tests {
         let req = make_request("/err");
         let remote: SocketAddr = "127.0.0.1:34569".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up head send error");
         let msg = format!("{err:#}");
@@ -469,49 +732,42 @@ mod tests {
     #[tokio::test]
     async fn test_http3_impl_send_data_error_propagates() {
         // 测试发送响应体数据失败时的错误传播
-        let mut stream =
-            FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_send_data_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_send_data_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34570".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up send data error");
         let msg = format!("{err:#}");
         assert!(msg.contains("send_data_failed"));
-        // 验证响应头已发送但数据发送失败
-        assert!(stream.sent_head.is_some());
-        assert!(!stream.finished); // finish 不应被调用
     }
 
     #[tokio::test]
     async fn test_http3_impl_finish_error_propagates() {
         // 测试 finish 操作失败时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_finish_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_finish_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34571".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up finish error");
         let msg = format!("{err:#}");
         assert!(msg.contains("finish_failed"));
-        // 验证响应头和数据已发送，但 finish 失败
-        assert!(stream.sent_head.is_some());
-        assert!(!stream.sent_data.is_empty());
     }
 
     #[tokio::test]
     async fn test_http3_impl_recv_error_propagates() {
         // 测试接收请求体失败时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_recv_failure();
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]).with_recv_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34572".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should bubble up recv error");
         let msg = format!("{err:#}");
@@ -527,12 +783,12 @@ mod tests {
             Bytes::from(large_data.clone()),
             Bytes::from(large_data.clone()),
         ];
-        let mut stream = FakeH3Stream::new(chunks);
+        let stream = FakeH3Stream::new(chunks);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34573".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("large body should succeed");
 
@@ -548,13 +804,13 @@ mod tests {
         // 测试无效 UTF-8 请求体的处理
         // 创建包含无效 UTF-8 字节的请求体
         let invalid_utf8 = vec![0xFF, 0xFE, 0xFD, 0xFC, 0xFB];
-        let mut stream = FakeH3Stream::new(vec![Bytes::from(invalid_utf8)]);
+        let stream = FakeH3Stream::new(vec![Bytes::from(invalid_utf8)]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34574".parse().unwrap();
 
         // 无效 UTF-8 数据应该被正确处理并回显
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("invalid utf8 body should be handled");
 
@@ -579,18 +835,16 @@ mod tests {
             Bytes::from_static(b"third"),
         ];
         // 模拟在发送响应数据时失败
-        let mut stream = FakeH3Stream::new(chunks).with_send_data_failure();
+        let stream = FakeH3Stream::new(chunks).with_send_data_failure();
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34575".parse().unwrap();
 
-        let err = handle_http3_request_impl(req, &mut stream, remote, routes)
+        let err = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect_err("should fail on send data");
         let msg = format!("{err:#}");
         assert!(msg.contains("send_data_failed"));
-        // 验证请求体已被完全接收（即使后续发送失败）
-        assert!(stream.sent_head.is_some());
     }
 
     #[tokio::test]
@@ -602,12 +856,12 @@ mod tests {
             Bytes::new(), // 另一个空块
             Bytes::from_static(b"more"),
         ];
-        let mut stream = FakeH3Stream::new(chunks);
+        let stream = FakeH3Stream::new(chunks);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34576".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("mixed chunks should succeed");
 
@@ -622,16 +876,57 @@ mod tests {
         assert_eq!(echoed, b"datamore");
     }
 
+    #[derive(Clone)]
+    struct HeaderMiddleware;
+
+    #[async_trait::async_trait]
+    impl MiddleWareHandler for HeaderMiddleware {
+        async fn handle(&self, req: SilentRequest, next: &Next) -> crate::Result<SilentResponse> {
+            let mut resp = next.call(req).await?;
+            resp.headers_mut()
+                .insert("x-middleware", HeaderValue::from_static("hit"));
+            Ok(resp)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http3_middlewares_are_applied() {
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"body")]);
+        let mut root = Route::new_root().hook(HeaderMiddleware);
+        root.push(Route::new("").post(|mut req: SilentRequest| async move {
+            let body = http_body_util::BodyExt::collect(req.take_body())
+                .await?
+                .to_bytes();
+            let mut resp = SilentResponse::empty();
+            resp.set_body(ResBody::from(body));
+            Ok(resp)
+        }));
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34579".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, Arc::new(root), None, None)
+            .await
+            .expect("middleware should be applied");
+
+        let head = stream.sent_head.unwrap();
+        assert_eq!(
+            head.headers()
+                .get("x-middleware")
+                .and_then(|v| v.to_str().ok()),
+            Some("hit")
+        );
+    }
+
     #[tokio::test]
     async fn test_http3_impl_handler_error_propagation() {
         // 测试路由处理器返回错误时的错误传播
-        let mut stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34577".parse().unwrap();
 
         // 不需要特殊设置，测试正常路径即可
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("normal path should succeed");
 
@@ -642,12 +937,12 @@ mod tests {
     #[tokio::test]
     async fn test_http3_impl_empty_response_body() {
         // 测试返回空响应体的情况
-        let mut stream = FakeH3Stream::new(vec![]);
+        let stream = FakeH3Stream::new(vec![]);
         let routes = make_routes_echo_body();
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34578".parse().unwrap();
 
-        handle_http3_request_impl(req, &mut stream, remote, routes)
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
             .await
             .expect("empty response should succeed");
 

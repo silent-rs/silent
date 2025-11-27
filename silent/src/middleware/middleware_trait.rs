@@ -34,13 +34,10 @@ mod tests {
     #[tokio::test]
     async fn test_middleware() -> Result<()> {
         let handler_wrapper = HandlerWrapper::new(hello_world).arc();
-        let middleware1 = TestMiddleWare { count: 1 };
-        let middleware2 = TestMiddleWare { count: 2 };
+        let middleware1: Arc<dyn MiddleWareHandler> = Arc::new(TestMiddleWare { count: 1 });
+        let middleware2: Arc<dyn MiddleWareHandler> = Arc::new(TestMiddleWare { count: 2 });
         let req = Request::empty();
-        let middlewares = Next::build(
-            handler_wrapper,
-            vec![Arc::new(middleware1), Arc::new(middleware2)],
-        );
+        let middlewares = Next::build(handler_wrapper, &[middleware1, middleware2]);
         let res = middlewares.call(req).await;
         assert!(res.is_ok());
         info!("{:?}", res?);

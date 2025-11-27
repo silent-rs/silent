@@ -1,0 +1,11 @@
+[package]
+name = "example-metrics"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+silent = { path = "../../silent", features = ["server", "metrics"] }
+metrics = { workspace = true }
+metrics-exporter-prometheus = "0.17"
+tokio = { version = "1", features = ["full"] }

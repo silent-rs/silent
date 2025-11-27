@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::hash::Hash;
 use std::iter::Iterator;
 
 pub use serde::de::value::{Error as ValError, MapDeserializer, SeqDeserializer};
@@ -20,24 +19,6 @@ where
     let iter = input
         .into_iter()
         .map(|(k, v)| (CowValue(k.into()), CowValue(v.into())));
-    T::deserialize(MapDeserializer::new(iter))
-}
-
-#[inline]
-pub fn from_str_multi_map<'de, I, T, K, C, V>(input: I) -> Result<T, ValError>
-where
-    I: IntoIterator<Item = (K, C)> + 'de,
-    T: Deserialize<'de>,
-    K: Into<Cow<'de, str>> + Hash + Eq + 'de,
-    C: IntoIterator<Item = V> + 'de,
-    V: Into<Cow<'de, str>> + Eq + 'de,
-{
-    let iter = input.into_iter().map(|(k, v)| {
-        (
-            CowValue(k.into()),
-            VecValue(v.into_iter().map(|v| CowValue(v.into()))),
-        )
-    });
     T::deserialize(MapDeserializer::new(iter))
 }
 

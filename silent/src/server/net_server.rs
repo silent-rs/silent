@@ -1,5 +1,13 @@
 use super::ConnectionService;
+use super::config::ServerConfig;
 use super::listener::{Listen, ListenersBuilder};
+#[cfg(feature = "metrics")]
+use super::metrics::{
+    record_accept_err, record_accept_ok, record_forced_shutdown, record_graceful_shutdown,
+    record_handler_duration, record_handler_err, record_handler_ok, record_handler_timeout,
+    record_rate_limiter_closed, record_rate_limiter_timeout, record_shutdown_duration,
+    record_wait_duration,
+};
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
 use std::io;
 use std::net::SocketAddr;
@@ -8,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -133,6 +141,7 @@ pub struct NetServer {
     listen_callback: Option<ListenCallback>,
     rate_limiter: Option<RateLimiter>,
     shutdown_cfg: ShutdownConfig,
+    config: ServerConfig,
 }
 
 impl Default for NetServer {
@@ -163,6 +172,7 @@ impl NetServer {
             listen_callback: None,
             rate_limiter: None,
             shutdown_cfg: ShutdownConfig::default(),
+            config: ServerConfig::default(),
         }
     }
 
@@ -170,6 +180,7 @@ impl NetServer {
         listeners_builder: ListenersBuilder,
         shutdown_callback: Option<Box<dyn Fn() + Send + Sync>>,
         listen_callback: Option<ListenCallback>,
+        config: ServerConfig,
     ) -> Self {
         Self {
             listeners_builder,
@@ -177,6 +188,7 @@ impl NetServer {
             listen_callback,
             rate_limiter: None,
             shutdown_cfg: ShutdownConfig::default(),
+            config,
         }
     }
 
@@ -433,8 +445,10 @@ impl NetServer {
         mut self,
         handler: std::sync::Arc<dyn ConnectionService>,
     ) -> io::Result<()> {
+        let loop_started = Instant::now();
         let mut listeners = self.listeners_builder.listen()?;
         let addrs = listeners.local_addrs().to_vec();
+        let handler_timeout = self.config.connection_limits.handler_timeout;
         if let Some(cb) = &self.listen_callback {
             (cb)(&addrs);
         } else {
@@ -461,46 +475,129 @@ impl NetServer {
             tokio::select! {
                 biased;
                 _ = shutdown.signal() => {
-                    tracing::info!("shutdown signal received");
+                    tracing::info!(
+                        elapsed = ?loop_started.elapsed(),
+                        tasks = join_set.len(),
+                        "shutdown signal received"
+                    );
                     break;
                 }
                 accept_result = listeners.accept() => {
                     match accept_result {
                         None => {
-                            tracing::info!("listener closed, shutting down");
+                            tracing::info!(elapsed = ?loop_started.elapsed(), "listener closed, shutting down");
                             break;
                         }
                         Some(Ok((stream, peer_addr))) => {
+                            #[cfg(feature = "metrics")]
+                            record_accept_ok();
                             if let Some(rate) = &rate {
                                 let semaphore = rate.semaphore.clone();
                                 let max_wait = rate.max_wait;
                                 let handler = handler.clone();
+                                let peer = peer_addr.clone();
+                                let accepted_at = Instant::now();
+                                tracing::info!(%peer, "accepted connection");
                                 join_set.spawn(async move {
                                     match tokio::time::timeout(max_wait, semaphore.acquire_owned()).await {
                                         Ok(Ok(_permit)) => {
-                                            if let Err(err) = handler.call(stream, peer_addr).await {
-                                                tracing::error!("Failed to serve connection: {:?}", err);
+                                            let wait_cost = accepted_at.elapsed();
+                                            #[cfg(feature = "metrics")]
+                                            record_wait_duration(wait_cost.as_nanos() as u64);
+                                            if let Some(timeout) = handler_timeout {
+                                                match tokio::time::timeout(timeout, handler.call(stream, peer.clone())).await {
+                                                    Ok(res) => {
+                                                        if let Err(err) = res {
+                                                            tracing::error!("Failed to serve connection: {:?}", err);
+                                                        } else {
+                                            #[cfg(feature = "metrics")]
+                                                            record_handler_duration(accepted_at.elapsed().as_nanos() as u64);
+                                                            tracing::debug!(%peer, wait = ?wait_cost, handle = ?accepted_at.elapsed(), "connection served");
+                                                        }
+                                                    }
+                                                    Err(_) => {
+                                            #[cfg(feature = "metrics")]
+                                                        record_handler_timeout();
+                                                        tracing::warn!(
+                                                            %peer,
+                                                            wait = ?wait_cost,
+                                                            "Connection handler timed out for peer"
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                let handle_started = Instant::now();
+                                                if let Err(err) = handler.call(stream, peer.clone()).await {
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_err();
+                                                    tracing::error!("Failed to serve connection: {:?}", err);
+                                                } else {
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_ok();
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_duration(handle_started.elapsed().as_nanos() as u64);
+                                                    tracing::debug!(%peer, wait = ?wait_cost, handle = ?handle_started.elapsed(), "connection served");
+                                                }
                                             }
                                         }
                                         Ok(Err(_)) => {
-                                            tracing::warn!("Rate limiter closed, dropping connection: {}", peer_addr);
+                                            #[cfg(feature = "metrics")]
+                                            record_rate_limiter_closed();
+                                            tracing::warn!(%peer, "Rate limiter closed, dropping connection");
                                         }
                                         Err(_) => {
-                                            tracing::warn!("Rate limiter timeout, dropping connection: {}", peer_addr);
+                                            #[cfg(feature = "metrics")]
+                                            record_rate_limiter_timeout();
+                                            tracing::warn!(%peer, "Rate limiter timeout, dropping connection");
                                         }
                                     }
                                 });
                             } else {
                                 let handler = handler.clone();
+                                let peer = peer_addr.clone();
+                                let accepted_at = Instant::now();
+                                tracing::info!(%peer, "accepted connection");
                                 join_set.spawn(async move {
-                                    if let Err(err) = handler.call(stream, peer_addr).await {
-                                        tracing::error!("Failed to serve connection: {:?}", err);
+                                    if let Some(timeout) = handler_timeout {
+                                        match tokio::time::timeout(timeout, handler.call(stream, peer.clone())).await {
+                                            Ok(res) => {
+                                                if let Err(err) = res {
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_err();
+                                                    tracing::error!("Failed to serve connection: {:?}", err);
+                                                } else {
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_ok();
+                                            #[cfg(feature = "metrics")]
+                                                    record_handler_duration(accepted_at.elapsed().as_nanos() as u64);
+                                                    tracing::debug!(%peer, handle = ?accepted_at.elapsed(), "connection served");
+                                                }
+                                            }
+                                            Err(_) => {
+                                            #[cfg(feature = "metrics")]
+                                                record_handler_timeout();
+                                                tracing::warn!(%peer, "Connection handler timed out for peer");
+                                            }
+                                        }
+                                    } else {
+                                        let handle_started = Instant::now();
+                                        if let Err(err) = handler.call(stream, peer.clone()).await {
+                                            #[cfg(feature = "metrics")]
+                                            record_handler_err();
+                                            tracing::error!("Failed to serve connection: {:?}", err);
+                                        } else {
+                                            #[cfg(feature = "metrics")]
+                                            record_handler_ok();
+                                            tracing::debug!(%peer, handle = ?handle_started.elapsed(), "connection served");
+                                        }
                                     }
                                 });
                             }
                         }
                         Some(Err(e)) => {
-                            tracing::error!(error = ?e, "accept connection failed");
+                                            #[cfg(feature = "metrics")]
+                            record_accept_err();
+                            tracing::error!(error = ?e, tasks = join_set.len(), "accept connection failed");
                         }
                     }
                 }
@@ -519,6 +616,7 @@ impl NetServer {
 
         // 优雅关停：等待活动任务在指定时间内完成
         if shutdown.shutdown_cfg.graceful_wait > Duration::from_millis(0) {
+            let graceful_started = Instant::now();
             // 使用 timeout 等待所有任务完成，超时后自动结束
             let _ = tokio::time::timeout(shutdown.shutdown_cfg.graceful_wait, async {
                 while let Some(join_result) = join_set.join_next().await {
@@ -530,6 +628,15 @@ impl NetServer {
                 }
             })
             .await;
+            tracing::debug!(
+                elapsed = ?graceful_started.elapsed(),
+                remaining = join_set.len(),
+                "graceful shutdown wait finished"
+            );
+            #[cfg(feature = "metrics")]
+            record_graceful_shutdown();
+            #[cfg(feature = "metrics")]
+            record_shutdown_duration("graceful", graceful_started.elapsed().as_nanos() as u64);
         }
 
         // 结束限流补充任务
@@ -540,6 +647,7 @@ impl NetServer {
 
         // 强制取消剩余任务并清理
         join_set.abort_all();
+        let abort_started = Instant::now();
         while let Some(join_result) = join_set.join_next().await {
             if let Err(err) = join_result
                 && err.is_panic()
@@ -547,6 +655,11 @@ impl NetServer {
                 tracing::error!(error = ?err, "connection task panicked during forced shutdown");
             }
         }
+        tracing::debug!(elapsed = ?abort_started.elapsed(), "forced shutdown complete");
+        #[cfg(feature = "metrics")]
+        record_forced_shutdown();
+        #[cfg(feature = "metrics")]
+        record_shutdown_duration("forced", abort_started.elapsed().as_nanos() as u64);
 
         Ok(())
     }

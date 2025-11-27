@@ -272,7 +272,7 @@ impl RouteTree {
             Arc::clone(&path),
         ));
         let middleware_slice = &self.middlewares[self.middleware_start..];
-        let next = Next::build_from_slice(endpoint, middleware_slice);
+        let next = Next::build(endpoint, middleware_slice);
         next.call(req).await
     }
 

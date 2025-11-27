@@ -1,17 +1,17 @@
 use super::connection::Connection;
 use super::stream::Stream;
-#[cfg(feature = "tls")]
-use crate::CertificateStore;
 use crate::core::socket_addr::SocketAddr;
-use futures_util::StreamExt;
-use futures_util::stream::FuturesUnordered;
+#[cfg(feature = "tls")]
+use crate::{CertificateStore, ReloadableCertificateStore};
 use std::future::Future;
 use std::io::Result;
 #[cfg(not(target_os = "windows"))]
 use std::path::Path;
 use std::pin::Pin;
+use tokio::time::{Duration, Instant, sleep_until};
 #[cfg(feature = "tls")]
 use tokio_rustls::TlsAcceptor;
+use tracing::trace;
 
 /// 接受连接的 Future。
 ///
@@ -119,6 +119,13 @@ impl Listener {
     pub fn tls_with_cert(self, cert: &CertificateStore) -> TlsListener {
         self.tls(TlsAcceptor::from(cert.https_config().unwrap()))
     }
+
+    pub fn tls_with_reloadable(self, store: ReloadableCertificateStore) -> ReloadableTlsListener {
+        ReloadableTlsListener {
+            listener: self,
+            store,
+        }
+    }
 }
 
 #[cfg(feature = "tls")]
@@ -128,11 +135,40 @@ pub struct TlsListener {
 }
 
 #[cfg(feature = "tls")]
+pub struct ReloadableTlsListener {
+    pub listener: Listener,
+    pub store: ReloadableCertificateStore,
+}
+
+#[cfg(feature = "tls")]
 impl Listen for TlsListener {
     fn accept(&self) -> AcceptFuture<'_> {
         let accept_future = async move {
             let (stream, addr) = self.listener.accept().await?;
             let tls_stream = self.acceptor.accept(stream).await?;
+            Ok((
+                Box::new(tls_stream) as Box<dyn Connection + Send + Sync>,
+                addr,
+            ))
+        };
+        Box::pin(accept_future)
+    }
+
+    fn local_addr(&self) -> Result<SocketAddr> {
+        self.listener.local_addr()?.tls()
+    }
+}
+
+#[cfg(feature = "tls")]
+impl Listen for ReloadableTlsListener {
+    fn accept(&self) -> AcceptFuture<'_> {
+        let store = self.store.clone();
+        let accept_future = async move {
+            let (stream, addr) = self.listener.accept().await?;
+            let acceptor = store
+                .https_acceptor()
+                .map_err(|e| std::io::Error::other(format!("reload tls acceptor failed: {e}")))?;
+            let tls_stream = acceptor.accept(stream).await?;
             Ok((
                 Box::new(tls_stream) as Box<dyn Connection + Send + Sync>,
                 addr,
@@ -226,9 +262,12 @@ impl ListenersBuilder {
             .flat_map(|listener| listener.local_addr())
             .collect();
         let listeners = self.listeners;
+        let backoff_states = (0..listeners.len()).map(|_| BackoffState::new()).collect();
         Ok(Listeners {
             listeners,
             local_addrs,
+            backoff_states,
+            next_index: 0,
         })
     }
 }
@@ -236,6 +275,8 @@ impl ListenersBuilder {
 pub struct Listeners {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
     local_addrs: Vec<SocketAddr>,
+    backoff_states: Vec<BackoffState>,
+    next_index: usize,
 }
 
 impl Listeners {
@@ -248,22 +289,98 @@ impl Listeners {
     pub async fn accept(
         &mut self,
     ) -> Option<Result<(Box<dyn Connection + Send + Sync>, SocketAddr)>> {
-        let mut listener_futures: FuturesUnordered<AcceptFuture<'_>> = self
-            .listeners
-            .iter()
-            .map(|listener| {
-                let fut: AcceptFuture<'_> = Box::pin(async move {
-                    let listener = listener.as_ref();
-                    listener.accept().await
-                });
-                fut
-            })
-            .collect();
-        listener_futures.next().await
+        if self.listeners.is_empty() {
+            return None;
+        }
+
+        loop {
+            let now = Instant::now();
+            let len = self.listeners.len();
+            let mut earliest_ready: Option<Instant> = None;
+            let mut selected: Option<usize> = None;
+
+            for offset in 0..len {
+                let idx = (self.next_index + offset) % len;
+                let state = &self.backoff_states[idx];
+                if state.is_ready(now) {
+                    selected = Some(idx);
+                    break;
+                }
+                earliest_ready = match earliest_ready {
+                    Some(inst) => Some(inst.min(state.next_ready)),
+                    None => Some(state.next_ready),
+                };
+            }
+
+            if let Some(idx) = selected {
+                self.next_index = (idx + 1) % len;
+                let res = self.listeners[idx].accept().await;
+                match res {
+                    Ok(conn) => {
+                        self.backoff_states[idx].on_success();
+                        trace!(
+                            listener = ?self.local_addrs.get(idx),
+                            backoff = ?self.backoff_states[idx].current,
+                            "accept ok"
+                        );
+                        return Some(Ok(conn));
+                    }
+                    Err(e) => {
+                        self.backoff_states[idx].on_error();
+                        trace!(
+                            listener = ?self.local_addrs.get(idx),
+                            backoff = ?self.backoff_states[idx].current,
+                            "accept error, apply backoff"
+                        );
+                        return Some(Err(e));
+                    }
+                }
+            } else if let Some(next_ready) = earliest_ready {
+                sleep_until(next_ready).await;
+                continue;
+            } else {
+                return None;
+            }
+        }
     }
 
     pub fn local_addrs(&self) -> &[SocketAddr] {
         &self.local_addrs
+    }
+}
+
+/// 监听错误的退避状态。
+#[derive(Clone, Debug)]
+struct BackoffState {
+    current: Duration,
+    max: Duration,
+    next_ready: Instant,
+}
+
+impl BackoffState {
+    const BASE: Duration = Duration::from_millis(50);
+    const MAX: Duration = Duration::from_secs(2);
+
+    fn new() -> Self {
+        Self {
+            current: Self::BASE,
+            max: Self::MAX,
+            next_ready: Instant::now(),
+        }
+    }
+
+    fn is_ready(&self, now: Instant) -> bool {
+        now >= self.next_ready
+    }
+
+    fn on_success(&mut self) {
+        self.current = Self::BASE;
+        self.next_ready = Instant::now();
+    }
+
+    fn on_error(&mut self) {
+        self.next_ready = Instant::now() + self.current;
+        self.current = std::cmp::min(self.current * 2, self.max);
     }
 }
 

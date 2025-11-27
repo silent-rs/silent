@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Error as IoError;
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -7,7 +8,6 @@ use futures_util::Stream;
 use http_body::{Body, Frame, SizeHint};
 use hyper::body::Incoming;
 
-#[derive(Debug)]
 /// 请求体
 pub enum ReqBody {
     /// Empty body.
@@ -16,6 +16,22 @@ pub enum ReqBody {
     Once(Bytes),
     /// Incoming default body.
     Incoming(Incoming),
+    /// Incoming with size limit.
+    LimitedIncoming(LimitedIncoming),
+    /// Streaming body from custom stream.
+    Streaming(Pin<Box<dyn Stream<Item = Result<Bytes, IoError>> + Send>>),
+}
+
+impl fmt::Debug for ReqBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReqBody::Empty => f.write_str("Empty"),
+            ReqBody::Once(bytes) => f.debug_tuple("Once").field(bytes).finish(),
+            ReqBody::Incoming(_) => f.write_str("Incoming"),
+            ReqBody::LimitedIncoming(_) => f.write_str("LimitedIncoming"),
+            ReqBody::Streaming(_) => f.write_str("Streaming"),
+        }
+    }
 }
 
 impl From<Incoming> for ReqBody {
@@ -40,8 +56,19 @@ impl Body for ReqBody {
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
         match &mut *self {
             ReqBody::Empty => Poll::Ready(None),
-            ReqBody::Once(bytes) => Poll::Ready(Some(Ok(Frame::data(bytes.clone())))),
+            ReqBody::Once(bytes) => {
+                let bytes = std::mem::take(bytes);
+                *self = ReqBody::Empty;
+                Poll::Ready(Some(Ok(Frame::data(bytes))))
+            }
             ReqBody::Incoming(body) => Pin::new(body).poll_frame(cx).map_err(IoError::other),
+            ReqBody::LimitedIncoming(body) => Pin::new(body).poll_frame(cx),
+            ReqBody::Streaming(stream) => match stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(Ok(Frame::data(bytes)))),
+                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+                Poll::Ready(None) => Poll::Ready(None),
+                Poll::Pending => Poll::Pending,
+            },
         }
     }
 
@@ -50,6 +77,8 @@ impl Body for ReqBody {
             ReqBody::Empty => true,
             ReqBody::Once(bytes) => bytes.is_empty(),
             ReqBody::Incoming(body) => body.is_end_stream(),
+            ReqBody::LimitedIncoming(body) => body.is_end_stream(),
+            ReqBody::Streaming(_) => false,
         }
     }
 
@@ -58,6 +87,8 @@ impl Body for ReqBody {
             ReqBody::Empty => SizeHint::with_exact(0),
             ReqBody::Once(bytes) => SizeHint::with_exact(bytes.len() as u64),
             ReqBody::Incoming(body) => body.size_hint(),
+            ReqBody::LimitedIncoming(body) => body.size_hint(),
+            ReqBody::Streaming(_) => SizeHint::new(),
         }
     }
 }
@@ -72,5 +103,79 @@ impl Stream for ReqBody {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+impl ReqBody {
+    /// 为流式请求体增加大小限制（字节）。仅对流式 `Incoming` 生效。
+    pub fn with_limit(self, max: Option<usize>) -> Self {
+        match (self, max) {
+            (ReqBody::Incoming(body), Some(max_bytes)) => {
+                ReqBody::LimitedIncoming(LimitedIncoming::new(body, max_bytes))
+            }
+            (other, _) => other,
+        }
+    }
+
+    /// 从自定义字节流构建流式请求体。
+    pub fn from_stream<S>(stream: S) -> Self
+    where
+        S: Stream<Item = Result<Bytes, IoError>> + Send + 'static,
+    {
+        ReqBody::Streaming(Box::pin(stream))
+    }
+}
+
+/// 限制 hyper Incoming 大小的包装体。
+#[derive(Debug)]
+pub struct LimitedIncoming {
+    inner: Incoming,
+    seen: usize,
+    max: usize,
+}
+
+impl LimitedIncoming {
+    pub fn new(inner: Incoming, max: usize) -> Self {
+        Self {
+            inner,
+            seen: 0,
+            max,
+        }
+    }
+}
+
+impl Body for LimitedIncoming {
+    type Data = Bytes;
+    type Error = IoError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
+        match Pin::new(&mut self.inner)
+            .poll_frame(cx)
+            .map_err(IoError::other)
+        {
+            Poll::Ready(Some(Ok(frame))) => {
+                if let Some(data) = frame.data_ref() {
+                    self.seen += data.len();
+                    if self.seen > self.max {
+                        return Poll::Ready(Some(Err(IoError::other(
+                            "request body size exceeds limit",
+                        ))));
+                    }
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
+            other => other,
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> SizeHint {
+        self.inner.size_hint()
     }
 }

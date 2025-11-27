@@ -414,7 +414,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_tuple_triple_quad_and_result_ok() {
-        #[allow(dead_code)]
         #[derive(Deserialize)]
         struct Q {
             page: u32,
@@ -429,6 +428,7 @@ mod tests {
             <(Path<i32>, Query<Q>, TypedHeader<UserAgent>) as FromRequest>::from_request(&mut req)
                 .await
                 .unwrap();
+        assert_eq!(_b.0.page, 3);
 
         // quad
         let mut req = Request::empty();

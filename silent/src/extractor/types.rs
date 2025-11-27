@@ -18,7 +18,6 @@ pub struct Json<T>(pub T);
 /// Form 萃取器：从表单解析为 T
 pub struct Form<T>(pub T);
 
-#[allow(dead_code)]
 pub struct Configs<T>(pub T);
 
 /// 从 Extensions 中提取扩展
@@ -27,7 +26,6 @@ pub struct Extension<T>(pub T);
 /// 头部类型化提取（等价 axum 的 TypedHeader）
 pub struct TypedHeader<H>(pub H);
 
-#[allow(dead_code)]
 pub struct Method(pub crate::Method);
 pub struct Uri(pub HttpUri);
 pub struct Version(pub HttpVersion);

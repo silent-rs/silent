@@ -4,7 +4,7 @@ use rustls_pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, Privat
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio_rustls::TlsAcceptor;
 
 #[derive(Clone)]
@@ -22,6 +22,14 @@ impl KeyDer {
     }
 }
 
+fn ensure_crypto_provider() {
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        // 尝试安装 ring 提供者；若已安装则忽略错误。
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 #[derive(Clone)]
 pub struct CertificateStore {
     cert_chain: Vec<Vec<u8>>,
@@ -35,6 +43,7 @@ impl CertificateStore {
     }
 
     pub fn rustls_server_config(&self, alpn: &[&[u8]]) -> Result<rustls::ServerConfig> {
+        ensure_crypto_provider();
         let chain: Vec<CertificateDer<'static>> = self
             .cert_chain
             .iter()
@@ -127,6 +136,63 @@ impl CertificateStoreBuilder {
             key_der,
             client_root,
         })
+    }
+}
+
+/// 支持从文件路径热加载的证书存储。
+#[derive(Clone)]
+pub struct ReloadableCertificateStore {
+    inner: Arc<RwLock<CertificateStore>>,
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    root_ca_path: Option<PathBuf>,
+}
+
+impl ReloadableCertificateStore {
+    pub fn from_paths<P: Into<PathBuf>>(
+        cert_path: P,
+        key_path: P,
+        root_ca_path: Option<PathBuf>,
+    ) -> Result<Self> {
+        let cert_path = cert_path.into();
+        let key_path = key_path.into();
+        let mut builder = CertificateStoreBuilder::new()
+            .cert_path(cert_path.clone())
+            .key_path(key_path.clone());
+        if let Some(root) = root_ca_path.clone() {
+            builder = builder.root_ca_path(root);
+        }
+        let store = builder.build()?;
+        Ok(Self {
+            inner: Arc::new(RwLock::new(store)),
+            cert_path,
+            key_path,
+            root_ca_path,
+        })
+    }
+
+    /// 重新从磁盘加载证书与私钥。
+    pub fn reload(&self) -> Result<()> {
+        let mut builder = CertificateStoreBuilder::new()
+            .cert_path(self.cert_path.clone())
+            .key_path(self.key_path.clone());
+        if let Some(root) = self.root_ca_path.clone() {
+            builder = builder.root_ca_path(root);
+        }
+        let store = builder.build()?;
+        if let Ok(mut guard) = self.inner.write() {
+            *guard = store;
+        }
+        Ok(())
+    }
+
+    pub fn tls_acceptor(&self, alpn: &[&[u8]]) -> Result<TlsAcceptor> {
+        let guard = self.inner.read().expect("certificate store poisoned");
+        guard.tls_acceptor(alpn)
+    }
+
+    pub fn https_acceptor(&self) -> Result<TlsAcceptor> {
+        self.tls_acceptor(&[b"h2", b"http/1.1"])
     }
 }
 

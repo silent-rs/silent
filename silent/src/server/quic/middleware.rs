@@ -2,6 +2,7 @@ use crate::Next;
 use crate::Request;
 use crate::Response as SilentResponse;
 use crate::{Handler, MiddleWareHandler};
+use tracing::debug;
 
 /// Alt-Svc 中间件，用于通知客户端可以使用 HTTP/3
 #[derive(Clone)]
@@ -24,6 +25,7 @@ impl MiddleWareHandler for AltSvcMiddleware {
             let val = format!("h3=\":{}\"; ma=86400", port);
             if let Ok(h) = http::HeaderValue::from_str(&val) {
                 response.headers_mut().insert("alt-svc", h);
+                debug!(quic_port = port, "Alt-Svc header injected");
             }
         }
         Ok(response)
@@ -50,7 +52,7 @@ mod tests {
     async fn test_alt_svc_injected() {
         let mw = AltSvcMiddleware::new(4433);
         // 构造 next 链，仅包含一个空 endpoint
-        let next = Next::build_from_slice(Arc::new(Ep), &[]);
+        let next = Next::build(Arc::new(Ep), &[]);
         let req = Request::empty();
         let resp = mw.handle(req, &next).await.unwrap();
         assert!(resp.headers().contains_key("alt-svc"));
@@ -59,7 +61,7 @@ mod tests {
     #[tokio::test]
     async fn test_alt_svc_zero_port_no_header() {
         let mw = AltSvcMiddleware::new(0);
-        let next = Next::build_from_slice(Arc::new(Ep), &[]);
+        let next = Next::build(Arc::new(Ep), &[]);
         let req = Request::empty();
         let resp = mw.handle(req, &next).await.unwrap();
         assert!(!resp.headers().contains_key("alt-svc"));

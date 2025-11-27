@@ -31,7 +31,6 @@ where
     S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send,
 {
     #[inline]
-    #[allow(dead_code)]
     pub fn new(handler: Arc<Mutex<S>>) -> Self {
         Self { handler }
     }

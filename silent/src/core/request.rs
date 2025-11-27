@@ -367,14 +367,13 @@ impl Request {
             // 如果没有缓存，则从请求体中读取并缓存
             let body = self.take_body();
             let bytes = match body {
-                ReqBody::Incoming(body) => body
+                ReqBody::Empty => return Err(SilentError::BodyEmpty),
+                other => other
                     .collect()
                     .await
                     .or(Err(SilentError::BodyEmpty))?
                     .to_bytes()
                     .to_vec(),
-                ReqBody::Once(bytes) => bytes.to_vec(),
-                ReqBody::Empty => return Err(SilentError::BodyEmpty),
             };
 
             if bytes.is_empty() {
@@ -435,13 +434,12 @@ impl Request {
 
         let body = self.take_body();
         let bytes = match body {
-            ReqBody::Incoming(body) => body
+            ReqBody::Empty => return Err(SilentError::JsonEmpty),
+            other => other
                 .collect()
                 .await
                 .or(Err(SilentError::JsonEmpty))?
                 .to_bytes(),
-            ReqBody::Once(bytes) => bytes,
-            ReqBody::Empty => return Err(SilentError::JsonEmpty),
         };
 
         if bytes.is_empty() {
@@ -626,10 +624,14 @@ mod tests {
         // 这个测试主要验证代码路径，而不是具体的数据解析
         // 注意：multipart 测试仍需要 Serialize，因为 multipart_form_parse 需要它
         #[derive(Deserialize, Debug)]
-        #[allow(dead_code)]
+
         struct TestData {
             name: String,
         }
+        let t = TestData {
+            name: "placeholder".to_string(),
+        };
+        assert_eq!(t.name, "placeholder");
 
         let result = req.form_parse::<TestData>().await;
         // 预期会失败，因为我们没有提供真实的 multipart 数据

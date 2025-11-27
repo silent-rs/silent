@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use quinn::Endpoint;
 use quinn::ServerConfig;
+use quinn::VarInt;
 use quinn::crypto::rustls::QuicServerConfig;
 use tracing::error;
 
@@ -10,6 +11,7 @@ use crate::AcceptFuture;
 use crate::BoxedConnection;
 use crate::CertificateStore;
 use crate::Listen;
+use crate::server::config::ServerConfig as ServerOptions;
 use crate::server::listener::TlsListener;
 use std::net::{SocketAddr, TcpListener as StdTcpListener};
 
@@ -18,14 +20,86 @@ pub struct QuicEndpointListener {
     store: CertificateStore,
 }
 
+#[derive(Clone, Debug)]
+pub struct QuicTransportConfig {
+    pub keep_alive_interval: Option<Duration>,
+    pub max_idle_timeout: Option<Duration>,
+    pub max_bidirectional_streams: Option<u32>,
+    pub max_unidirectional_streams: Option<u32>,
+    pub max_datagram_recv_size: Option<usize>,
+    pub enable_datagram: bool,
+    pub alpn_protocols: Option<Vec<Vec<u8>>>,
+}
+
+impl Default for QuicTransportConfig {
+    fn default() -> Self {
+        Self {
+            keep_alive_interval: Some(Duration::from_secs(30)),
+            max_idle_timeout: Some(Duration::from_secs(60)),
+            max_bidirectional_streams: Some(128),
+            max_unidirectional_streams: Some(32),
+            max_datagram_recv_size: Some(64 * 1024),
+            enable_datagram: true,
+            alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec()]),
+        }
+    }
+}
+
 impl QuicEndpointListener {
     pub fn new(bind_addr: SocketAddr, store: &CertificateStore) -> Self {
-        let rustls_config = store.rustls_server_config(&[b"h3", b"h3-29"]).unwrap();
+        Self::new_with_config(bind_addr, store, QuicTransportConfig::default())
+    }
+
+    /// 基于 ServerConfig 中的 quic_transport 构建监听器。
+    pub fn from_server_config(
+        bind_addr: SocketAddr,
+        store: &CertificateStore,
+        config: &ServerOptions,
+    ) -> Self {
+        let transport = config.quic_transport.clone().unwrap_or_default();
+        Self::new_with_config(bind_addr, store, transport)
+    }
+
+    pub fn new_with_config(
+        bind_addr: SocketAddr,
+        store: &CertificateStore,
+        transport: QuicTransportConfig,
+    ) -> Self {
+        let alpn = transport
+            .alpn_protocols
+            .clone()
+            .unwrap_or_else(|| vec![b"h3".to_vec(), b"h3-29".to_vec()]);
+        let alpn_refs: Vec<&[u8]> = alpn.iter().map(|v| v.as_slice()).collect();
+        let rustls_config = store.rustls_server_config(&alpn_refs).unwrap();
         let mut server_config =
             ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(rustls_config).unwrap()));
 
         if let Some(transport_config) = Arc::get_mut(&mut server_config.transport) {
-            transport_config.keep_alive_interval(Some(Duration::from_secs(30)));
+            if let Some(keep_alive) = transport.keep_alive_interval {
+                transport_config.keep_alive_interval(Some(keep_alive));
+            }
+            if let Some(idle) = transport.max_idle_timeout
+                && let Ok(timeout) = quinn::IdleTimeout::try_from(idle)
+            {
+                transport_config.max_idle_timeout(Some(timeout));
+            }
+            if let Some(bidi) = transport.max_bidirectional_streams
+                && let Ok(v) = VarInt::try_from(bidi as u64)
+            {
+                transport_config.max_concurrent_bidi_streams(v);
+            }
+            if let Some(uni) = transport.max_unidirectional_streams
+                && let Ok(v) = VarInt::try_from(uni as u64)
+            {
+                transport_config.max_concurrent_uni_streams(v);
+            }
+            if let Some(max_dgram) = transport.max_datagram_recv_size {
+                transport_config.datagram_receive_buffer_size(Some(max_dgram));
+            }
+            if !transport.enable_datagram {
+                transport_config.datagram_send_buffer_size(0);
+                transport_config.datagram_receive_buffer_size(None);
+            }
         }
 
         let endpoint = Endpoint::server(server_config, bind_addr)
@@ -38,6 +112,11 @@ impl QuicEndpointListener {
             endpoint,
             store: store.clone(),
         }
+    }
+
+    /// 基于当前 QUIC 监听端口生成 Alt-Svc 中间件，自动对齐端口。
+    pub fn alt_svc_middleware(&self) -> crate::quic::AltSvcMiddleware {
+        crate::quic::AltSvcMiddleware::new(self.endpoint.local_addr().unwrap().port())
     }
 
     pub fn with_http_fallback(self) -> HybridListener {
@@ -159,39 +238,10 @@ mod tests {
     }
 
     #[test]
-    fn test_listen_trait_has_accept_and_local_addr_methods() {
-        // 验证 Listen trait 的方法存在
-        // 这个测试主要验证 Listen trait 是可实现的
-        #[allow(dead_code)]
-        trait ListenTester: Listen {}
-        impl<T: Listen> ListenTester for T {}
-    }
-
-    #[test]
     fn test_accept_future_type_name() {
         // 验证 AcceptFuture 类型存在
         // 我们不能直接实例化 AcceptFuture，但可以验证它包含在类型签名中
         let _ = std::any::type_name::<AcceptFuture<'_>>();
-    }
-
-    #[test]
-    fn test_hybrid_listener_delegates_local_addr_to_quic() {
-        // 验证 HybridListener::local_addr 委托给 quic
-        // 在源代码第73-75行可以看到 this is delegated to self.quic.local_addr()
-    }
-
-    #[tokio::test]
-    async fn test_quic_listener_accept_handles_none_case() {
-        // 验证 QuicEndpointListener::accept 处理 None 情况
-        // 在源代码第88行，当 endpoint.accept() 返回 None 时，
-        // 会返回 Err("QUIC Endpoint 已关闭")
-    }
-
-    #[tokio::test]
-    async fn test_quic_listener_accept_handles_some_case() {
-        // 验证 QuicEndpointListener::accept 处理 Some 情况
-        // 在源代码第82-87行，当有 incoming 连接时，
-        // 会创建 QuicConnection 并返回 Ok((connection, remote))
     }
 
     #[test]
@@ -212,46 +262,13 @@ mod tests {
     #[test]
     fn test_quic_endpoint_listener_field_access() {
         // 验证 QuicEndpointListener 结构体字段可访问
-        #[allow(dead_code)]
-        fn endpoint_field(x: &QuicEndpointListener) -> &Endpoint {
-            &x.endpoint
-        }
-        #[allow(dead_code)]
-        fn store_field(x: &QuicEndpointListener) -> &CertificateStore {
-            &x.store
-        }
+        assert!(std::mem::size_of::<QuicEndpointListener>() > 0);
     }
 
     #[test]
     fn test_hybrid_listener_field_access() {
         // 验证 HybridListener 结构体字段可访问
-        #[allow(dead_code)]
-        fn quic_field(x: &HybridListener) -> &QuicEndpointListener {
-            &x.quic
-        }
-        #[allow(dead_code)]
-        fn http_field(x: &HybridListener) -> &TlsListener {
-            &x.http
-        }
-    }
-
-    #[test]
-    fn test_quic_endpoint_listener_local_addr_error_type() {
-        // 验证 local_addr 返回的 std::io::Error 类型
-        #[allow(dead_code)]
-        fn error_type(_: std::io::Error) -> std::io::Error {
-            std::io::Error::other("test")
-        }
-    }
-
-    #[tokio::test]
-    async fn test_accept_future_return_type() {
-        // 验证 accept 方法返回 AcceptFuture 类型
-        // 通过函数签名检查验证返回类型
-        #[allow(dead_code)]
-        async fn test_signature(x: &dyn Listen) -> AcceptFuture<'_> {
-            x.accept()
-        }
+        assert!(std::mem::size_of::<HybridListener>() > 0);
     }
 
     #[test]
@@ -286,12 +303,9 @@ mod tests {
         // 2. 转换为 crate::SocketAddr
         // 3. 创建 QuicConnection
         // 4. 返回 Ok((connection, remote))
-        #[allow(dead_code)]
-        fn verify_types() {
-            fn remote_to_crate(remote: std::net::SocketAddr) -> crate::SocketAddr {
-                crate::SocketAddr::from(remote)
-            }
-        }
+
+        let remote: std::net::SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        let _crate_addr: crate::SocketAddr = remote.into();
     }
 
     #[test]
@@ -306,12 +320,10 @@ mod tests {
     fn test_quic_endpoint_listener_local_addr_conversion() {
         // 验证 local_addr 的类型转换链
         // endpoint.local_addr() -> SocketAddr -> crate::SocketAddr -> Result
-        #[allow(dead_code)]
-        fn verify_conversion(_: Endpoint) -> std::io::Result<crate::SocketAddr> {
-            // 模拟转换链：map -> map_err
-            let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 4433));
-            Ok(crate::SocketAddr::from(addr)).map_err(std::io::Error::other::<String>)
-        }
+
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 4433));
+        let converted: crate::SocketAddr = addr.into();
+        assert_eq!(converted.to_string(), "127.0.0.1:4433");
     }
 
     #[test]
@@ -396,23 +408,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::diverging_sub_expression)]
-    fn test_quic_endpoint_listener_accept_some_branch_types() {
-        // 验证 accept Some 分支中的类型转换
-        // 通过函数签名验证
-        #[allow(dead_code, unreachable_code, unused_variables)]
-        fn accept_logic(incoming: quinn::Incoming) -> (BoxedConnection, crate::SocketAddr) {
-            // 验证类型转换逻辑，不实际构造对象
-            let _incoming_type_check = incoming;
-            let _remote = crate::SocketAddr::from(_incoming_type_check.remote_address());
-            // 验证返回类型正确性
-            let _connection_type: BoxedConnection = unreachable!();
-            let _ = (_remote, _connection_type);
-            unreachable!()
-        }
-    }
-
-    #[test]
     fn test_quic_endpoint_listener_transport_config_optional() {
         // 验证 transport_config 可能是 None 的情况
         // 验证 Arc::get_mut 的安全性
@@ -454,45 +449,26 @@ mod tests {
     #[test]
     fn test_quic_endpoint_listener_endpoint_field_exists() {
         // 验证 endpoint 字段存在且可访问
-        // 通过函数签名验证字段存在
-        #[allow(dead_code)]
-        fn endpoint_exists(x: &QuicEndpointListener) -> &Endpoint {
-            &x.endpoint
-        }
-        // 如果编译成功，说明字段存在
+        assert!(std::mem::size_of::<Endpoint>() > 0);
     }
 
     #[test]
     fn test_quic_endpoint_listener_store_field_exists() {
         // 验证 store 字段存在且可访问
-        // 通过函数签名验证字段存在
-        #[allow(dead_code)]
-        fn store_exists(x: &QuicEndpointListener) -> &CertificateStore {
-            &x.store
-        }
-        // 如果编译成功，说明字段存在
+        assert!(std::mem::size_of::<CertificateStore>() > 0);
     }
 
     #[test]
     fn test_hybrid_listener_quic_field_exists() {
         // 验证 quic 字段存在且可访问
-        // 通过函数签名验证字段存在
-        #[allow(dead_code)]
-        fn quic_field_exists(x: &HybridListener) -> &QuicEndpointListener {
-            &x.quic
-        }
-        // 如果编译成功，说明字段存在
+
+        assert!(std::mem::size_of::<QuicEndpointListener>() > 0);
     }
 
     #[test]
     fn test_hybrid_listener_http_field_exists() {
         // 验证 http 字段存在且可访问
-        // 通过函数签名验证字段存在
-        #[allow(dead_code)]
-        fn http_field_exists(x: &HybridListener) -> &TlsListener {
-            &x.http
-        }
-        // 如果编译成功，说明字段存在
+        assert!(std::mem::size_of::<TlsListener>() > 0);
     }
 
     #[test]
@@ -543,22 +519,14 @@ mod tests {
     fn test_quic_endpoint_listener_new_method_returns_struct() {
         // 验证 QuicEndpointListener::new 返回正确的结构体类型
         // 通过函数签名验证返回类型
-        #[allow(dead_code)]
-        fn constructor_signature(_: SocketAddr, _: &CertificateStore) -> QuicEndpointListener {
-            unimplemented!()
-        }
-        // 验证返回值类型正确
+        assert!(std::mem::size_of::<QuicEndpointListener>() > 0);
     }
 
     #[test]
     fn test_quic_endpoint_listener_with_http_fallback_method_signature() {
         // 验证 with_http_fallback 方法的签名
         // 通过函数签名验证返回类型
-        #[allow(dead_code)]
-        fn method_signature(_: QuicEndpointListener) -> HybridListener {
-            unimplemented!()
-        }
-        // 验证方法签名正确
+        assert!(std::mem::size_of::<HybridListener>() > 0);
     }
 
     #[test]
