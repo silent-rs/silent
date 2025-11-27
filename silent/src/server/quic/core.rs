@@ -3,6 +3,8 @@ use std::{net::SocketAddr, sync::Arc, time::Duration, time::Instant};
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use h3::server::RequestStream;
+use quinn::Connection as QuinnConnection;
+use quinn::ConnectionError;
 use scru128::Scru128Id;
 use tokio::time::timeout;
 
@@ -39,6 +41,8 @@ pub struct WebTransportStream {
     last_refill: Instant,
 
     record_drop: bool,
+
+    conn: Option<QuinnConnection>,
 }
 
 impl WebTransportStream {
@@ -49,6 +53,7 @@ impl WebTransportStream {
         max_datagram_size: Option<usize>,
         datagram_per_sec: Option<u64>,
         record_drop: bool,
+        conn: Option<QuinnConnection>,
     ) -> Self {
         Self {
             inner,
@@ -59,6 +64,7 @@ impl WebTransportStream {
             datagram_tokens: datagram_per_sec.unwrap_or(0),
             last_refill: Instant::now(),
             record_drop,
+            conn,
         }
     }
 
@@ -93,7 +99,7 @@ impl WebTransportStream {
         }
     }
     /// 带限速/体积校验的 Datagram 发送占位接口。
-    /// 目前 h3 RequestStream 尚未暴露 datagram 发送，调用方应根据返回的 Err 做降级或回退。
+    /// 目前通过底层 quinn::Connection 发送 datagram；若连接未启用则返回 Err。
     pub fn try_send_datagram(&mut self, data: Bytes) -> Result<()> {
         self.refill();
         if let Some(max) = self.max_datagram_size
@@ -115,8 +121,63 @@ impl WebTransportStream {
             }
             self.datagram_tokens -= 1;
         }
-        // h3 RequestStream 目前未暴露 datagram 发送接口，这里仅做限速与占位校验。
-        Ok(())
+        match &self.conn {
+            Some(conn) => {
+                if let Err(err) = conn.send_datagram(data) {
+                    #[cfg(feature = "metrics")]
+                    if self.record_drop {
+                        crate::server::metrics::record_webtransport_datagram_dropped();
+                    }
+                    anyhow::bail!("Datagram send failed: {err}");
+                }
+                Ok(())
+            }
+            None => anyhow::bail!("Datagram not supported by connection"),
+        }
+    }
+
+    /// 接收 datagram，并按 size/rate 做限速与观测。
+    pub async fn recv_datagram(&mut self) -> Result<Option<Bytes>> {
+        let Some(conn) = self.conn.clone() else {
+            anyhow::bail!("Datagram not supported by connection");
+        };
+        self.refill();
+        let raw = match conn.read_datagram().await {
+            Ok(bytes) => bytes,
+            Err(ConnectionError::ApplicationClosed { .. })
+            | Err(ConnectionError::LocallyClosed) => return Ok(None),
+            Err(err) => anyhow::bail!("Datagram recv failed: {err}"),
+        };
+        if let Some(max) = self.max_datagram_size
+            && raw.len() > max
+        {
+            #[cfg(feature = "metrics")]
+            if self.record_drop {
+                crate::server::metrics::record_webtransport_datagram_dropped();
+            }
+            if self.record_drop {
+                // 丢弃超限数据但不中断会话
+                return Ok(None);
+            } else {
+                anyhow::bail!("Datagram frame exceeds limit");
+            }
+        }
+        if self.datagram_per_sec.is_some() {
+            if self.datagram_tokens == 0 {
+                #[cfg(feature = "metrics")]
+                if self.record_drop {
+                    crate::server::metrics::record_webtransport_rate_limited();
+                }
+                if self.record_drop {
+                    // 丢弃超限数据但不中断会话
+                    return Ok(None);
+                } else {
+                    anyhow::bail!("Datagram rate limited");
+                }
+            }
+            self.datagram_tokens -= 1;
+        }
+        Ok(Some(raw))
     }
     pub async fn send_data(&mut self, data: Bytes) -> Result<()> {
         Ok(self.inner.send_data(data).await?)

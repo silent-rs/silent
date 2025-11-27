@@ -25,6 +25,7 @@ tokio::spawn(async move {
 Server::new().listen(listener).serve(routes).await;
 ```
 - QUIC 证书仍需重建 `QuicEndpointListener`（Quinn Endpoint 配置不可热更），可先构建新 listener 后优雅关停旧服务。
+- 详见 `docs/quic-cert-rotation.md` 获取完整切换流程与示例代码。
 
 ## QUIC 证书切换验证流程
 1. 使用新证书构建新的 `CertificateStore` 与 `QuicEndpointListener`，挂到备用端口（如 4434），启动新 `Server`。
@@ -42,5 +43,5 @@ Server::new().listen(listener).serve(routes).await;
   - 0-RTT/重传/迁移（需依赖客户端能力，记录观察结果）。
 
 ## 监控与埋点
-- 关键指标：`silent.server.webtransport.handshake_ns`、`datagram_dropped`、`datagram_rate_limited`（后两者需底层 datagram 接口落地后生效）。
+- 关键指标：`silent.server.webtransport.handshake_ns`、`datagram_dropped`、`datagram_rate_limited`（datagram send/recv 已接入限速/体积校验，指标有效；超限/限速时丢弃并计数，不中断会话）。
 - HTTP/3 响应发送已在大块数据后 `yield_now`，避免长时间占用 executor。

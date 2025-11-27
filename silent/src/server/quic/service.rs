@@ -62,6 +62,7 @@ pub(crate) async fn handle_quic_connection(
                 let routes = Arc::clone(&routes);
                 let handler = Arc::clone(&handler);
                 let dgram_cfg = (max_datagram_size, datagram_rate, datagram_drop_metric);
+                let quic_conn = connection.clone();
                 let span = info_span!(
                     "h3_request_task",
                     %remote,
@@ -86,6 +87,7 @@ pub(crate) async fn handle_quic_connection(
                             max_wt_frame,
                             wt_read_timeout,
                             dgram_cfg,
+                            quic_conn,
                         )
                         .await
                         {
@@ -194,6 +196,7 @@ async fn handle_request(
     max_wt_frame: Option<usize>,
     wt_read_timeout: Option<std::time::Duration>,
     datagram_limits: (Option<usize>, Option<u64>, bool),
+    quic_conn: quinn::Connection,
 ) -> Result<()> {
     let accept_at = Instant::now();
     let (request, stream) = resolver
@@ -225,6 +228,7 @@ async fn handle_request(
             max_wt_frame,
             wt_read_timeout,
             datagram_limits,
+            quic_conn,
         )
         .await
     } else {
@@ -389,6 +393,7 @@ async fn handle_webtransport_request(
     max_frame: Option<usize>,
     read_timeout: Option<std::time::Duration>,
     datagram_limits: (Option<usize>, Option<u64>, bool),
+    quic_conn: quinn::Connection,
 ) -> Result<()> {
     let session = Arc::new(QuicSession::new(remote));
     let session_id = session.id().to_string();
@@ -428,6 +433,7 @@ async fn handle_webtransport_request(
         max_dgram,
         dgram_rate,
         record_drop,
+        Some(quic_conn),
     );
     // 占位发送（当前 h3 未暴露 datagram 发送），用于触发限速/体积配置的编译时检查。
     let _ = channel.try_send_datagram(Bytes::new());
