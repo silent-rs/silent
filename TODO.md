@@ -28,7 +28,7 @@
 - ✅ 连接/流保护：并发/限速由 QuicTransportConfig（max_streams）与 ConnectionLimits（WebTransport 会话/帧/Datagram）统一配置，底层 quinn datagram 发送/接收已接入并附带 size/rate 校验；超限/限速时丢弃并计数，不中断会话。
 - 🟡 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，已补 session_id/span 字段与 Alt-Svc 命中日志，HTTP3 中间件继承单测已添加；新增 HTTP3 读超时计数与 WebTransport 会话时长直方图，仍需补流关闭/错误/ratelimit 命中等 span 字段与直方图。
 - 🟡 配置一致性：HybridListener Alt-Svc 已对齐，ALPN 可配置；TLS 证书热更新已支持，HTTP3 中间件继承验证与 QUIC 热载方案待补。
-- 🟡 性能与内存：当前仅在大块响应后 yield，需评估响应分块/写入限速/背压策略。
+- ✅ 性能与内存：HTTP/3 路径对响应体按固定块大小发送，并在累计一定字节后 `yield`，配合底层流式 body，避免单次大块发送长期占用 executor；HTTP/1.1/2 依赖 hyper/h2 的背压机制。
 - 🟡 测试与互操作：补高 RTT/丢包/0-RTT/迁移等端到端矩阵，覆盖 HTTP3/WebTransport/Datagram。
 - 🟢 示例与文档：新增生产化 WebTransport/HTTP3 示例（examples/quic，带中间件与自定义 WebTransport Handler），补充 TLS/QUIC 证书切换说明与运行指南（quic-ops、examples/quic/README.md）。
   - 🔄 新增 `docs/quic-cert-rotation.md` 描述 QUIC 证书切换完整流程。

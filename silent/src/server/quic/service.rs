@@ -292,17 +292,27 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
     stream
         .send_response(Response::from_parts(parts, ()))
         .await?;
+
+    const H3_CHUNK_SIZE: usize = 16 * 1024;
+    const H3_YIELD_BYTES: usize = 256 * 1024;
+    let mut sent_since_yield = 0usize;
+
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|err| anyhow!("读取响应体失败: {err}"))?;
         if let Ok(data) = frame.into_data() {
             if data.is_empty() {
                 continue;
             }
-            let len = data.len();
-            stream.send_data(data).await?;
-            // 简易 backpressure：大块发送后让出调度，避免长时间占用执行器。
-            if len > 64 * 1024 {
-                tokio::task::yield_now().await;
+            let mut buf = data;
+            while !buf.is_empty() {
+                let chunk_len = buf.len().min(H3_CHUNK_SIZE);
+                let chunk = buf.split_to(chunk_len);
+                stream.send_data(chunk).await?;
+                sent_since_yield = sent_since_yield.saturating_add(chunk_len);
+                if sent_since_yield >= H3_YIELD_BYTES {
+                    tokio::task::yield_now().await;
+                    sent_since_yield = 0;
+                }
             }
         }
     }

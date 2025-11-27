@@ -38,7 +38,7 @@ Server::new().listen(listener).serve(routes).await;
 - 注入网络条件：`tc netem`（Linux）或 Clumsy（Windows）模拟 RTT/丢包/抖动。
   - 示例：`tc qdisc add dev lo root netem delay 100ms 20ms loss 1%`
 - 建议覆盖场景：
-  - HTTP/3 请求/响应大体积与分块回压（已在服务端增加响应让步以减轻 backpressure）。
+  - HTTP/3 请求/响应大体积与分块回压（服务端对响应体按固定块大小发送，并在累计一定字节后 `yield`，减轻 executor 压力）。
   - WebTransport 会话并发、frame 上限、datagram 开关/限速（现限速/观测为占位，需要底层 datagram API 对接）。
   - 0-RTT/重传/迁移（需依赖客户端能力，记录观察结果）。
 
