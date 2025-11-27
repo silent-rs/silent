@@ -102,6 +102,11 @@ pub fn record_http3_read_timeout() {
 }
 
 #[cfg(feature = "quic")]
+pub fn record_http3_response_size(bytes: u64) {
+    histogram!("silent.server.http3.response_bytes").record(bytes as f64);
+}
+
+#[cfg(feature = "quic")]
 pub fn record_webtransport_accept() {
     inc(&server_metrics().webtransport_accept);
 

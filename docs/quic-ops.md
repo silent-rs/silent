@@ -43,5 +43,10 @@ Server::new().listen(listener).serve(routes).await;
   - 0-RTT/重传/迁移（需依赖客户端能力，记录观察结果）。
 
 ## 监控与埋点
-- 关键指标：`silent.server.webtransport.handshake_ns`、`datagram_dropped`、`datagram_rate_limited`（datagram send/recv 已接入限速/体积校验，指标有效；超限/限速时丢弃并计数，不中断会话）。
-- HTTP/3 响应发送已在大块数据后 `yield_now`，避免长时间占用 executor。
+- 关键指标：
+  - `silent.server.handler.duration_ns`：端到端 handler 耗时（HTTP1/2/3 统一）。
+  - `silent.server.http3.body_oversize` / `http3.read_timeout`：HTTP/3 请求体超限与读超时。
+  - `silent.server.http3.response_bytes`：单次 HTTP/3 响应发送的总字节数，用于观测大响应比例。
+  - `silent.server.webtransport.handshake_ns`、`webtransport.session_ns`：会话建立与存活时间。
+  - `silent.server.webtransport.datagram_dropped`、`webtransport.datagram_rate_limited`：Datagram 超限/限速命中（会话不中断）。
+- HTTP/3 响应发送按固定块大小发送，并在累计一定字节后 `yield_now`，避免长时间占用 executor。

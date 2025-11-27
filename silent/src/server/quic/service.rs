@@ -5,8 +5,8 @@ use crate::route::Route;
 #[cfg(feature = "metrics")]
 use crate::server::metrics::{
     record_handler_duration, record_http3_body_oversize, record_http3_read_timeout,
-    record_webtransport_accept, record_webtransport_error, record_webtransport_handshake_duration,
-    record_webtransport_session_duration,
+    record_http3_response_size, record_webtransport_accept, record_webtransport_error,
+    record_webtransport_handshake_duration, record_webtransport_session_duration,
 };
 use crate::server::protocol::Protocol as _;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
@@ -296,6 +296,8 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
     const H3_CHUNK_SIZE: usize = 16 * 1024;
     const H3_YIELD_BYTES: usize = 256 * 1024;
     let mut sent_since_yield = 0usize;
+    #[cfg(feature = "metrics")]
+    let mut total_sent = 0usize;
 
     while let Some(frame) = body.frame().await {
         let frame = frame.map_err(|err| anyhow!("读取响应体失败: {err}"))?;
@@ -309,6 +311,10 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
                 let chunk = buf.split_to(chunk_len);
                 stream.send_data(chunk).await?;
                 sent_since_yield = sent_since_yield.saturating_add(chunk_len);
+                #[cfg(feature = "metrics")]
+                {
+                    total_sent = total_sent.saturating_add(chunk_len);
+                }
                 if sent_since_yield >= H3_YIELD_BYTES {
                     tokio::task::yield_now().await;
                     sent_since_yield = 0;
@@ -317,6 +323,11 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
         }
     }
     stream.finish().await?;
+    #[cfg(feature = "metrics")]
+    {
+        record_http3_response_size(total_sent as u64);
+        info!(%remote, bytes = total_sent, "HTTP/3 response finished");
+    }
     Ok(stream)
 }
 
