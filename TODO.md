@@ -20,8 +20,8 @@
 
 ## 下一步（依据 PLAN v2.13-M3 收尾项）
 - ✅ QUIC 生产化参数：idle_timeout/max_streams/datagram 默认值与文档已落地（docs/quic-transport.md），QuicTransportConfig 接入监听器。
-- 🟡 Alt-Svc/ALPN/证书热载：Alt-Svc 自动端口与 ALPN 自定义已提供，TLS 热载已通过 ReloadableCertificateStore + tls_with_reloadable 支持（docs/quic-ops.md），QUIC 证书仍需重建 listener（已补切换验证流程）。
-- 🟡 WebTransport/Datagram 体积/速率限制与观测：size/rate 占位与 metrics 已接入（core.rs/service.rs），需对接底层 datagram send/recv API 并补观测验证。
+- ✅ Alt-Svc/ALPN/证书热载：Alt-Svc 自动端口与 ALPN 自定义已提供（Route::with_quic_port + QuicTransportConfig.alpn_protocols），TLS 热载通过 ReloadableCertificateStore 支持，QUIC 证书切换流程与验证方案见 docs/quic-ops.md 与 docs/quic-cert-rotation.md。
+- ✅ WebTransport/Datagram 体积/速率限制与观测：WebTransport 会话/帧/Datagram 大小与速率由 ConnectionLimits + WebTransportStream 统一限制，底层 quinn datagram send/recv 已接入；超限/限速时丢弃并计数不中断，会通过 metrics 记录 datagram_dropped/rate_limited。
 
 ## 当前待办（QUIC 生产级落地）
 - ✅ HTTP/3 请求体流式处理：去除一次性聚合，支持体积上限与读超时（已在 service.rs 内单测验证）。
