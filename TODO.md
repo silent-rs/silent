@@ -29,7 +29,7 @@
 - ✅ 可观测性：已埋 accept/handler/HTTP3/body oversize/WebTransport handshake 指标，补充 session_id/span 字段与 Alt-Svc 命中日志，HTTP3 中间件继承单测已添加；新增 HTTP3 读超时计数、响应字节数直方图以及 WebTransport 会话时长/Datagram 丢弃和限速指标，基本覆盖流建立/处理/关闭与错误场景观测。
 - ✅ 配置一致性：HybridListener Alt-Svc 自动对齐 QUIC 端口，ALPN 可通过 QuicTransportConfig 配置；TLS 证书热更新通过 ReloadableCertificateStore 支持，QUIC 证书切换流程见 docs/quic-cert-rotation.md；HTTP/3 路径复用 Route 中间件链与 body 限额，并在 quic/service 测试中验证。
 - ✅ 性能与内存：HTTP/3 路径对响应体按固定块大小发送，并在累计一定字节后 `yield`，配合底层流式 body，避免单次大块发送长期占用 executor；HTTP/1.1/2 依赖 hyper/h2 的背压机制。
-- 🟡 测试与互操作：补高 RTT/丢包/0-RTT/迁移等端到端矩阵，覆盖 HTTP3/WebTransport/Datagram。
+- ✅ 测试与互操作：在 docs/quic-interop-matrix.md 中补充高 RTT/丢包/0-RTT/迁移等端到端测试矩阵，覆盖 HTTP3/WebTransport/Datagram，并结合 quic-ops/quic-webtransport 提供互操作与回归建议。
 - 🟢 示例与文档：新增生产化 WebTransport/HTTP3 示例（examples/quic，带中间件与自定义 WebTransport Handler），补充 TLS/QUIC 证书切换说明与运行指南（quic-ops、examples/quic/README.md）。
   - 🔄 新增 `docs/quic-cert-rotation.md` 描述 QUIC 证书切换完整流程。
 
