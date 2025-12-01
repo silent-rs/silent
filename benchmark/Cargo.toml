@@ -11,7 +11,7 @@ silent = {path = "../silent"}
 tokio = {version = "1", features = ["full"]}
 
 [dev-dependencies]
-criterion = "0.7"
+criterion = "0.8"
 
 [[bench]]
 harness = false

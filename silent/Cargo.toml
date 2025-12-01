@@ -203,5 +203,5 @@ worker = { version = "0.7", optional = true }
 
 # Benchmarks
 [dev-dependencies]
-criterion = { version = "0.5", features = ["async", "async_tokio"] }
+criterion = { version = "0.8", features = ["async", "async_tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
