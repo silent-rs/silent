@@ -64,7 +64,7 @@ async fn test_layered_middleware_execution() {
     counter.store(0, Ordering::SeqCst);
 
     let mut req = Request::empty();
-    req.set_remote("127.0.0.1:8080".parse().unwrap());
+    req.set_remote("127.0.0.1:8080".parse::<silent::RemoteAddr>().unwrap());
     *req.uri_mut() = "/api/users".parse().unwrap();
     *req.method_mut() = http::Method::GET;
 

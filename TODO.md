@@ -39,3 +39,26 @@
 - listener 退避策略对连续 accept 错误不会忙等，多监听器公平竞争有测试或明确说明
 - Metrics/Tracing 埋点清单落实到代码，暴露关键指标与 span 字段（含 peer 与 listener 信息）
 - 基础回归通过：至少 `cargo check --all`（必要时特性开关）验证；当前分支已通过 cargo check/clippy/nextest
+
+---
+
+# TODO（SocketAddr 兼容仅 IP 字符串） ✅ 已完成
+
+> 分支: `fix/socketaddr-ip-only`（自 `main` 切出，示意）
+> 目标版本: v2.12
+> 优先级: P2
+> 状态: ✅ 已完成
+
+## 变更摘要
+- 调整 `core::socket_addr::SocketAddr` 的 `FromStr` 实现
+- 支持仅包含 IP、未携带端口的地址字符串（例如来自 Nginx 的 `X-Real-IP`）
+- 当仅提供 IP 时，内部统一转换为端口为 `0` 的 TCP 地址
+
+## 修改的文件
+- `silent/src/core/socket_addr.rs`
+
+## 验收标准
+- [x] `"127.0.0.1".parse::<silent::SocketAddr>()` 可成功返回 `SocketAddr`
+- [x] 仍兼容原有 `ip:port` 与 Unix Socket 路径解析
+- [x] `cargo fmt --all` 通过
+- [x] `cargo check -p silent --all-features` 通过

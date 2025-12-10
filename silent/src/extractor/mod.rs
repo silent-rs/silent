@@ -382,7 +382,11 @@ mod tests {
 
         // remote addr
         let mut req = Request::empty();
-        req.set_remote("127.0.0.1:9090".parse().unwrap());
+        req.set_remote(
+            "127.0.0.1:9090"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
         let RemoteAddr(addr): RemoteAddr = RemoteAddr::from_request(&mut req).await.unwrap();
         assert_eq!(addr.to_string(), "127.0.0.1:9090");
     }

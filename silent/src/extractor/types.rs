@@ -29,7 +29,7 @@ pub struct TypedHeader<H>(pub H);
 pub struct Method(pub crate::Method);
 pub struct Uri(pub HttpUri);
 pub struct Version(pub HttpVersion);
-pub struct RemoteAddr(pub crate::core::socket_addr::SocketAddr);
+pub struct RemoteAddr(pub crate::core::remote_addr::RemoteAddr);
 
 /// Request 便捷扩展：通用萃取
 #[async_trait]
