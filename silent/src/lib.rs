@@ -39,6 +39,8 @@ pub use crate::configs::Configs;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "server")]
+pub use crate::core::remote_addr::RemoteAddr;
+#[cfg(feature = "server")]
 pub use crate::core::socket_addr::SocketAddr;
 pub use crate::core::{next::Next, request::Request, response::Response};
 #[cfg(feature = "grpc")]

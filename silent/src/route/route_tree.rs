@@ -562,7 +562,11 @@ mod tests {
         let routes = route.convert_to_route_tree();
 
         let mut req = Request::empty();
-        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
         *req.uri_mut() = "/hello/world".parse().unwrap();
 
         let mut res = routes.call(req).await.unwrap();
@@ -587,7 +591,11 @@ mod tests {
         let routes = route.convert_to_route_tree();
 
         let mut req = Request::empty();
-        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
         *req.uri_mut() = "/hello/world1".parse().unwrap();
 
         let mut res = routes.call(req).await.unwrap();
@@ -632,7 +640,11 @@ mod tests {
         let routes = route.convert_to_route_tree();
 
         let mut req = Request::empty();
-        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
         *req.uri_mut() = "/api".parse().unwrap();
 
         let _ = routes.call(req).await.unwrap();
@@ -699,7 +711,11 @@ mod tests {
 
         // 发起 GET /oauth2/applications，应命中列表GET而不是405
         let mut req = Request::empty();
-        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
         *req.uri_mut() = "/oauth2/applications".parse().unwrap();
         *req.method_mut() = Method::GET;
 

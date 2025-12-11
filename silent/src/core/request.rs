@@ -1,10 +1,10 @@
 #[cfg(feature = "multipart")]
 use crate::core::form::{FilePart, FormData};
 use crate::core::path_param::PathParam;
+use crate::core::remote_addr::RemoteAddr;
 use crate::core::req_body::ReqBody;
 #[cfg(feature = "multipart")]
 use crate::core::serde::from_str_multi_val;
-use crate::core::socket_addr::SocketAddr;
 use crate::header::CONTENT_TYPE;
 use crate::{Configs, Result, SilentError};
 use bytes::Bytes;
@@ -138,23 +138,59 @@ impl Request {
     }
 
     /// 获取访问真实地址
+    ///
+    /// - 仅从请求头 `x-real-ip` 中解析远端地址；
+    /// - 若解析失败则 panic，假定上游已通过 `set_remote` 注入了正确值。
     #[inline]
-    pub fn remote(&self) -> SocketAddr {
+    pub fn remote(&self) -> RemoteAddr {
         self.headers()
             .get("x-real-ip")
             .and_then(|h| h.to_str().ok())
-            .unwrap()
-            .parse()
-            .unwrap()
+            .and_then(|s| s.parse::<RemoteAddr>().ok())
+            .expect("remote addr not set or invalid in x-real-ip header")
     }
 
     /// 设置访问真实地址
+    ///
+    /// 适配策略：
+    /// - 若请求头中已存在合法的 `x-real-ip`，则保持不变；
+    /// - 否则优先从 `X-Forwarded-For` 中解析第一个有效 IP，写入 `x-real-ip`；
+    /// - 若仍不可用，则退回使用传入的 `remote_addr`。
     #[inline]
-    pub fn set_remote(&mut self, remote_addr: SocketAddr) {
-        if self.headers().get("x-real-ip").is_none() {
-            self.headers_mut()
-                .insert("x-real-ip", remote_addr.to_string().parse().unwrap());
+    pub fn set_remote(&mut self, remote_addr: RemoteAddr) {
+        // 已有合法 x-real-ip，则尊重上游配置
+        if self
+            .headers()
+            .get("x-real-ip")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|s| s.parse::<RemoteAddr>().ok())
+            .is_some()
+        {
+            return;
         }
+
+        // 优先根据 X-Forwarded-For 计算真实客户端 IP
+        if let Some(real_from_forwarded) = self
+            .headers()
+            .get("x-forwarded-for")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|v| {
+                v.split(',')
+                    .map(|p| p.trim())
+                    .find(|p| !p.is_empty())
+                    .and_then(|ip| ip.parse::<RemoteAddr>().ok())
+            })
+        {
+            self.headers_mut().insert(
+                "x-real-ip",
+                real_from_forwarded.to_string().parse().unwrap(),
+            );
+            return;
+        }
+
+        // 最后退回到底层 peer 地址
+        self.headers_mut()
+            .insert("x-real-ip", remote_addr.to_string().parse().unwrap());
     }
 
     pub(crate) fn set_path_source(&mut self, source: Arc<str>) {

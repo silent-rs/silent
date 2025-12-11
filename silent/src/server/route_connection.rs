@@ -95,7 +95,7 @@ impl RouteConnectionService {
             builder
                 .serve_connection_with_upgrades(
                     io,
-                    HyperServiceHandler::with_limits(peer, routes, max_body_size),
+                    HyperServiceHandler::with_limits(peer.into(), routes, max_body_size),
                 )
                 .await
         })

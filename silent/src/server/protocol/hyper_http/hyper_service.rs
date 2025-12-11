@@ -7,8 +7,8 @@ use hyper::{Request as HyperRequest, Response as HyperResponse};
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::debug;
 
+use crate::core::remote_addr::RemoteAddr;
 use crate::core::res_body::ResBody;
-use crate::core::socket_addr::SocketAddr;
 use crate::prelude::ReqBody;
 use crate::server::protocol::Protocol;
 use crate::server::protocol::hyper_http::HyperHttpProtocol;
@@ -17,14 +17,14 @@ use crate::{Handler, Request, Response};
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct HyperServiceHandler<H: Handler> {
-    pub(crate) remote_addr: SocketAddr,
+    pub(crate) remote_addr: RemoteAddr,
     pub(crate) routes: H,
     pub(crate) max_body_size: Option<usize>,
 }
 
 impl<H: Handler + Clone> HyperServiceHandler<H> {
     #[inline]
-    pub fn new(remote_addr: SocketAddr, routes: H) -> Self {
+    pub fn new(remote_addr: RemoteAddr, routes: H) -> Self {
         Self {
             remote_addr,
             routes,
@@ -33,7 +33,7 @@ impl<H: Handler + Clone> HyperServiceHandler<H> {
     }
 
     #[inline]
-    pub fn with_limits(remote_addr: SocketAddr, routes: H, max_body_size: Option<usize>) -> Self {
+    pub fn with_limits(remote_addr: RemoteAddr, routes: H, max_body_size: Option<usize>) -> Self {
         Self {
             remote_addr,
             routes,
