@@ -117,10 +117,10 @@ http-body-util = "0.1"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["server-auto", "tokio"] }
 metrics = { workspace = true, optional = true }
-memchr = "2.7"
+memchr = "2"
 mime = "0.3"
 once_cell = { version = "1", default-features = false, features = ["std"] }
-smallvec = "1.13"
+smallvec = "1"
 pin-project = { version = "1", optional = true }
 pin-project-lite = { version = "0.2", optional = true }
 serde = { version = "1", features = ["derive"] }
@@ -141,7 +141,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter"] }
 url = "2"
 urlencoding = { version = "2", optional = true }
-uuid = "1.17"
+uuid = "1"
 async-compression = { version = "0.4", optional = true, features = [
     "futures-io",
     "brotli",
@@ -195,7 +195,7 @@ rustls-pki-types = { version = "1", optional = true }
 quinn = { version = "0.11", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
-scru128 = { version = "4.0.0-beta.1", optional = true, package = "scru128" }
+scru128 = { version = "3", optional = true, package = "scru128" }
 rand = { version = "0.9", optional = true }
 
 # Cloudflare Workers
