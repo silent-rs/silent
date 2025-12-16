@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use async_compression::futures::bufread::{BrotliEncoder, GzipEncoder};
@@ -21,23 +21,37 @@ use super::compression::{Compression, apply_headers, negotiate};
 use super::directory::render_directory_listing;
 
 pub struct HandlerWrapperStatic {
-    path: String,
+    root: PathBuf,
     options: StaticOptions,
 }
 
 impl HandlerWrapperStatic {
     fn new(path: &str, options: StaticOptions) -> Self {
-        let mut normalized = path;
-        if normalized.ends_with('/') {
-            normalized = &normalized[..normalized.len() - 1];
-        }
-        if !std::path::Path::new(normalized).is_dir() {
+        Self::try_new(path, options).unwrap_or_else(|_| {
+            let mut normalized = path;
+            if normalized.ends_with('/') && normalized.len() > 1 {
+                normalized = normalized.trim_end_matches('/');
+            }
             panic!("Path not exists: {normalized}");
+        })
+    }
+
+    pub fn try_new(path: &str, options: StaticOptions) -> Result<Self, SilentError> {
+        let normalized = if path.ends_with('/') && path.len() > 1 {
+            path.trim_end_matches('/')
+        } else {
+            path
+        };
+        if !std::path::Path::new(normalized).is_dir() {
+            return Err(SilentError::business_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("static path not exists: {normalized}"),
+            ));
         }
-        Self {
-            path: normalized.to_string(),
+        Ok(Self {
+            root: PathBuf::from(normalized),
             options,
-        }
+        })
     }
 
     fn decode_param(param: &str) -> Result<String, SilentError> {
@@ -47,6 +61,35 @@ impl HandlerWrapperStatic {
                 code: StatusCode::NOT_FOUND,
                 msg: "Not Found".to_string(),
             })
+    }
+
+    fn sanitize_path_param(trimmed: &str) -> Option<PathBuf> {
+        let mut sanitized = PathBuf::new();
+        for component in Path::new(trimmed).components() {
+            match component {
+                Component::Normal(seg) => sanitized.push(seg),
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => return None,
+            }
+        }
+        Some(sanitized)
+    }
+
+    fn normalized_request_path(sanitized: &Path, ends_with_slash: bool) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        for component in sanitized.components() {
+            if let Component::Normal(seg) = component {
+                parts.push(seg.to_string_lossy().into_owned());
+            }
+        }
+        if parts.is_empty() {
+            return String::new();
+        }
+        let mut s = parts.join("/");
+        if ends_with_slash {
+            s.push('/');
+        }
+        s
     }
 }
 
@@ -58,16 +101,19 @@ impl Handler for HandlerWrapperStatic {
             let ends_with_slash = decoded.ends_with('/') || decoded.is_empty();
             let trimmed = decoded.trim_start_matches('/');
 
-            let mut fs_path = PathBuf::from(&self.path);
-            if !trimmed.is_empty() {
-                fs_path = fs_path.join(trimmed);
-            }
+            let sanitized =
+                Self::sanitize_path_param(trimmed).ok_or_else(|| SilentError::BusinessError {
+                    code: StatusCode::NOT_FOUND,
+                    msg: "Not Found".to_string(),
+                })?;
+            let normalized = Self::normalized_request_path(&sanitized, ends_with_slash);
+            let fs_path = self.root.join(&sanitized);
 
             let meta = metadata(&fs_path).await.ok();
             if self.options.directory_listing {
                 let is_dir = ends_with_slash || meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
                 if is_dir {
-                    return render_directory_listing(trimmed, fs_path.as_path()).await;
+                    return render_directory_listing(&normalized, fs_path.as_path()).await;
                 }
             }
 

@@ -18,6 +18,9 @@ impl SessionExt for Request {
     }
 
     fn sessions_mut(&mut self) -> &mut Session {
+        if self.extensions_mut().get::<Session>().is_none() {
+            self.extensions_mut().insert(Session::default());
+        }
         self.extensions_mut().get_mut().unwrap()
     }
 
@@ -32,6 +35,9 @@ impl<B: Body> SessionExt for Response<B> {
     }
 
     fn sessions_mut(&mut self) -> &mut Session {
+        if self.extensions_mut().get::<Session>().is_none() {
+            self.extensions_mut().insert(Session::default());
+        }
         self.extensions_mut().get_mut().unwrap()
     }
 
