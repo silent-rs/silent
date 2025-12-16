@@ -14,9 +14,8 @@ pub struct TemplateResponse {
 impl<T: Serialize, S: Into<String>> From<(S, T)> for TemplateResponse {
     fn from((template, data): (S, T)) -> Self {
         let template = template.into();
-        serde_json::to_value(data)
-            .map(|data| TemplateResponse { template, data })
-            .unwrap()
+        let data = serde_json::to_value(data).unwrap_or(Value::Null);
+        TemplateResponse { template, data }
     }
 }
 
@@ -33,9 +32,18 @@ pub struct TemplateMiddleware {
 }
 
 impl TemplateMiddleware {
+    pub fn try_new(template_path: &str) -> Result<Self> {
+        let template = Arc::new(Tera::new(template_path).map_err(|e| {
+            SilentError::business_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load templates: {e}"),
+            )
+        })?);
+        Ok(TemplateMiddleware { template })
+    }
+
     pub fn new(template_path: &str) -> Self {
-        let template = Arc::new(Tera::new(template_path).expect("Failed to load templates"));
-        TemplateMiddleware { template }
+        Self::try_new(template_path).expect("Failed to load templates")
     }
 }
 
@@ -43,7 +51,12 @@ impl TemplateMiddleware {
 impl MiddleWareHandler for TemplateMiddleware {
     async fn handle(&self, req: Request, next: &Next) -> Result<Response> {
         let mut res = next.call(req).await?;
-        let template = res.extensions.get::<TemplateResponse>().unwrap();
+        let template = res.extensions.get::<TemplateResponse>().ok_or_else(|| {
+            SilentError::business_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "template response missing",
+            )
+        })?;
         res.set_body(
             self.template
                 .render(

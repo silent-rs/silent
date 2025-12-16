@@ -205,7 +205,7 @@ impl ListenersBuilder {
                 }
                 Err(e) => {
                     tracing::error!(addr = ?addr, error = ?e, "failed to convert TCP listener");
-                    panic!("failed to convert TCP listener for {}: {}", addr, e);
+                    Err(e)
                 }
             },
             Err(e) => {
@@ -226,10 +226,7 @@ impl ListenersBuilder {
                 }
                 Err(e) => {
                     tracing::error!(path = ?path, error = ?e, "failed to convert Unix socket listener");
-                    panic!(
-                        "failed to convert Unix socket listener for {:?}: {}",
-                        path, e
-                    );
+                    Err(e)
                 }
             },
             Err(e) => {
@@ -247,7 +244,7 @@ impl ListenersBuilder {
                     }
                     Err(e) => {
                         tracing::error!(error = ?e, "failed to convert default TCP listener");
-                        panic!("failed to convert default listener: {}", e);
+                        return Err(e);
                     }
                 },
                 Err(e) => {

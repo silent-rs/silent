@@ -1,4 +1,6 @@
-use crate::{CookieExt, Handler, MiddleWareHandler, Next, Request, Response};
+use crate::{
+    CookieExt, Handler, MiddleWareHandler, Next, Request, Response, SilentError, StatusCode,
+};
 use async_lock::RwLock;
 use async_session::{MemoryStore, Session, SessionStore};
 use async_trait::async_trait;
@@ -43,18 +45,39 @@ where
             session_key_exists = true;
             cookie.value().to_string()
         } else {
-            session_store.store_session(Session::new()).await?.unwrap()
+            session_store
+                .store_session(Session::new())
+                .await?
+                .ok_or_else(|| {
+                    SilentError::business_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "failed to create session",
+                    )
+                })?
         };
         let session =
             if let Ok(Some(session)) = session_store.load_session(cookie_value.clone()).await {
                 session
             } else {
                 session_key_exists = false;
-                cookie_value = session_store.store_session(Session::new()).await?.unwrap();
+                cookie_value = session_store
+                    .store_session(Session::new())
+                    .await?
+                    .ok_or_else(|| {
+                        SilentError::business_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "failed to create session",
+                        )
+                    })?;
                 session_store
                     .load_session(cookie_value.clone())
                     .await?
-                    .unwrap()
+                    .ok_or_else(|| {
+                        SilentError::business_error(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "failed to load session",
+                        )
+                    })?
             };
         req.extensions_mut().insert(session.clone());
         let session_copied = session.clone();

@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::log::debug;
+use crate::log::{debug, error};
 use crate::ws::message::Message;
 use crate::ws::upgrade::WebSocketParts;
 use crate::ws::websocket_handler::WebSocketHandler;
@@ -26,8 +26,6 @@ where
     parts: Arc<RwLock<WebSocketParts>>,
     upgrade: WebSocketStream<S>,
 }
-
-unsafe impl<S> Sync for WebSocket<S> where S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static {}
 
 impl<S> WebSocket<S>
 where
@@ -200,15 +198,22 @@ where
         let fut = async move {
             while let Ok(message) = rx.recv().await {
                 let message = if let Some(on_send) = on_send.clone() {
-                    on_send(message.clone(), sender_parts.clone())
-                        .await
-                        .unwrap()
+                    match on_send(message.clone(), sender_parts.clone()).await {
+                        Ok(message) => message,
+                        Err(e) => {
+                            error!("websocket on_send error: {}", e);
+                            continue;
+                        }
+                    }
                 } else {
                     message
                 };
 
                 debug!("send message: {:?}", message);
-                ws_tx.send(message.inner).await.unwrap();
+                if let Err(e) = ws_tx.send(message.inner).await {
+                    error!("websocket send error: {}", e);
+                    break;
+                }
             }
         };
         async_global_executor::spawn(fut).detach();
