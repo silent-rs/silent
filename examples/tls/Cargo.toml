@@ -9,5 +9,5 @@ publish = false
 [dependencies]
 silent = { path = "../../silent", features = ["tls"] }
 tokio = { version = "1", features = ["full"] }
-tokio-rustls = { version = "0.26.2" }
-rustls = { version = "0.23" }
+tokio-rustls = { version = "0.26.2", default-features = false, features = ["logging", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std"] }
