@@ -95,9 +95,10 @@ where
         if res.extensions().get::<CookieJar>().is_none() {
             res.extensions_mut().insert(cookies);
         } else {
-            let cookie_jar = res.extensions_mut().get_mut::<CookieJar>().unwrap();
-            for cookie in cookie_jar.iter() {
-                cookies.add(cookie.clone());
+            if let Some(cookie_jar) = res.extensions().get::<CookieJar>() {
+                for cookie in cookie_jar.iter() {
+                    cookies.add(cookie.clone());
+                }
             }
             res.extensions_mut().insert(cookies.clone());
         }
