@@ -44,7 +44,7 @@
 
 # TODO（安全与稳定性修复）
 
-> 分支: `fix/security-stability`（自 `main` 切出）
+> 分支: `fix/security-stability-main`（自 `main` 切出）
 > 优先级: P0
 > 状态: 🟢 已完成
 
@@ -65,7 +65,7 @@
 
 # TODO（关键路径 unwrap/panic 收敛）
 
-> 分支: `fix/no-unwrap-runtime`（基于 `fix/security-stability` 堆叠）
+> 分支: `fix/security-stability-main`（自 `main` 切出）
 > 优先级: P0
 > 状态: 🟢 已完成
 
@@ -79,6 +79,23 @@
 ## 验收标准
 - `cargo fmt -- --check` 通过
 - `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
+
+# TODO（MSRV 与文档口径）
+
+> 分支: `fix/security-stability-main`（自 `main` 切出）
+> 优先级: P2
+> 状态: 🟢 已完成
+
+## 目标
+- 明确并在 Cargo metadata 中声明 MSRV（rust-version），同步 README 口径
+
+## 子任务清单
+- ✅ 为 workspace 与发布 crate 设置 `rust-version`（`Cargo.toml`、`silent/Cargo.toml`、`silent-openapi/Cargo.toml`、`silent-openapi-macros/Cargo.toml`）
+- ✅ 更新 README Rust 版本徽章（`readme.md`）
+
+## 验收标准
+- `cargo fmt -- --check` 通过
+- `cargo check --all` 通过
 
 # TODO（SocketAddr 兼容仅 IP 字符串） ✅ 已完成
 
