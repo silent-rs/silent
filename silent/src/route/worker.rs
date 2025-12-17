@@ -26,7 +26,9 @@ impl WorkRoute {
     pub async fn call(&self, req: WRequest) -> WResponse {
         match self.handle(req).await {
             Ok(resp) => resp,
-            Err(e) => WResponse::error(format!("internal error: {e}"), 500).unwrap(),
+            Err(e) => WResponse::builder()
+                .with_status(500)
+                .fixed(format!("internal error: {e}").into_bytes()),
         }
     }
 
