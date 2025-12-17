@@ -77,10 +77,8 @@ impl From<(StatusCode, String)> for SilentError {
 
 impl From<(u16, String)> for SilentError {
     fn from(value: (u16, String)) -> Self {
-        Self::business_error(
-            StatusCode::from_u16(value.0).expect("invalid status code"),
-            value.1,
-        )
+        let code = StatusCode::from_u16(value.0).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        Self::business_error(code, value.1)
     }
 }
 

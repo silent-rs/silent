@@ -42,6 +42,27 @@
 
 ---
 
+# TODO（安全与稳定性修复）
+
+> 分支: `fix/security-stability`（自 `main` 切出）
+> 优先级: P0
+> 状态: 🟢 已完成
+
+## 目标
+- 移除高风险 `unsafe` 并修复潜在安全漏洞（路径穿越）
+- 将库内关键路径的 `panic!/unwrap()` 降级为可控错误返回
+
+## 子任务清单
+- ✅ WebSocket：移除 `unsafe impl Sync`，确保线程安全边界清晰（`silent/src/ws/websocket.rs`）
+- ✅ Static：修复静态文件处理的路径穿越（`silent/src/handler/static/handler.rs`）
+- ✅ Session/Template：关键 `unwrap()` 改为返回 `SilentError`（`silent/src/session/*`、`silent/src/templates/middleware.rs`）
+- ✅ Listener：`ListenersBuilder` 绑定/转换失败不再 `panic!`（`silent/src/server/listener.rs`）
+
+## 验收标准
+- `cargo fmt -- --check` 通过
+- `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
+- 关键路径不再出现新增 `unsafe`/非测试 `panic!/unwrap()`
+
 # TODO（SocketAddr 兼容仅 IP 字符串） ✅ 已完成
 
 > 分支: `fix/socketaddr-ip-only`（自 `main` 切出，示意）
