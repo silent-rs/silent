@@ -44,7 +44,7 @@
 
 # TODO（安全与稳定性修复）
 
-> 分支: `fix/security-stability`（自 `main` 切出）
+> 分支: `fix/security-stability-main`（自 `main` 切出）
 > 优先级: P0
 > 状态: 🟢 已完成
 
@@ -63,9 +63,26 @@
 - `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
 - 关键路径不再出现新增 `unsafe`/非测试 `panic!/unwrap()`
 
+# TODO（关键路径 unwrap/panic 收敛）
+
+> 分支: `fix/security-stability-main`（自 `main` 切出）
+> 优先级: P0
+> 状态: 🟢 已完成
+
+## 目标
+- 进一步减少运行时关键路径的 `unwrap()/panic!`，避免生产环境因边界条件崩溃
+
+## 子任务清单
+- ✅ Session：合并 CookieJar 时避免 `unwrap()`（`silent/src/session/middleware.rs`）
+- ✅ Worker：构造错误响应时避免 `unwrap()`（`silent/src/route/worker.rs`）
+
+## 验收标准
+- `cargo fmt -- --check` 通过
+- `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
+
 # TODO（MSRV 与文档口径）
 
-> 分支: `chore/msrv-rust-version`（基于 `fix/security-stability` 堆叠）
+> 分支: `fix/security-stability-main`（自 `main` 切出）
 > 优先级: P2
 > 状态: 🟢 已完成
 
