@@ -79,6 +79,22 @@
 ## 验收标准
 - `cargo fmt -- --check` 通过
 - `cargo check --all` 通过
+# TODO（关键路径 unwrap/panic 收敛）
+
+> 分支: `fix/no-unwrap-runtime`（基于 `fix/security-stability` 堆叠）
+> 优先级: P0
+> 状态: 🟢 已完成
+
+## 目标
+- 进一步减少运行时关键路径的 `unwrap()/panic!`，避免生产环境因边界条件崩溃
+
+## 子任务清单
+- ✅ Session：合并 CookieJar 时避免 `unwrap()`（`silent/src/session/middleware.rs`）
+- ✅ Worker：构造错误响应时避免 `unwrap()`（`silent/src/route/worker.rs`）
+
+## 验收标准
+- `cargo fmt -- --check` 通过
+- `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` 通过
 
 # TODO（SocketAddr 兼容仅 IP 字符串） ✅ 已完成
 
