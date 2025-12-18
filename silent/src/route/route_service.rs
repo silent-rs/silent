@@ -1,4 +1,5 @@
 use crate::middleware::MiddleWareHandler;
+use crate::route::route_tree::SpecialSeg;
 use crate::route::route_tree::parse_special_seg;
 use crate::route::{Route, RouteTree};
 use smallvec::SmallVec;
@@ -63,6 +64,25 @@ impl Route {
                 dynamic_children.push(idx);
             }
         }
+
+        fn dynamic_rank(seg: &SpecialSeg) -> u8 {
+            match seg {
+                SpecialSeg::Int { .. }
+                | SpecialSeg::I64 { .. }
+                | SpecialSeg::I32 { .. }
+                | SpecialSeg::U64 { .. }
+                | SpecialSeg::U32 { .. }
+                | SpecialSeg::Uuid { .. } => 0,
+                // `<key>` 与 `<key:path>` 都是“任意单段”，保持同一优先级。
+                SpecialSeg::String { .. } | SpecialSeg::Path { .. } => 1,
+                // `<key:**>` 最宽泛，优先级最低。
+                SpecialSeg::FullPath { .. } => 2,
+                // Root/Static 不会进入 dynamic_children。
+                SpecialSeg::Root | SpecialSeg::Static(_) => 3,
+            }
+        }
+
+        dynamic_children.sort_by_key(|&idx| (dynamic_rank(&children[idx].segment), idx));
 
         RouteTree {
             children,
