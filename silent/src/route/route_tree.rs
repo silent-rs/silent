@@ -191,6 +191,9 @@ impl RouteTree {
             }
             SpecialSeg::Path { .. } => {
                 let (segment, remain) = strip_one_segment(path);
+                if segment.is_empty() {
+                    return None;
+                }
                 Some(PathMatch::new(
                     remain,
                     Some(PathMatchCapture::Path(CapturedStr::new(segment, full_path))),
