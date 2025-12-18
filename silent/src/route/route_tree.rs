@@ -98,6 +98,26 @@ enum PathMatchCapture {
 }
 
 #[derive(Clone)]
+enum PlannedCapture {
+    None,
+    Str(Range<usize>),
+    Path(Range<usize>),
+    Full(Range<usize>),
+    I32(i32),
+    I64(i64),
+    U64(u64),
+    U32(u32),
+    Uuid(uuid::Uuid),
+}
+
+#[derive(Clone)]
+struct PlanStep {
+    child_index: usize,
+    capture: PlannedCapture,
+    next_offset: usize,
+}
+
+#[derive(Clone)]
 pub struct RouteTree {
     pub(crate) children: Vec<RouteTree>,
     pub(crate) handler: HashMap<Method, Arc<dyn Handler>>,
@@ -259,6 +279,74 @@ impl RouteTree {
         }
     }
 
+    fn planned_capture(capture: &Option<PathMatchCapture>) -> PlannedCapture {
+        match capture {
+            None => PlannedCapture::None,
+            Some(PathMatchCapture::Str(captured)) => PlannedCapture::Str(captured.range.clone()),
+            Some(PathMatchCapture::Path(captured)) => PlannedCapture::Path(captured.range.clone()),
+            Some(PathMatchCapture::Full(captured)) => PlannedCapture::Full(captured.range.clone()),
+            Some(PathMatchCapture::I32(v)) => PlannedCapture::I32(*v),
+            Some(PathMatchCapture::I64(v)) => PlannedCapture::I64(*v),
+            Some(PathMatchCapture::U64(v)) => PlannedCapture::U64(*v),
+            Some(PathMatchCapture::U32(v)) => PlannedCapture::U32(*v),
+            Some(PathMatchCapture::Uuid(v)) => PlannedCapture::Uuid(*v),
+        }
+    }
+
+    fn bind_planned_params(
+        &self,
+        req: &mut Request,
+        capture: &PlannedCapture,
+        source: &Arc<str>,
+    ) -> bool {
+        match (&self.segment, capture) {
+            (SpecialSeg::Root | SpecialSeg::Static(_), PlannedCapture::None) => true,
+            (SpecialSeg::String { key }, PlannedCapture::Str(range)) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_str(Arc::clone(source), range.clone()),
+                );
+                true
+            }
+            (SpecialSeg::Int { key }, PlannedCapture::I32(value))
+            | (SpecialSeg::I32 { key }, PlannedCapture::I32(value)) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::I64 { key }, PlannedCapture::I64(value)) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::U64 { key }, PlannedCapture::U64(value)) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::U32 { key }, PlannedCapture::U32(value)) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::Uuid { key }, PlannedCapture::Uuid(value)) => {
+                req.set_path_params(key.clone(), (*value).into());
+                true
+            }
+            (SpecialSeg::Path { key }, PlannedCapture::Path(range)) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_path(Arc::clone(source), range.clone()),
+                );
+                true
+            }
+            (SpecialSeg::FullPath { key }, PlannedCapture::Full(range)) => {
+                req.set_path_params(
+                    key.clone(),
+                    PathParam::borrowed_path(Arc::clone(source), range.clone()),
+                );
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) async fn call_with_path(
         &self,
         mut req: Request,
@@ -277,6 +365,67 @@ impl RouteTree {
         let middleware_slice = &self.middlewares[self.middleware_start..];
         let next = Next::build(endpoint, middleware_slice);
         next.call(req).await
+    }
+
+    async fn call_with_path_planned(
+        &self,
+        mut req: Request,
+        offset: usize,
+        path: Arc<str>,
+        plan: Arc<[PlanStep]>,
+        plan_pos: usize,
+    ) -> crate::error::SilentResult<Response> {
+        if let Some(configs) = self.get_configs() {
+            req.configs_mut().extend_from(configs);
+        }
+
+        let endpoint: Arc<dyn Handler> = Arc::new(PlannedContinuationHandler::new(
+            Arc::new(self.clone()),
+            offset,
+            Arc::clone(&path),
+            plan,
+            plan_pos,
+        ));
+        let middleware_slice = &self.middlewares[self.middleware_start..];
+        let next = Next::build(endpoint, middleware_slice);
+        next.call(req).await
+    }
+
+    fn build_plan(&self, offset: usize, full_path: &str) -> Option<Vec<PlanStep>> {
+        let remain_slice = &full_path[offset..];
+        if remain_slice.is_empty() {
+            return self.has_handler.then(Vec::new);
+        }
+
+        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
+        let (segment, _) = strip_one_segment(remain_slice);
+        if let Some(&idx) = self.static_children.get(segment) {
+            candidate_indices.push(idx);
+        }
+        candidate_indices.extend(self.dynamic_children.iter().copied());
+
+        for idx in candidate_indices {
+            let child = &self.children[idx];
+            if let Some(candidate) = child.call_path_only(remain_slice, full_path) {
+                let next_offset = remain_offset(full_path, candidate.remain);
+                if let Some(rest) = child.build_plan(next_offset, full_path) {
+                    let mut plan = Vec::with_capacity(rest.len() + 1);
+                    plan.push(PlanStep {
+                        child_index: idx,
+                        capture: Self::planned_capture(&candidate.capture),
+                        next_offset,
+                    });
+                    plan.extend(rest);
+                    return Some(plan);
+                }
+            }
+        }
+
+        if self.segment.is_full_path() && self.has_handler {
+            return Some(Vec::new());
+        }
+
+        None
     }
 
     async fn call_children(
@@ -304,9 +453,10 @@ impl RouteTree {
             let child = &self.children[idx];
             if let Some(candidate) = child.call_path_only(remain_slice, full_path) {
                 let next_offset = remain_offset(full_path, candidate.remain);
-                if !child.path_can_resolve(next_offset, full_path) {
+                let Some(plan) = child.build_plan(next_offset, full_path) else {
                     continue;
-                }
+                };
+
                 let mut real_req = req;
                 if !child.bind_params(&mut real_req, &candidate, &path) {
                     return Err(SilentError::business_error(
@@ -314,8 +464,9 @@ impl RouteTree {
                         "not found".to_string(),
                     ));
                 }
+                let plan: Arc<[PlanStep]> = Arc::from(plan);
                 return child
-                    .call_with_path(real_req, next_offset, Arc::clone(&path))
+                    .call_with_path_planned(real_req, next_offset, Arc::clone(&path), plan, 0)
                     .await;
             }
         }
@@ -341,31 +492,55 @@ impl RouteTree {
         ))
     }
 
-    fn path_can_resolve(&self, offset: usize, full_path: &str) -> bool {
-        let remain = &full_path[offset..];
-        let mut candidate_indices: SmallVec<[usize; 8]> = SmallVec::new();
-        if remain.is_empty() {
-            candidate_indices.extend(self.static_children.values().copied());
-            candidate_indices.extend(self.dynamic_children.iter().copied());
-        } else {
-            let (segment, _) = strip_one_segment(remain);
-            if let Some(&idx) = self.static_children.get(segment) {
-                candidate_indices.push(idx);
+    async fn call_children_planned(
+        &self,
+        mut req: Request,
+        offset: usize,
+        path: Arc<str>,
+        plan: Arc<[PlanStep]>,
+        plan_pos: usize,
+    ) -> crate::error::SilentResult<Response> {
+        if plan_pos < plan.len() {
+            let step = &plan[plan_pos];
+            let child = &self.children[step.child_index];
+            if !child.bind_planned_params(&mut req, &step.capture, &path) {
+                return Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ));
             }
-            candidate_indices.extend(self.dynamic_children.iter().copied());
+            return child
+                .call_with_path_planned(
+                    req,
+                    step.next_offset,
+                    Arc::clone(&path),
+                    plan,
+                    plan_pos + 1,
+                )
+                .await;
         }
 
-        for idx in candidate_indices {
-            let child = &self.children[idx];
-            if let Some(candidate) = child.call_path_only(remain, full_path) {
-                let next_offset = remain_offset(full_path, candidate.remain);
-                if child.path_can_resolve(next_offset, full_path) {
-                    return true;
-                }
-            }
+        let full_path = path.as_ref();
+        let remain_slice = &full_path[offset..];
+        if remain_slice.is_empty() {
+            return if self.has_handler {
+                self.handler.call(req).await
+            } else {
+                Err(SilentError::business_error(
+                    StatusCode::NOT_FOUND,
+                    "not found".to_string(),
+                ))
+            };
         }
 
-        remain.is_empty() || self.segment.is_full_path()
+        if self.segment.is_full_path() && self.has_handler {
+            return self.handler.call(req).await;
+        }
+
+        Err(SilentError::business_error(
+            StatusCode::NOT_FOUND,
+            "not found".to_string(),
+        ))
     }
 }
 
@@ -425,6 +600,47 @@ impl Handler for ContinuationHandler {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
         self.node
             .call_children(req, self.offset, Arc::clone(&self.path))
+            .await
+    }
+}
+
+struct PlannedContinuationHandler {
+    node: Arc<RouteTree>,
+    offset: usize,
+    path: Arc<str>,
+    plan: Arc<[PlanStep]>,
+    plan_pos: usize,
+}
+
+impl PlannedContinuationHandler {
+    fn new(
+        node: Arc<RouteTree>,
+        offset: usize,
+        path: Arc<str>,
+        plan: Arc<[PlanStep]>,
+        plan_pos: usize,
+    ) -> Self {
+        Self {
+            node,
+            offset,
+            path,
+            plan,
+            plan_pos,
+        }
+    }
+}
+
+#[async_trait]
+impl Handler for PlannedContinuationHandler {
+    async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
+        self.node
+            .call_children_planned(
+                req,
+                self.offset,
+                Arc::clone(&self.path),
+                Arc::clone(&self.plan),
+                self.plan_pos,
+            )
             .await
     }
 }
