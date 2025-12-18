@@ -10,7 +10,7 @@
 - ✅ 动态路由按“特异性”排序，避免泛型路由抢占（如 `<id>` 抢占 `<id:i64>`）：`silent/src/route/route_service.rs`
 - ✅ `<key:path>`（`*`）不匹配空段：`silent/src/route/route_tree.rs`
 - ✅ 减少重复遍历：合并 `path_can_resolve` 与实际匹配流程（避免同一路径两次 DFS）：`silent/src/route/route_tree.rs`
-- 🔄 优化 `Route::call` 频繁 `convert_to_route_tree` 的成本（缓存/引导使用 `RouteTree`）：`silent/src/route/mod.rs`
+- ✅ 优化 `Route::call` 频繁 `convert_to_route_tree` 的成本（Route 内部缓存编译后的 `RouteTree`）：`silent/src/route/mod.rs`
 
 验收：
 - `cargo fmt -- --check`

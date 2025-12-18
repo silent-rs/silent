@@ -34,6 +34,7 @@ where
 
 impl HandlerGetter for Route {
     fn get_handler_mut(&mut self) -> &mut HashMap<Method, Arc<dyn Handler>> {
+        self.invalidate_compiled();
         if self.path == self.create_path {
             &mut self.handler
         } else {
@@ -49,11 +50,13 @@ impl HandlerGetter for Route {
         }
     }
     fn insert_handler(mut self, method: Method, handler: Arc<dyn Handler>) -> Self {
+        self.invalidate_compiled();
         self.handler.insert(method, handler);
         self
     }
 
     fn handler(mut self, method: Method, handler: Arc<dyn Handler>) -> Self {
+        self.invalidate_compiled();
         self.get_handler_mut().insert(method, handler);
         self
     }

@@ -3,7 +3,7 @@ use async_trait::async_trait;
 pub use route_service::RouteService;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::handler::Handler;
 #[cfg(feature = "static")]
@@ -30,6 +30,7 @@ pub struct Route {
     pub handler: HashMap<Method, Arc<dyn Handler>>,
     pub children: Vec<Route>,
     pub middlewares: Vec<Arc<dyn MiddleWareHandler>>,
+    compiled_tree: Arc<OnceLock<RouteTree>>,
     special_match: bool,
     create_path: String,
     // 配置管理字段（有此字段表示是服务入口点）
@@ -76,6 +77,10 @@ impl fmt::Debug for Route {
 }
 
 impl Route {
+    fn invalidate_compiled(&mut self) {
+        self.compiled_tree = Arc::new(OnceLock::new());
+    }
+
     /// 创建服务入口路由（原根路由功能）
     /// 通过设置 configs 字段来标识这是一个服务入口点
     pub fn new_root() -> Self {
@@ -84,6 +89,7 @@ impl Route {
             handler: HashMap::new(),
             children: Vec::new(),
             middlewares: Vec::new(),
+            compiled_tree: Arc::new(OnceLock::new()),
             special_match: false,
             create_path: String::new(),
             configs: Some(crate::Configs::new()), // 服务入口点需要配置管理
@@ -102,6 +108,7 @@ impl Route {
             handler: HashMap::new(),
             children: Vec::new(),
             middlewares: Vec::new(),
+            compiled_tree: Arc::new(OnceLock::new()),
             special_match: first_path.starts_with('<') && first_path.ends_with('>'),
             create_path: path.to_string(),
             configs: None,
@@ -115,6 +122,7 @@ impl Route {
         }
     }
     fn append_route(mut self, route: Route) -> Self {
+        self.invalidate_compiled();
         // 不再需要扩展中间件，因为我们移除了中间件传播机制
         Self::merge_child(&mut self.children, route);
         self
@@ -135,12 +143,14 @@ impl Route {
         }
     }
     pub fn append<R: RouterAdapt>(mut self, route: R) -> Self {
+        self.invalidate_compiled();
         let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
         Self::merge_child(&mut real_route.children, route);
         self
     }
     pub fn extend<R: RouterAdapt>(&mut self, routes: Vec<R>) {
+        self.invalidate_compiled();
         let routes: Vec<Route> = routes.into_iter().map(|r| r.into_router()).collect();
 
         let real_route = self.get_append_real_route(&self.create_path.clone());
@@ -149,6 +159,7 @@ impl Route {
         }
     }
     pub fn hook(mut self, handler: impl MiddleWareHandler + 'static) -> Self {
+        self.invalidate_compiled();
         self.middlewares.push(Arc::new(handler));
         self
     }
@@ -195,18 +206,21 @@ impl Route {
     }
 
     pub fn push<R: RouterAdapt>(&mut self, route: R) {
+        self.invalidate_compiled();
         let route = route.into_router();
         let real_route = self.get_append_real_route(&self.create_path.clone());
         Self::merge_child(&mut real_route.children, route);
     }
 
     pub fn hook_first(&mut self, handler: impl MiddleWareHandler + 'static) {
+        self.invalidate_compiled();
         let handler = Arc::new(handler);
         self.middlewares.insert(0, handler);
     }
 
     /// 设置配置（任何路由都可以使用）
     pub fn set_configs(&mut self, configs: Option<crate::Configs>) {
+        self.invalidate_compiled();
         self.configs = configs;
     }
 
@@ -217,6 +231,7 @@ impl Route {
 
     #[cfg(feature = "session")]
     pub fn set_session_store<S: async_session::SessionStore>(&mut self, session: S) -> &mut Self {
+        self.invalidate_compiled();
         self.hook_first(crate::session::middleware::SessionMiddleware::new(session));
         self.session_set = true;
         self
@@ -224,6 +239,7 @@ impl Route {
 
     #[cfg(feature = "session")]
     pub fn check_session(&mut self) {
+        self.invalidate_compiled();
         if !self.session_set {
             self.hook_first(crate::session::middleware::SessionMiddleware::default())
         }
@@ -231,11 +247,13 @@ impl Route {
 
     #[cfg(feature = "cookie")]
     pub fn check_cookie(&mut self) {
+        self.invalidate_compiled();
         self.hook_first(crate::cookie::middleware::CookieMiddleware::new())
     }
 
     #[cfg(feature = "template")]
     pub fn set_template_dir(&mut self, dir: impl Into<String>) -> &mut Self {
+        self.invalidate_compiled();
         let handler = crate::templates::TemplateMiddleware::new(dir.into().as_str());
         self.middlewares.push(Arc::new(handler));
         self
@@ -300,7 +318,9 @@ impl Handler for Route {
         }
         // Route 结构已不再在服务路径上使用，保持向后兼容：
         // 直接把自身转换为 RouteTree，并让 RouteTree 自行完成首段匹配与后续执行
-        let tree = self.clone().convert_to_route_tree();
+        let tree = self
+            .compiled_tree
+            .get_or_init(|| self.clone().convert_to_route_tree());
         tree.call(req).await
     }
 }
