@@ -26,3 +26,4 @@ docs/requirements/
 coverage-*
 coverage.json
 *output.txt
+.claude/
