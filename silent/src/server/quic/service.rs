@@ -951,4 +951,233 @@ mod tests {
         // 验证响应体为空
         assert!(stream.sent_data.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_http3_impl_single_chunk() {
+        // 测试单个数据块的处理
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"single")]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34580".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("single chunk should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        assert_eq!(stream.sent_data.len(), 1);
+        assert_eq!(stream.sent_data[0].as_ref(), b"single");
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_body_size_limit() {
+        // 测试请求体大小限制
+        let stream = FakeH3Stream::new(vec![
+            Bytes::from_static(b"small"), // 5 bytes
+        ]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34581".parse().unwrap();
+
+        // 设置最大 body 大小为 10 bytes
+        let stream = handle_http3_request_impl(req, stream, remote, routes, Some(10), None)
+            .await
+            .expect("body under limit should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_body_size_limit_exceeded() {
+        // 测试请求体超过大小限制
+        let stream = FakeH3Stream::new(vec![
+            Bytes::from_static(b"this is too large data"), // 24 bytes
+        ]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34582".parse().unwrap();
+
+        // 设置最大 body 大小为 10 bytes
+        let err = handle_http3_request_impl(req, stream, remote, routes, Some(10), None)
+            .await
+            .expect_err("body over limit should fail");
+
+        let msg = format!("{err:#}");
+        assert!(msg.contains("exceeds limit") || msg.contains("body"));
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_empty_chunks_only() {
+        // 测试只有空数据块的情况
+        let stream = FakeH3Stream::new(vec![Bytes::new(), Bytes::new(), Bytes::new()]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34583".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("empty chunks should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        assert!(stream.sent_data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_many_small_chunks() {
+        // 测试多个小数据块的处理
+        let chunks: Vec<Bytes> = (0..100).map(|i| Bytes::from(format!("{:02}", i))).collect();
+        let stream = FakeH3Stream::new(chunks);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34584".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("many small chunks should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        // 验证总数据量正确（100 个块，每个 2 字节 = 200 字节）
+        let total_bytes: usize = stream.sent_data.iter().map(|b| b.len()).sum();
+        assert_eq!(total_bytes, 200);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_response_status_codes() {
+        // 测试响应状态码
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"data")]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34585".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("should succeed");
+
+        let head = stream.sent_head.expect("response head should be sent");
+        assert_eq!(head.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_request_response_correlation() {
+        // 测试请求和响应的关联性
+        let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test123")]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/"); // 使用根路径，这样路由能匹配
+        let remote: SocketAddr = "127.0.0.1:34586".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("correlation should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        let body: Vec<u8> = stream
+            .sent_data
+            .iter()
+            .flat_map(|b| b.iter().cloned())
+            .collect();
+        assert_eq!(body, b"test123");
+    }
+
+    #[test]
+    fn test_fake_h3_stream_default_fields() {
+        // 测试 FakeH3Stream 的默认字段值
+        let stream = FakeH3Stream::new(vec![]);
+        assert!(stream.sent_head.is_none());
+        assert!(stream.sent_data.is_empty());
+        assert!(!stream.finished);
+        assert!(!stream.fail_on_send_head);
+        assert!(!stream.fail_on_send_data);
+        assert!(!stream.fail_on_finish);
+        assert!(!stream.fail_on_recv_data);
+    }
+
+    #[test]
+    fn test_fake_h3_stream_builder_methods() {
+        // 测试 FakeH3Stream 的 builder 方法
+        let stream = FakeH3Stream::new(vec![])
+            .with_send_data_failure()
+            .with_finish_failure()
+            .with_recv_failure();
+
+        assert!(stream.fail_on_send_data);
+        assert!(stream.fail_on_finish);
+        assert!(stream.fail_on_recv_data);
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_remote_address_variations() {
+        // 测试不同远程地址的处理
+        let test_cases = vec![
+            "127.0.0.1:10000",
+            "192.168.1.1:20000",
+            "[::1]:30000",
+            "10.0.0.1:40000",
+        ];
+
+        for addr_str in test_cases {
+            let stream = FakeH3Stream::new(vec![Bytes::from_static(b"test")]);
+            let routes = make_routes_echo_body();
+            let req = make_request("/");
+            let remote: SocketAddr = addr_str.parse().unwrap();
+
+            let stream = handle_http3_request_impl(req, stream, remote, routes.clone(), None, None)
+                .await
+                .unwrap_or_else(|e| panic!("should succeed for {}: {:?}", addr_str, e));
+
+            assert!(stream.sent_head.is_some());
+            assert!(stream.finished);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_chunk_boundaries() {
+        // 测试数据块边界的处理
+        // 确保块之间的边界被正确处理
+        let chunks = vec![
+            Bytes::from_static(b"aaa"),
+            Bytes::from_static(b"bbb"),
+            Bytes::from_static(b"ccc"),
+        ];
+        let stream = FakeH3Stream::new(chunks);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34587".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("chunk boundaries should be preserved");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        let body: Vec<u8> = stream
+            .sent_data
+            .iter()
+            .flat_map(|b| b.iter().cloned())
+            .collect();
+        assert_eq!(body, b"aaabbbccc");
+    }
+
+    #[tokio::test]
+    async fn test_http3_impl_large_single_chunk() {
+        // 测试单个大数据块的处理
+        let large_data = vec![b'X'; 16384]; // 16KB
+        let stream = FakeH3Stream::new(vec![Bytes::from(large_data)]);
+        let routes = make_routes_echo_body();
+        let req = make_request("/");
+        let remote: SocketAddr = "127.0.0.1:34588".parse().unwrap();
+
+        let stream = handle_http3_request_impl(req, stream, remote, routes, None, None)
+            .await
+            .expect("large single chunk should succeed");
+
+        assert!(stream.sent_head.is_some());
+        assert!(stream.finished);
+        assert_eq!(stream.sent_data.len(), 1);
+        assert_eq!(stream.sent_data[0].len(), 16384);
+    }
 }
