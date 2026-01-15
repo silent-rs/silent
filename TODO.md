@@ -10,7 +10,7 @@
 - 确保核心功能路径有充分的测试覆盖
 - 为低覆盖率区域补充测试用例
 
-## 当前覆盖率基线（2025-01-14）
+## 当前覆盖率基线（2025-01-15 更新）
 
 ### QUIC 模块覆盖率
 - `server/quic/core.rs`: 64.33% 行覆盖率，77.08% 函数覆盖率 ⬆️ (+18.32%)
@@ -21,8 +21,8 @@
 - `server/quic/middleware.rs`: 100.00% 行覆盖率，100.00% 函数覆盖率
 
 ### 整体覆盖率
-- 总计: 71.95% 行覆盖率，70.97% 函数覆盖率 ⬆️
-- 测试数量: 522 个测试全部通过 ⬆️ (+243 个测试)
+- 总计: 73.47% 行覆盖率，73.60% 函数覆盖率，76.23% 区域覆盖率 ⬆️
+- 测试数量: 562 个测试全部通过 ⬆️ (+281 个测试)
 
 ## 已完成任务
 
@@ -186,6 +186,50 @@
 - **测试数量**: 463 → 522（+59 个测试）
 - **提交**: 4b7ed8d
 
+### ✅ 大幅提升 core/res_body.rs 测试覆盖率（2025-01-15）
+- **新增测试**: 49 个测试用例
+- **覆盖内容**:
+  - full() 函数测试（5 个）：Bytes, str, String, Vec, 空
+  - stream_body() 函数测试（2 个）：正常流和错误流
+  - From trait 测试（6 个）：Bytes, String, &str, &[u8], Vec<u8>, Box<[u8]>
+  - Stream::poll_next() 测试（6 个）：None, Once(数据/空), Chunks(数据/空), Stream
+  - Body::poll_frame() 测试（6 个）：None, Once(数据/空), Chunks(数据/空), Stream
+  - is_end_stream() 测试（6 个）：所有变体的结束状态检查
+  - size_hint() 测试（6 个）：所有变体的大小提示
+  - 边界条件测试（9 个）：大数据、Unicode、多块、零字节等
+  - 消费测试（2 个）：chunks 和 once 的完整消费
+  - 类型验证测试（4 个）：验证各变体类型
+- **覆盖率提升**:
+  - 区域覆盖率：30.77% → 86.36%（+55.59%）⭐
+  - 函数覆盖率：46.67% → 98.46%（+51.79%）⭐
+  - 行覆盖率：42.39% → 87.40%（+45.01%）⭐
+- **测试数量**: 481 → 530（+49 个测试）
+- **提交**: (未提交)
+
+### ✅ 大幅提升 core/request.rs 测试覆盖率（2025-01-15）
+- **新增测试**: 32 个测试用例
+- **覆盖内容**:
+  - 基础构造函数测试（3 个）：empty(), default(), from_parts()
+  - remote/set_remote 测试（4 个）：x-real-ip、x-forwarded-for、无 header 情况
+  - method 相关测试（2 个）：get()、mut()
+  - uri 相关测试（2 个）：get()、mut()
+  - version 相关测试（2 个）：get()、mut()
+  - headers 相关测试（2 个）：get()、mut()
+  - extensions 相关测试（2 个）：get()、mut()
+  - configs 相关测试（3 个）：get()、get_uncheck()、mut()
+  - path_params 相关测试（3 个）：empty()、get_path_params()、missing
+  - params 相关测试（1 个）
+  - body 相关测试（2 个）：replace_body()、take_body()
+  - content_type 测试（3 个）：json、missing、invalid
+  - into_http 测试（1 个）
+  - extensions 替换/获取测试（2 个）
+- **覆盖率提升**:
+  - 区域覆盖率：64.02% → 83.55%（+19.53%）⭐
+  - 函数覆盖率：63.64% → 86.24%（+22.60%）⭐
+  - 行覆盖率：69.98% → 85.35%（+15.37%）⭐
+- **测试数量**: 530 → 562（+32 个测试）
+- **提交**: (未提交)
+
 ## 待完成任务
 
 ### 🔄 低覆盖率模块分析
@@ -224,16 +268,22 @@
    - `scheduler/middleware.rs`
    - `scheduler/traits.rs`
 
-#### 低覆盖率模块（<30%）
-1. **cookie/cookie_ext.rs** (13.64%)
-2. **core/form.rs** (16.88%)
-3. **ws/websocket_handler.rs** (14.58%)
-4. **core/path_param.rs** (23.96%)
-5. **server/route_connection.rs** (25.95%)
-6. **core/req_body.rs** (27.97%)
-7. **core/res_body.rs** (31.52%)
-8. **core/response.rs** (47.29%)
-9. **route/handler_append.rs** (35.50%)
+#### 低覆盖率模块（<70%）
+1. **cookie/cookie_ext.rs** (13.64% / 12.50%)
+2. **cookie/middleware.rs** (0%)
+3. **core/serde/multipart.rs** (0%)
+4. **handler/handler_fn.rs** (0%)
+5. **middleware/middlewares/exception_handler.rs** (0%)
+6. **middleware/middlewares/request_time_logger.rs** (0%)
+7. **middleware/middlewares/timeout.rs** (0%)
+8. **scheduler/middleware.rs** (0%)
+9. **scheduler/traits.rs** (0%)
+10. **server/route_connection.rs** (25.95% / 23.76%)
+11. **route/handler_append.rs** (35.50% / 32.39%)
+12. **handler/static/options.rs** (42.11%)
+13. **core/serde/mod.rs** (47.95% / 38.37%)
+14. **middleware/middlewares/cors.rs** (46.80% / 46.85%)
+15. **core/request.rs** (64.02% / 69.98%)
 
 ### 📋 下一步工作
 
@@ -249,11 +299,13 @@
 - 函数覆盖率：69.78%
 - 测试数量：279 个（+64 个测试）
 
-#### Phase 2: 核心模块覆盖率提升（优先级：中）✅ 4/4 完成
+#### Phase 2: 核心模块覆盖率提升（优先级：中）✅ 6/6 完成
 - [x] 为 `core/form.rs` 补充表单解析测试（✅ 已完成，16.88% → 91.62%）
 - [x] 为 `core/path_param.rs` 补充路径参数提取测试（✅ 已完成，23.96% → 98.07%）
 - [x] 为 `core/req_body.rs` 补充请求体读取测试（✅ 已完成，30.77% → 84.54%）
 - [x] 为 `core/response.rs` 补充响应构建测试（✅ 已完成，47.29% → 98.91%）
+- [x] 为 `core/res_body.rs` 补充响应体测试（✅ 已完成，30.77% → 86.36%）
+- [x] 为 `core/request.rs` 补充请求测试（✅ 已完成，64.02% → 83.55%）
 
 #### Phase 3: 功能模块覆盖率提升（优先级：低）
 - [ ] 为 gRPC 模块添加基础测试
