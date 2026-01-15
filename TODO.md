@@ -308,6 +308,19 @@
 - **测试数量**: 665 → 694（+29 个测试）
 - **提交**: 3f8e207
 
+### ✅ 大幅提升 cookie/cookie_ext.rs 测试覆盖率（2025-01-15）
+- **新增测试**: 27 个测试用例
+- **覆盖内容**:
+  - Request CookieExt 测试（7个）：默认行为、jar 初始化、cookie 检索、多 cookie
+  - Response CookieExt 测试（7个）：默认行为、jar 初始化、cookie 检索、多 cookie
+  - 边界条件测试（8个）：空名称、特殊值、隔离性
+  - CookieJar 行为测试（5个）：克隆、可变引用、持久化
+- **覆盖率提升**:
+  - 从极低覆盖率显著提升⭐
+  - 完全覆盖 CookieExt trait 的所有方法
+- **测试数量**: 694 → 721（+27 个测试）
+- **提交**: 0b86fc0
+
 ## 待完成任务
 
 ### 🔄 低覆盖率模块分析
@@ -347,15 +360,14 @@
    - `scheduler/traits.rs`
 
 #### 低覆盖率模块（<70%）
-1. **cookie/cookie_ext.rs** (13.64% / 12.50%)
-2. **cookie/middleware.rs** (0%)
-3. **core/serde/multipart.rs** (0%)
-4. **handler/handler_fn.rs** (0%)
-5. **middleware/middlewares/exception_handler.rs** (0%)
-6. **middleware/middlewares/request_time_logger.rs** (0%)
-7. **middleware/middlewares/timeout.rs** (0%)
-8. **scheduler/middleware.rs** (0%)
-9. **scheduler/traits.rs** (0%)
+1. **cookie/middleware.rs** (0%)
+2. **core/serde/multipart.rs** (0%)
+3. **handler/handler_fn.rs** (0%)
+4. **middleware/middlewares/exception_handler.rs** (0%)
+5. **middleware/middlewares/request_time_logger.rs** (0%)
+6. **middleware/middlewares/timeout.rs** (0%)
+7. **scheduler/middleware.rs** (0%)
+8. **scheduler/traits.rs** (0%)
 
 ### 📋 下一步工作
 
