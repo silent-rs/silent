@@ -300,3 +300,300 @@ impl Route {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Response;
+    use std::sync::Arc;
+
+    // ==================== HandlerGetter trait 测试 ====================
+
+    #[test]
+    fn test_get_handler_mut_current_route() {
+        let mut route = Route::new("test");
+        route.create_path = "test".to_string();
+
+        let handler_map = route.get_handler_mut();
+        assert!(handler_map.is_empty());
+    }
+
+    #[test]
+    fn test_get_handler_mut_child_route() {
+        let mut route = Route::new("api");
+        route.create_path = "api/test".to_string();
+
+        // 创建一个子路由
+        let child_route = Route::new("test");
+        route.children.push(child_route);
+
+        // 测试子路由的情况
+        let handler_map = route.get_handler_mut();
+        assert!(handler_map.is_empty());
+    }
+
+    #[test]
+    fn test_insert_handler() {
+        let route = Route::new("test");
+        let handler = Arc::new(HandlerWrapper::new(|_req: Request| async {
+            Ok(Response::text("test"))
+        }));
+
+        let route = route.insert_handler(Method::GET, handler);
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    #[test]
+    fn test_handler_method() {
+        let route = Route::new("test");
+        let handler = Arc::new(HandlerWrapper::new(|_req: Request| async {
+            Ok(Response::text("test"))
+        }));
+
+        let route = route.handler(Method::POST, handler);
+        assert!(route.handler.contains_key(&Method::POST));
+    }
+
+    // ==================== HandlerAppend trait 测试 ====================
+
+    #[test]
+    fn test_get_method() {
+        let route = Route::new("test").get(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    #[test]
+    fn test_post_method() {
+        let route = Route::new("test").post(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::POST));
+    }
+
+    #[test]
+    fn test_put_method() {
+        let route = Route::new("test").put(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_delete_method() {
+        let route = Route::new("test").delete(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::DELETE));
+    }
+
+    #[test]
+    fn test_patch_method() {
+        let route = Route::new("test").patch(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::PATCH));
+    }
+
+    #[test]
+    fn test_options_method() {
+        let route = Route::new("test").options(|_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_multiple_methods() {
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("get") })
+            .post(|_req: Request| async { Ok("post") })
+            .put(|_req: Request| async { Ok("put") });
+
+        assert!(route.handler.contains_key(&Method::GET));
+        assert!(route.handler.contains_key(&Method::POST));
+        assert!(route.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_handler_append_method() {
+        let mut route = Route::new("test");
+
+        route.handler_append(Method::GET, |_req: Request| async { Ok("test") });
+
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    // ==================== Route Dispatch trait 测试 ====================
+
+    #[test]
+    fn test_response_into_arc_handler() {
+        let handler = |_req: Request| async { Response::text("test") };
+        let arc_handler = Response::into_arc_handler(handler);
+
+        // 验证返回的是 Arc<dyn Handler>
+        let _ = Arc::into_raw(arc_handler);
+    }
+
+    #[test]
+    fn test_silent_result_into_arc_handler() {
+        let handler = |_req: Request| async { Ok(Response::text("test")) };
+        let arc_handler = <SilentResult<Response>>::into_arc_handler(handler);
+
+        // 验证返回的是 Arc<dyn Handler>
+        let _ = Arc::into_raw(arc_handler);
+    }
+
+    // ==================== IntoRouteHandler trait 测试 ====================
+
+    #[test]
+    fn test_into_handler_with_request() {
+        let handler: fn(Request) -> _ = |_req: Request| async { Ok(Response::text("test")) };
+        let arc_handler = handler.into_handler();
+
+        // 验证返回的是 Arc<dyn Handler>
+        let _ = Arc::into_raw(arc_handler);
+    }
+
+    #[test]
+    fn test_into_handler_with_response_output() {
+        let handler: fn(Request) -> _ = |_req: Request| async { Response::text("test") };
+        let arc_handler = handler.into_handler();
+
+        // 验证返回的是 Arc<dyn Handler>
+        let _ = Arc::into_raw(arc_handler);
+    }
+
+    // ==================== Route 方法测试（使用 IntoRouteHandler）====================
+
+    #[test]
+    fn test_route_get_with_into_handler() {
+        let route = Route::new("test").get(|_req: Request| async { Ok(Response::text("get")) });
+
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    #[test]
+    fn test_route_post_with_into_handler() {
+        let route = Route::new("test").post(|_req: Request| async { Ok(Response::text("post")) });
+
+        assert!(route.handler.contains_key(&Method::POST));
+    }
+
+    #[test]
+    fn test_route_put_with_into_handler() {
+        let route = Route::new("test").put(|_req: Request| async { Ok(Response::text("put")) });
+
+        assert!(route.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_route_delete_with_into_handler() {
+        let route =
+            Route::new("test").delete(|_req: Request| async { Ok(Response::text("delete")) });
+
+        assert!(route.handler.contains_key(&Method::DELETE));
+    }
+
+    #[test]
+    fn test_route_patch_with_into_handler() {
+        let route = Route::new("test").patch(|_req: Request| async { Ok(Response::text("patch")) });
+
+        assert!(route.handler.contains_key(&Method::PATCH));
+    }
+
+    #[test]
+    fn test_route_options_with_into_handler() {
+        let route =
+            Route::new("test").options(|_req: Request| async { Ok(Response::text("options")) });
+
+        assert!(route.handler.contains_key(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_route_with_response_output() {
+        let route =
+            Route::new("test").get(|_req: Request| async { Response::text("direct response") });
+
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    // ==================== Extractor 方法测试 ====================
+
+    // 注意：get_ex/post_ex 等方法需要 Args: FromRequest 的类型
+    // 由于测试环境中可能没有可用的 FromRequest 类型，这些测试被跳过
+    // 实际使用中，这些方法会与 Path、Query 等 extractor 一起工作
+
+    // ==================== 边界条件测试 ====================
+
+    #[test]
+    fn test_handler_overwrite() {
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("first") })
+            .get(|_req: Request| async { Ok("second") });
+
+        // 后面的 handler 应该覆盖前面的
+        assert!(route.handler.contains_key(&Method::GET));
+        assert_eq!(route.handler.len(), 1);
+    }
+
+    #[test]
+    fn test_empty_route_handler() {
+        let route = Route::new("test");
+        assert!(route.handler.is_empty());
+    }
+
+    #[test]
+    fn test_chain_methods() {
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("get") })
+            .post(|_req: Request| async { Ok("post") })
+            .put(|_req: Request| async { Ok("put") })
+            .delete(|_req: Request| async { Ok("delete") })
+            .patch(|_req: Request| async { Ok("patch") })
+            .options(|_req: Request| async { Ok("options") });
+
+        assert_eq!(route.handler.len(), 6);
+        assert!(route.handler.contains_key(&Method::GET));
+        assert!(route.handler.contains_key(&Method::POST));
+        assert!(route.handler.contains_key(&Method::PUT));
+        assert!(route.handler.contains_key(&Method::DELETE));
+        assert!(route.handler.contains_key(&Method::PATCH));
+        assert!(route.handler.contains_key(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_handler_append_custom_method() {
+        let mut route = Route::new("test");
+
+        route.handler_append(Method::GET, |_req: Request| async { Ok("custom get") });
+
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    // ==================== 类型验证测试 ====================
+
+    #[test]
+    fn test_handler_return_types() {
+        // 测试不同的返回类型
+        let route1 =
+            Route::new("test1").get(|_req: Request| async { Ok(Response::text("string")) });
+
+        let route2 =
+            Route::new("test2").post(|_req: Request| async { Response::text("direct response") });
+
+        let route3 = Route::new("test3").put(|_req: Request| async { Ok("text value") });
+
+        assert!(route1.handler.contains_key(&Method::GET));
+        assert!(route2.handler.contains_key(&Method::POST));
+        assert!(route3.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_handler_arc_storage() {
+        let route = Route::new("test").get(|_req: Request| async { Ok(Response::text("test")) });
+
+        // 验证 handler 被存储为 Arc
+        if let Some(handler) = route.handler.get(&Method::GET) {
+            // 检查是否可以克隆 Arc（验证它是 Arc）
+            let _ = handler.clone();
+        } else {
+            panic!("Handler not found");
+        }
+    }
+}
