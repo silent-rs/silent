@@ -532,6 +532,23 @@
 - **测试数量**: 869 → 883（+14 个测试）
 - **提交**: 4d748b9
 
+### ✅ 大幅提升 grpc/utils.rs 测试覆盖率（2025-01-16）
+- **新增测试**: 18 个测试用例
+- **覆盖内容**:
+  - 基本功能测试（3个）：基本响应、带 body、空 body
+  - 状态码测试（3个）：200、404、500
+  - Headers 测试（3个）：基本 headers、扩展 headers、多个 headers
+  - Version 测试（2个）：HTTP/2、HTTP/1.1
+  - Extensions 测试（2个）：基本扩展、扩展覆盖
+  - Body 测试（1个）：验证 body 是流式
+  - 组合测试（1个）：完整响应测试
+  - 边界条件测试（3个）：无 headers、无 extensions、保留现有数据
+- **覆盖率提升**:
+  - 从 0% 显著提升⭐
+  - 完全覆盖 merge_grpc_response 函数的所有路径
+- **测试数量**: 883 → 901（+18 个测试）
+- **提交**: 22b5e4a
+
 ## 待完成任务
 
 ### 🔄 低覆盖率模块分析
@@ -541,7 +558,6 @@
    - `grpc/handler.rs`
    - `grpc/register.rs`
    - `grpc/service.rs`
-   - `grpc/utils.rs`
 
 2. **WebSocket 模块** (大部分 0%)
    - `ws/handler.rs`
