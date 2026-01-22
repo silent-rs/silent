@@ -595,6 +595,32 @@
 - **测试数量**: 917 → 931（+14 个测试）
 - **提交**: f1f0d56
 
+### ✅ 大幅提升 WebSocket 模块测试覆盖率（2025-01-20）
+- **新增测试**: 85 个测试用例
+- **覆盖内容**:
+  - **ws/message.rs** (42 个测试):
+    - 基本功能测试（text, binary, ping, pong, close）
+    - 类型检查测试（is_text, is_binary, is_close, etc.）
+    - 内容提取测试（to_str, as_bytes, into_bytes）
+    - Close Frame 测试
+    - Clone 和 PartialEq 测试
+    - Debug 和 Deref 测试
+    - 边界条件测试（empty, unicode, large binary）
+  - **ws/handler.rs** (20 个测试):
+    - WebSocket upgrade 验证测试
+    - 必需 headers 测试（upgrade, sec-websocket-key）
+    - Response headers 验证测试
+    - 错误处理测试（not upgrade, not websocket, missing key）
+    - 大小写不敏感测试
+    - 状态码验证测试
+  - **ws/upgrade.rs** (23 个测试):
+    - WebSocketParts 结构测试（path_params, params, headers, extensions）
+    - AsyncUpgradeRx 共享机制测试（clone, take）
+    - Upgraded 类型测试（into_parts, getters）
+    - 组合测试和边界条件测试
+- **测试数量**: 931 → 1016（+85 个测试）
+- **提交**: 08fdcea
+
 ## 待完成任务
 
 ### 🔄 低覆盖率模块分析
@@ -604,12 +630,12 @@
    - 所有文件已完成 ⭐
 
 2. **WebSocket 模块** (大部分 0%)
-   - `ws/handler.rs`
-   - `ws/handler_wrapper_websocket.rs`
-   - `ws/message.rs`
-   - `ws/route.rs`
-   - `ws/upgrade.rs`
-   - `ws/websocket.rs`
+   - `ws/handler.rs` ✅ 已完成（20 个测试）
+   - `ws/handler_wrapper_websocket.rs` - 待完成
+   - `ws/message.rs` ✅ 已完成（42 个测试）
+   - `ws/route.rs` - 待完成
+   - `ws/upgrade.rs` ✅ 已完成（23 个测试）
+   - `ws/websocket.rs` - 待完成
 
 3. **SSE 模块** (0%)
    - `sse/event.rs`
