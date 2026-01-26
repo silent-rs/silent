@@ -164,3 +164,180 @@ where
         Ok(res)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::header::HeaderValue;
+
+    // 定义简化的测试类型别名
+    type MockConnect = fn(
+        Arc<RwLock<WebSocketParts>>,
+        UnboundedSender<Message>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+    type MockSend = fn(
+        Message,
+        Arc<RwLock<WebSocketParts>>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<Message>> + Send>>;
+    type MockRecv = fn(
+        Message,
+        Arc<RwLock<WebSocketParts>>,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+    type MockClose =
+        fn(Arc<RwLock<WebSocketParts>>) -> std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    type MockFutOk = std::pin::Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+    type MockFutMsg = std::pin::Pin<Box<dyn Future<Output = Result<Message>> + Send>>;
+    type MockFutUnit = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+    // ==================== 构造函数测试 ====================
+
+    #[test]
+    fn test_handler_wrapper_new_with_none_config() {
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(None);
+
+        assert!(wrapper.config.is_none());
+    }
+
+    #[test]
+    fn test_handler_wrapper_new_with_some_config() {
+        let config = async_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(Some(config));
+
+        assert!(wrapper.config.is_some());
+    }
+
+    // ==================== set_handler 测试 ====================
+
+    #[test]
+    fn test_handler_wrapper_set_handler() {
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(None);
+
+        let handler = WebSocketHandler::new();
+        let wrapper = wrapper.set_handler(handler);
+
+        // 验证 set_handler 返回 self
+        let _ = wrapper;
+    }
+
+    // ==================== Handler trait 测试 ====================
+
+    #[tokio::test]
+    async fn test_handler_wrapper_call_valid_websocket_request() {
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(None);
+
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("upgrade", HeaderValue::from_static("websocket"));
+        req.headers_mut().insert(
+            "sec-websocket-key",
+            HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+
+        let result = wrapper.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_handler_wrapper_call_invalid_websocket_request() {
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(None);
+
+        let req = Request::empty(); // 缺少必需的 WebSocket headers
+
+        let result = wrapper.call(req).await;
+        // 应该返回错误，因为这不是有效的 WebSocket 请求
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handler_wrapper_call_with_config() {
+        let config = async_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+        let wrapper = HandlerWrapperWebSocket::<
+            MockConnect,
+            MockFutOk,
+            MockSend,
+            MockFutMsg,
+            MockRecv,
+            MockFutOk,
+            MockClose,
+            MockFutUnit,
+        >::new(Some(config));
+
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("upgrade", HeaderValue::from_static("websocket"));
+        req.headers_mut().insert(
+            "sec-websocket-key",
+            HeaderValue::from_static("dGhlIHNhbXBsZSBub25jZQ=="),
+        );
+
+        let result = wrapper.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    // ==================== 类型验证测试 ====================
+
+    #[test]
+    fn test_handler_wrapper_send_sync() {
+        // 验证 HandlerWrapperWebSocket 是 Send + Sync 的
+        fn is_send_sync<T: Send + Sync>() {}
+
+        is_send_sync::<
+            HandlerWrapperWebSocket<
+                MockConnect,
+                MockFutOk,
+                MockSend,
+                MockFutMsg,
+                MockRecv,
+                MockFutOk,
+                MockClose,
+                MockFutUnit,
+            >,
+        >();
+    }
+}
