@@ -264,3 +264,101 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_channel::unbounded as unbounded_channel;
+
+    use futures::FutureExt;
+    // ==================== Message 类型测试 ====================
+
+    #[test]
+    fn test_message_creation() {
+        // 验证可以创建不同类型的消息
+        let text_msg = Message::text("hello");
+        let binary_msg = Message::binary(vec![1, 2, 3]);
+        let close_msg = Message::close();
+
+        // 验证消息类型
+        assert!(text_msg.is_text());
+        assert!(binary_msg.is_binary());
+        assert!(close_msg.is_close());
+    }
+
+    #[test]
+    fn test_message_cloning() {
+        // 验证消息可以克隆
+        let msg = Message::text("test");
+        let msg2 = msg.clone();
+
+        assert_eq!(msg.to_str().unwrap(), msg2.to_str().unwrap());
+    }
+
+    // ==================== Channel 行为测试 ====================
+
+    #[test]
+    fn test_channel_creation_and_clone() {
+        // 测试通道创建和克隆
+        let (tx, _rx) = unbounded_channel::<Message>();
+
+        // 验证 sender 可以克隆
+        let _tx2 = tx.clone();
+    }
+
+    #[test]
+    fn test_channel_send() {
+        // 测试通道发送
+        let (tx, _rx) = unbounded_channel::<Message>();
+
+        let msg = Message::text("test message");
+
+        // 发送消息并立即等待结果
+        let _ = tx.send(msg).now_or_never();
+    }
+
+    #[test]
+    fn test_channel_close() {
+        // 测试通道关闭
+        let (tx, _rx) = unbounded_channel::<Message>();
+
+        // 关闭 sender
+        drop(tx);
+    }
+
+    // ==================== 边界条件测试 ====================
+
+    #[test]
+    fn test_empty_message() {
+        // 测试空消息
+        let msg = Message::text("");
+        assert_eq!(msg.to_str().unwrap(), "");
+    }
+
+    #[test]
+    fn test_large_binary_message() {
+        // 测试大二进制消息
+        let large_data = vec![0u8; 1024 * 1024]; // 1MB
+        let msg = Message::binary(large_data);
+        assert!(msg.is_binary());
+    }
+
+    #[test]
+    fn test_unicode_message() {
+        // 测试 Unicode 消息
+        let unicode_str = "你好世界 🌍";
+        let msg = Message::text(unicode_str);
+        assert_eq!(msg.to_str().unwrap(), unicode_str);
+    }
+
+    // ==================== 类型验证测试 ====================
+
+    #[test]
+    fn test_message_inner_field() {
+        // 测试 Message 的 inner 字段访问
+        let msg = Message::text("test");
+
+        // 验证可以访问 inner 字段
+        let _inner = msg.inner;
+    }
+}
