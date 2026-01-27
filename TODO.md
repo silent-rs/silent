@@ -10,13 +10,13 @@
 - 确保核心功能路径有充分的测试覆盖
 - 为零覆盖和低覆盖率区域补充测试用例
 
-## 当前整体覆盖率（2025-01-26 更新）
+## 当前整体覆盖率（2025-01-27 更新）
 
 ### 总体指标
-- **区域覆盖率**: 84.51%
-- **函数覆盖率**: 81.55%
-- **行覆盖率**: 82.46%
-- **测试数量**: 1019 个测试全部通过 ✅
+- **区域覆盖率**: 86.97%
+- **函数覆盖率**: 83.24%
+- **行覆盖率**: 85.03%
+- **测试数量**: 1131 个测试全部通过 ✅
 
 ### 各模块覆盖率现状
 
@@ -87,20 +87,20 @@
 
 ### 🔴 零覆盖率模块（优先级：P0）
 
-#### 1. Session 模块（0%）
-- `session/middleware.rs` - 0.00% (24 行)
-- `session/session_ext.rs` - 0.00% (24 行)
+#### 1. Session 模块（已完成 ✅）
+- `session/middleware.rs` - 93.59% ✅（从0%提升）
+- `session/session_ext.rs` - 100.00% ✅（从0%提升）
 
-#### 2. SSE 模块（0%）
-- `sse/event.rs` - 0.00% (69 行)
-- `sse/keep_alive.rs` - 0.00% (54 行)
-- `sse/reply.rs` - 0.00% (24 行)
+#### 2. SSE 模块（已完成 ✅）
+- `sse/event.rs` - 100.00% ✅（从0%提升）
+- `sse/keep_alive.rs` - 81.67% ✅（从0%提升）
+- `sse/reply.rs` - 92.16% ✅（从0%提升）
 
-#### 3. WebSocket 模块（部分 0%）
-- `ws/handler_wrapper_websocket.rs` - 0.00% (35 行)
-- `ws/route.rs` - 0.00% (34 行)
-- `ws/websocket.rs` - 0.00% (81 行)
-- `ws/websocket_handler.rs` - 14.58% (41/48 行未覆盖)
+#### 3. WebSocket 模块（部分完成 ⚠️）
+- `ws/handler_wrapper_websocket.rs` - 96.05% ✅（从0%提升）
+- `ws/route.rs` - 100.00% ✅（从0%提升）
+- `ws/websocket_handler.rs` - 76.22% ✅（从14.58%提升）
+- `ws/websocket.rs` - 35.20% ❌（仍需提升）
 
 ### 🟡 低覆盖率模块（<70%，优先级：P1）
 
@@ -145,19 +145,19 @@
 ### Phase 1: 零覆盖率模块（优先级最高）
 
 #### 1.1 WebSocket 模块剩余文件
-- [ ] `ws/handler_wrapper_websocket.rs` - 0% → 75%+
-- [ ] `ws/route.rs` - 0% → 75%+
-- [ ] `ws/websocket.rs` - 0% → 75%+
-- [ ] `ws/websocket_handler.rs` - 14.58% → 75%+
+- [x] `ws/handler_wrapper_websocket.rs` - 0% → 96.05% ✅
+- [x] `ws/route.rs` - 0% → 100.00% ✅
+- [ ] `ws/websocket.rs` - 0% → 35.20% → 需继续提升
+- [x] `ws/websocket_handler.rs` - 14.58% → 76.22% ✅
 
-#### 1.2 SSE 模块
-- [ ] `sse/event.rs` - 0% → 75%+
-- [ ] `sse/keep_alive.rs` - 0% → 75%+
-- [ ] `sse/reply.rs` - 0% → 75%+
+#### 1.2 SSE 模块（已完成 ✅）
+- [x] `sse/event.rs` - 0% → 100.00% ✅
+- [x] `sse/keep_alive.rs` - 0% → 81.67% ✅
+- [x] `sse/reply.rs` - 0% → 92.16% ✅
 
-#### 1.3 Session 模块
-- [ ] `session/middleware.rs` - 0% → 75%+
-- [ ] `session/session_ext.rs` - 0% → 75%+
+#### 1.3 Session 模块（已完成 ✅）
+- [x] `session/middleware.rs` - 0% → 93.59% ✅
+- [x] `session/session_ext.rs` - 0% → 100.00% ✅
 
 ### Phase 2: 低覆盖率核心模块（优先级：P1）
 
@@ -196,10 +196,10 @@
 ## 验收标准
 
 ### 主要目标
-- [ ] 整体行覆盖率 > 85%
-- [ ] 所有零覆盖率模块达到 75% 以上
-- [ ] 所有测试通过 `cargo nextest run --all-features`
-- [ ] 代码检查通过 `cargo clippy --all-targets --all-features --tests --benches -- -D warnings`
+- [x] 整体行覆盖率 > 85% ✅（已达到 85.03%）
+- [ ] 所有零覆盖率模块达到 75% 以上（仅剩 ws/websocket.rs）
+- [x] 所有测试通过 `cargo nextest run --all-features` ✅
+- [x] 代码检查通过 `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` ✅
 
 ### 次要目标
 - [ ] gRPC 模块整体行覆盖率 > 75%
@@ -210,12 +210,24 @@
 
 ## 下一步行动
 
-建议按照以下顺序进行开发：
+当前已完成 Session、SSE 和大部分 WebSocket 模块的测试覆盖，建议继续：
 
-1. **立即开始**: WebSocket 模块剩余文件（4 个文件，预计 +150 个测试）
-2. **第二阶段**: SSE 模块（3 个文件，预计 +60 个测试）
-3. **第三阶段**: Session 模块（2 个文件，预计 +40 个测试）
-4. **第四阶段**: 低覆盖率核心模块和 gRPC 模块优化
-5. **最后阶段**: 其他模块优化和整体调优
+1. **立即开始**: 完成 `ws/websocket.rs`（35.20% → 75%+，最后剩余文件）
+2. **第二阶段**: 低覆盖率核心模块和 gRPC 模块优化
+3. **第三阶段**: 其他模块优化和整体调优
 
-预计总测试数将从 **1019** 提升到 **1300+**，整体行覆盖率从 **82.46%** 提升到 **85%+**。
+### 当前进度总结
+
+✅ **已完成**：
+- Session 模块（2 个文件）：93.59% + 100.00%
+- SSE 模块（3 个文件）：100% + 81.67% + 92.16%
+- WebSocket 模块（3/4 个文件）：96.05% + 100% + 76.22%
+
+📊 **覆盖率提升**：
+- 测试数量：1019 → 1131（+112 个测试）
+- 整体行覆盖率：82.46% → 85.03%（+2.57%）
+- 区域覆盖率：84.51% → 86.97%（+2.46%）
+- 函数覆盖率：81.55% → 83.24%（+1.69%）
+
+⚠️ **待完成**：
+- `ws/websocket.rs`：35.20% → 需要提升到 75%+
