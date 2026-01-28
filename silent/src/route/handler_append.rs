@@ -515,9 +515,181 @@ mod tests {
 
     // ==================== Extractor 方法测试 ====================
 
-    // 注意：get_ex/post_ex 等方法需要 Args: FromRequest 的类型
-    // 由于测试环境中可能没有可用的 FromRequest 类型，这些测试被跳过
-    // 实际使用中，这些方法会与 Path、Query 等 extractor 一起工作
+    // 注意：get_ex/post_ex 等方法需要 Args: FromRequest 的类型（如 Path、Query 等）
+    // 由于在测试环境中创建这些萃取器类型比较复杂，这些方法主要在实际使用中测试
+    // 我们通过编译验证来确保这些方法的正确性
+
+    // ==================== Route trait 方法测试（使用 IntoRouteHandler）====================
+
+    #[test]
+    fn test_route_trait_get_with_fn_pointer() {
+        // 测试 Route trait 的 get 方法（函数指针）
+        async fn handler(_req: Request) -> Result<Response> {
+            Ok(Response::text("test"))
+        }
+
+        let route = Route::new("test").get(handler);
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    #[test]
+    fn test_into_route_handler_trait_request() {
+        // 测试 IntoRouteHandler<Request> trait 实现
+        let handler: fn(Request) -> _ = |_req: Request| async { Ok(Response::text("test")) };
+        let _arc_handler = handler.into_handler();
+
+        // 验证可以创建 Arc<dyn Handler>
+    }
+
+    #[test]
+    fn test_handler_wrapper_arc_conversion() {
+        // 测试 HandlerWrapper 的 Arc 转换
+        let wrapper = HandlerWrapper::new(|_req: Request| async { Ok("test") });
+        let _arc: std::sync::Arc<dyn Handler> = std::sync::Arc::new(wrapper);
+    }
+
+    #[test]
+    fn test_handler_fn_arc_conversion() {
+        // 测试 HandlerFn 的 arc() 方法
+        let handler_fn = HandlerFn::new(|_req: Request| async { Response::text("test") });
+        let _arc = handler_fn.arc();
+    }
+
+    #[test]
+    fn test_multiple_arcs_from_same_handler() {
+        // 测试从同一个处理函数创建多个 Arc
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("get") })
+            .post(|_req: Request| async { Ok("post") });
+
+        // 两个处理器应该可以独立克隆
+        if let Some(get_handler) = route.handler.get(&Method::GET) {
+            let _clone1 = get_handler.clone();
+        }
+
+        if let Some(post_handler) = route.handler.get(&Method::POST) {
+            let _clone2 = post_handler.clone();
+        }
+
+        assert_eq!(route.handler.len(), 2);
+    }
+
+    #[test]
+    fn test_handler_storage_type() {
+        // 测试处理器存储类型
+        let route = Route::new("test").get(|_req: Request| async { Ok("test") });
+
+        if let Some(handler) = route.handler.get(&Method::GET) {
+            // 验证可以转换为 Arc<dyn Handler>
+            let _arc_handler: std::sync::Arc<dyn Handler> = handler.clone();
+        }
+    }
+
+    #[test]
+    fn test_route_trait_post_with_closure() {
+        // 测试 Route trait 的 post 方法（闭包）
+        let route = Route::new("test").post(|_req: Request| async { Ok("post") });
+        assert!(route.handler.contains_key(&Method::POST));
+    }
+
+    #[test]
+    fn test_route_trait_put() {
+        // 测试 Route trait 的 put 方法
+        let route = Route::new("test").put(|_req: Request| async { Ok("put") });
+        assert!(route.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_route_trait_delete() {
+        // 测试 Route trait 的 delete 方法
+        let route = Route::new("test").delete(|_req: Request| async { Ok("delete") });
+        assert!(route.handler.contains_key(&Method::DELETE));
+    }
+
+    #[test]
+    fn test_route_trait_patch() {
+        // 测试 Route trait 的 patch 方法
+        let route = Route::new("test").patch(|_req: Request| async { Ok("patch") });
+        assert!(route.handler.contains_key(&Method::PATCH));
+    }
+
+    #[test]
+    fn test_route_trait_options() {
+        // 测试 Route trait 的 options 方法
+        let route = Route::new("test").options(|_req: Request| async { Ok("options") });
+        assert!(route.handler.contains_key(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_route_trait_methods_chain() {
+        // 测试 Route trait 方法的链式调用
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("get") })
+            .post(|_req: Request| async { Ok("post") })
+            .put(|_req: Request| async { Ok("put") })
+            .delete(|_req: Request| async { Ok("delete") })
+            .patch(|_req: Request| async { Ok("patch") })
+            .options(|_req: Request| async { Ok("options") });
+
+        assert_eq!(route.handler.len(), 6);
+    }
+
+    // ==================== 混合使用 HandlerAppend 和 Route trait ====================
+
+    #[test]
+    fn test_mixed_handler_append_and_route_trait() {
+        // 测试混合使用 HandlerAppend trait 和 Route trait 的方法
+        let route = Route::new("test")
+            // HandlerAppend trait 方法
+            .get(|_req: Request| async { Ok("handler append get") })
+            .post(|_req: Request| async { Ok("handler append post") })
+            // Route trait 方法
+            .put(|_req: Request| async { Ok("route trait put") })
+            .delete(|_req: Request| async { Ok("route trait delete") })
+            // 更多方法
+            .patch(|_req: Request| async { Ok("patch") })
+            .options(|_req: Request| async { Ok("options") });
+
+        assert_eq!(route.handler.len(), 6);
+    }
+
+    // ==================== 复杂场景测试 ====================
+
+    #[test]
+    fn test_handler_with_different_response_types() {
+        // 测试不同响应类型的处理函数
+        // 使用 HandlerAppend trait 的方法
+        let route1 =
+            Route::new("test1").get(|_req: Request| async { Ok(Response::text("ok response")) });
+
+        let route2 =
+            Route::new("test2").post(|_req: Request| async { Response::text("direct response") });
+
+        let route3 = Route::new("test3").put(|_req: Request| async { Ok("string") });
+
+        assert!(route1.handler.contains_key(&Method::GET));
+        assert!(route2.handler.contains_key(&Method::POST));
+        assert!(route3.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_handler_clone_behavior() {
+        // 测试处理器的克隆行为
+        let route = Route::new("test")
+            .get(|_req: Request| async { Ok("test") })
+            .post(|_req: Request| async { Ok("test") });
+
+        // 克隆处理器
+        if let Some(get_handler) = route.handler.get(&Method::GET) {
+            let _cloned = get_handler.clone();
+        }
+
+        if let Some(post_handler) = route.handler.get(&Method::POST) {
+            let _cloned = post_handler.clone();
+        }
+
+        assert_eq!(route.handler.len(), 2);
+    }
 
     // ==================== 边界条件测试 ====================
 
