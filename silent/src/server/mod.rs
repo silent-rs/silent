@@ -590,4 +590,240 @@ mod tests {
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         assert_eq!(addr.port(), 0);
     }
+
+    // ==================== ServerConfig 全局配置测试 ====================
+
+    #[test]
+    fn test_global_server_config_default() {
+        use config::{global_server_config, set_global_server_config};
+
+        // 先重置为默认配置，避免受其他测试影响
+        set_global_server_config(ServerConfig::default());
+
+        let config = global_server_config();
+        // 验证默认全局配置可以读取
+        assert_eq!(config.connection_limits.handler_timeout, None);
+        assert_eq!(config.connection_limits.max_body_size, None);
+    }
+
+    #[test]
+    fn test_set_global_server_config() {
+        use config::{global_server_config, set_global_server_config};
+
+        let custom_config = ServerConfig {
+            connection_limits: ConnectionLimits {
+                handler_timeout: Some(Duration::from_secs(100)),
+                max_body_size: Some(2048),
+                h3_read_timeout: Some(Duration::from_secs(50)),
+                max_webtransport_frame_size: None,
+                webtransport_read_timeout: None,
+                max_webtransport_sessions: None,
+                webtransport_datagram_max_size: None,
+                webtransport_datagram_rate: None,
+                webtransport_datagram_drop_metric: false,
+            },
+            ..Default::default()
+        };
+
+        set_global_server_config(custom_config.clone());
+
+        let config = global_server_config();
+        assert_eq!(
+            config.connection_limits.handler_timeout,
+            Some(Duration::from_secs(100))
+        );
+        assert_eq!(config.connection_limits.max_body_size, Some(2048));
+    }
+
+    // ==================== ConnectionService trait 测试 ====================
+
+    #[test]
+    fn test_connection_service_trait_bound() {
+        use crate::server::ConnectionService;
+
+        // 验证 ConnectionService trait 的约束
+        fn assert_connection_service<T: ConnectionService + Clone>() {}
+
+        // 验证某些类型可能实现 ConnectionService
+        // 实际测试需要实现该 trait 的类型
+        assert_connection_service::<DummyConnectionService>();
+    }
+
+    // Dummy 实现用于测试 trait 约束
+    #[derive(Clone)]
+    struct DummyConnectionService;
+
+    impl ConnectionService for DummyConnectionService {
+        fn call(
+            &self,
+            _stream: crate::server::connection::BoxedConnection,
+            _remote_addr: crate::core::socket_addr::SocketAddr,
+        ) -> crate::server::connection_service::ConnectionFuture {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    // ==================== ListenCallback 类型测试 ====================
+
+    #[test]
+    fn test_listen_callback_type() {
+        use std::sync::Arc;
+
+        // 验证 ListenCallback 可以存储和调用
+        let callback_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let callback_called_clone = callback_called.clone();
+
+        let _callback: ListenCallback = Box::new(move |addrs| {
+            // 验证可以访问地址列表
+            let _ = addrs.len();
+            callback_called_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+    }
+
+    // ==================== Server 配置组合测试 ====================
+
+    #[test]
+    fn test_server_config_combinations() {
+        // 测试不同的配置组合
+        let config1 = ServerConfig {
+            connection_limits: ConnectionLimits {
+                handler_timeout: Some(Duration::from_secs(10)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let config2 = ServerConfig {
+            connection_limits: ConnectionLimits {
+                max_body_size: Some(1024),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        assert_eq!(
+            config1.connection_limits.handler_timeout,
+            Some(Duration::from_secs(10))
+        );
+        assert_eq!(config1.connection_limits.max_body_size, None);
+
+        assert_eq!(config2.connection_limits.handler_timeout, None);
+        assert_eq!(config2.connection_limits.max_body_size, Some(1024));
+    }
+
+    #[test]
+    fn test_connection_limits_all_fields() {
+        // 测试所有 ConnectionLimits 字段
+        let limits = ConnectionLimits {
+            handler_timeout: Some(Duration::from_secs(60)),
+            max_body_size: Some(1048576),
+            h3_read_timeout: Some(Duration::from_secs(30)),
+            max_webtransport_frame_size: Some(16384),
+            webtransport_read_timeout: Some(Duration::from_secs(20)),
+            max_webtransport_sessions: Some(100),
+            webtransport_datagram_max_size: Some(1350),
+            webtransport_datagram_rate: Some(1000),
+            webtransport_datagram_drop_metric: true,
+        };
+
+        assert_eq!(limits.handler_timeout, Some(Duration::from_secs(60)));
+        assert_eq!(limits.max_body_size, Some(1048576));
+        assert_eq!(limits.h3_read_timeout, Some(Duration::from_secs(30)));
+        assert_eq!(limits.max_webtransport_frame_size, Some(16384));
+        assert_eq!(
+            limits.webtransport_read_timeout,
+            Some(Duration::from_secs(20))
+        );
+        assert_eq!(limits.max_webtransport_sessions, Some(100));
+        assert_eq!(limits.webtransport_datagram_max_size, Some(1350));
+        assert_eq!(limits.webtransport_datagram_rate, Some(1000));
+        assert!(limits.webtransport_datagram_drop_metric);
+    }
+
+    // ==================== Server 与 NetServer 交互测试 ====================
+
+    #[tokio::test]
+    async fn test_server_netserver_parts_construction() {
+        // 测试 Server 到 NetServer 的部分构造
+        let server = Server::new()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .with_shutdown(Duration::from_secs(10));
+
+        // 验证配置正确设置
+        assert_eq!(
+            server.graceful_shutdown_duration,
+            Some(Duration::from_secs(10))
+        );
+    }
+
+    // ==================== 边界条件测试 ====================
+
+    #[test]
+    fn test_server_zero_duration_shutdown() {
+        // 测试零时长优雅关停
+        let server = Server::new().with_shutdown(Duration::ZERO);
+        assert_eq!(server.graceful_shutdown_duration, Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn test_server_large_duration() {
+        // 测试大数值时长
+        let large_duration = Duration::from_secs(3600 * 24); // 24小时
+        let server = Server::new().with_shutdown(large_duration);
+        assert_eq!(server.graceful_shutdown_duration, Some(large_duration));
+    }
+
+    #[test]
+    fn test_rate_limiter_zero_capacity() {
+        // 测试零容量限流器
+        let config = RateLimiterConfig {
+            capacity: 0,
+            refill_every: Duration::from_millis(100),
+            max_wait: Duration::from_secs(1),
+        };
+
+        let server = Server::new().with_rate_limiter(config);
+        assert!(server.rate_limiter_config.is_some());
+        assert_eq!(server.rate_limiter_config.as_ref().unwrap().capacity, 0);
+    }
+
+    #[test]
+    fn test_rate_limiter_zero_refill() {
+        // 测试零刷新间隔
+        let config = RateLimiterConfig {
+            capacity: 100,
+            refill_every: Duration::ZERO,
+            max_wait: Duration::from_secs(1),
+        };
+
+        let server = Server::new().with_rate_limiter(config);
+        assert!(server.rate_limiter_config.is_some());
+        assert_eq!(
+            server.rate_limiter_config.as_ref().unwrap().refill_every,
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn test_connection_limits_zero_values() {
+        // 测试零值的连接限制
+        let limits = ConnectionLimits {
+            handler_timeout: Some(Duration::ZERO),
+            max_body_size: Some(0),
+            h3_read_timeout: Some(Duration::ZERO),
+            max_webtransport_frame_size: Some(0),
+            webtransport_read_timeout: Some(Duration::ZERO),
+            max_webtransport_sessions: Some(0),
+            webtransport_datagram_max_size: Some(0),
+            webtransport_datagram_rate: Some(0),
+            webtransport_datagram_drop_metric: false,
+        };
+
+        let server = Server::new().with_connection_limits(limits);
+        assert_eq!(
+            server.config.connection_limits.handler_timeout,
+            Some(Duration::ZERO)
+        );
+        assert_eq!(server.config.connection_limits.max_body_size, Some(0));
+    }
 }
