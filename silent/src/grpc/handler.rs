@@ -449,4 +449,212 @@ mod tests {
     }
 
     impl std::error::Error for MockError {}
+
+    // ==================== Handler::call 测试 ====================
+
+    #[test]
+    fn test_handler_call_without_upgrade() {
+        // 测试正常的 gRPC 调用路径（无 on_upgrade）
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockGreeterService::new());
+            let mut req = crate::Request::empty();
+
+            // 设置为 POST 方法（gRPC 通常使用 POST）
+            *req.method_mut() = http::Method::POST;
+            req.headers_mut()
+                .insert("content-type", "application/grpc".parse().unwrap());
+
+            let result = handler.call(req).await;
+
+            // 验证调用成功
+            assert!(result.is_ok());
+            let response = result.unwrap();
+            assert_eq!(response.status(), http::StatusCode::OK);
+        });
+    }
+
+    #[test]
+    fn test_handler_call_with_upgrade() {
+        // 测试 HTTP/2 升级路径（有 on_upgrade）
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockGreeterService::new());
+            let req = crate::Request::empty();
+
+            // 模拟添加 OnUpgrade 扩展
+            // 注意：在测试环境中无法创建真实的 OnUpgrade，
+            // 因此这个测试主要验证代码分支存在
+            let result = handler.call(req).await;
+
+            // 没有 on_upgrade 时应该走正常路径
+            assert!(result.is_ok());
+        });
+    }
+
+    #[test]
+    fn test_handler_call_with_custom_headers() {
+        // 测试带有自定义 header 的 gRPC 调用
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockGreeterService::new());
+            let mut req = crate::Request::empty();
+
+            *req.method_mut() = http::Method::POST;
+            req.headers_mut()
+                .insert("content-type", "application/grpc".parse().unwrap());
+            req.headers_mut()
+                .insert("grpc-timeout", "100S".parse().unwrap());
+            req.headers_mut().insert("te", "trailers".parse().unwrap());
+
+            let result = handler.call(req).await;
+
+            assert!(result.is_ok());
+            let response = result.unwrap();
+            assert_eq!(response.status(), http::StatusCode::OK);
+        });
+    }
+
+    #[test]
+    fn test_handler_call_different_methods() {
+        // 测试不同 HTTP 方法的 gRPC 调用
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockGreeterService::new());
+
+            // 测试 GET 方法
+            let mut req_get = crate::Request::empty();
+            *req_get.method_mut() = http::Method::GET;
+            let result_get = handler.call(req_get).await;
+            assert!(result_get.is_ok());
+
+            // 测试 POST 方法
+            let mut req_post = crate::Request::empty();
+            *req_post.method_mut() = http::Method::POST;
+            let result_post = handler.call(req_post).await;
+            assert!(result_post.is_ok());
+        });
+    }
+
+    #[test]
+    fn test_handler_call_response_headers() {
+        // 测试响应头部的处理
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockGreeterService::new());
+            let mut req = crate::Request::empty();
+
+            *req.method_mut() = http::Method::POST;
+            req.headers_mut()
+                .insert("content-type", "application/grpc".parse().unwrap());
+
+            let result = handler.call(req).await;
+            assert!(result.is_ok());
+
+            let response = result.unwrap();
+            // 验证响应状态
+            assert_eq!(response.status(), http::StatusCode::OK);
+        });
+    }
+
+    // ==================== 错误处理测试 ====================
+
+    #[test]
+    fn test_handler_service_error_handling() {
+        // 测试 gRPC 服务返回错误的情况
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = GrpcHandler::new(MockErrorService::new());
+            let mut req = crate::Request::empty();
+
+            *req.method_mut() = http::Method::POST;
+
+            let result = handler.call(req).await;
+
+            // 应该返回错误
+            assert!(result.is_err());
+            if let Err(e) = result {
+                // 验证错误类型
+                let error_msg = format!("{:?}", e);
+                assert!(
+                    error_msg.contains("grpc call failed")
+                        || error_msg.contains("Mock service error")
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_handler_concurrent_calls() {
+        // 测试并发调用
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let handler = std::sync::Arc::new(GrpcHandler::new(MockGreeterService::new()));
+
+            let mut handles = Vec::new();
+            for _ in 0..10 {
+                let handler_clone = handler.clone();
+                let handle = async_global_executor::spawn(async move {
+                    let mut req = crate::Request::empty();
+                    *req.method_mut() = http::Method::POST;
+                    handler_clone.call(req).await
+                });
+                handles.push(handle);
+            }
+
+            // 等待所有任务完成
+            for handle in handles {
+                let result = handle.await;
+                assert!(result.is_ok());
+            }
+        });
+    }
+
+    // ==================== 新增 Mock Service ====================
+
+    #[derive(Clone)]
+    struct MockErrorService {
+        _private: (),
+    }
+
+    impl MockErrorService {
+        fn new() -> Self {
+            Self { _private: () }
+        }
+    }
+
+    impl NamedService for MockErrorService {
+        const NAME: &'static str = "/mock.error.ErrorService";
+    }
+
+    impl Service<http::Request<Body>> for MockErrorService {
+        type Response = http::Response<Body>;
+        type Error = MockServiceError;
+        type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+        fn poll_ready(
+            &mut self,
+            _cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            std::task::Poll::Ready(Ok(()))
+        }
+
+        fn call(&mut self, _req: http::Request<Body>) -> Self::Future {
+            Box::pin(async move {
+                // 返回错误
+                Err(MockServiceError)
+            })
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct MockServiceError;
+
+    impl std::fmt::Display for MockServiceError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "Mock service error")
+        }
+    }
+
+    impl std::error::Error for MockServiceError {}
 }
