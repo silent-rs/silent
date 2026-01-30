@@ -18,6 +18,7 @@ paths-ignore:
   - '**/*.test.rs'
   - .history/**
 
-# 仅扫描核心源代码
+# 仅扫描核心源代码（排除独立的测试文件）
 paths:
   - silent/src
+  - '!silent/src/**/*_test.rs'
