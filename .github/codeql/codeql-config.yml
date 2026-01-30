@@ -12,13 +12,16 @@ paths-ignore:
   - examples/**
   - benches/**
   - benchmark/**
-  - '**/*_test.rs'
-  - '**/tests/**'
-  - '**/test*.rs'
-  - '**/*.test.rs'
   - .history/**
 
-# 仅扫描核心源代码（排除独立的测试文件）
+  # 排除所有测试文件
+  - '**/tests/**'
+  - '**/*_test.rs'
+  - '**/test_*.rs'
+
+  # 明确排除 cookie 测试文件
+  - silent/src/cookie/cookie_ext_test.rs
+
+# 仅扫描核心源代码
 paths:
   - silent/src
-  - '!silent/src/**/*_test.rs'
