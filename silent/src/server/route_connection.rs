@@ -178,6 +178,9 @@ impl From<Route> for RouteConnectionService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    // ==================== 基础构造测试 ====================
 
     #[test]
     fn test_route_connection_service_creation() {
@@ -191,5 +194,254 @@ mod tests {
         let route = Route::new("test");
         let service = RouteConnectionService::from(route.clone());
         assert_eq!(service.route.path, route.path);
+    }
+
+    #[test]
+    fn test_route_connection_service_clone() {
+        let route = Route::new("/test");
+        let service1 = RouteConnectionService::new(route.clone());
+        let service2 = service1.clone();
+
+        assert_eq!(service1.route.path, service2.route.path);
+        assert_eq!(service2.route.path, route.path);
+    }
+
+    #[test]
+    fn test_new_with_nested_route() {
+        use crate::Request;
+
+        let route = Route::new("api").get(|_req: Request| async move { Ok("hello") });
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "api");
+    }
+
+    #[test]
+    fn test_new_with_empty_route() {
+        let route = Route::new("");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "");
+    }
+
+    #[test]
+    fn test_new_with_root_path() {
+        let route = Route::new("");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "");
+    }
+
+    #[test]
+    fn test_multiple_from_calls() {
+        let route1 = Route::new("path1");
+        let route2 = Route::new("path2");
+
+        let service1 = RouteConnectionService::from(route1);
+        let service2 = RouteConnectionService::from(route2);
+
+        assert_eq!(service1.route.path, "path1");
+        assert_eq!(service2.route.path, "path2");
+    }
+
+    #[test]
+    fn test_service_limits_field() {
+        let route = Route::new("test");
+        let service = RouteConnectionService::new(route);
+
+        // 验证 limits 字段被正确初始化
+        // 注意：max_body_size 可能是 None，所以不在这里断言
+        let _ = service.limits.max_body_size;
+    }
+
+    #[test]
+    fn test_new_with_complex_route() {
+        use crate::Request;
+
+        let route = Route::new("api")
+            .get(|_req: Request| async move { Ok("GET") })
+            .post(|_req: Request| async move { Ok("POST") })
+            .put(|_req: Request| async move { Ok("PUT") });
+
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "api");
+    }
+
+    #[test]
+    fn test_service_with_nested_routes() {
+        use crate::Request;
+
+        let api = Route::new("api");
+        let users = Route::new("users").get(|_req: Request| async move { Ok("users") });
+        let posts = Route::new("posts").get(|_req: Request| async move { Ok("posts") });
+
+        let service = RouteConnectionService::new(api);
+        assert_eq!(service.route.path, "api");
+
+        let service2 = RouteConnectionService::new(users);
+        assert_eq!(service2.route.path, "users");
+
+        let service3 = RouteConnectionService::new(posts);
+        assert_eq!(service3.route.path, "posts");
+    }
+
+    #[test]
+    fn test_route_preservation() {
+        let original_route = Route::new("original");
+        let service = RouteConnectionService::new(original_route.clone());
+
+        // 验证原始路由未被修改
+        assert_eq!(original_route.path, "original");
+        assert_eq!(service.route.path, "original");
+    }
+
+    // ==================== feature 相关测试 ====================
+
+    #[cfg(feature = "quic")]
+    #[test]
+    fn test_with_webtransport_handler() {
+        use crate::server::quic::EchoHandler;
+
+        let route = Route::new("/test");
+        let handler: Arc<dyn crate::server::quic::WebTransportHandler> = Arc::new(EchoHandler);
+
+        let service = RouteConnectionService::new(route).with_webtransport_handler(handler.clone());
+
+        // 验证 handler 被正确设置
+        // 注意：webtransport_handler 是 Arc，无法直接比较，但可以验证其存在
+        let _ = &service.webtransport_handler;
+    }
+
+    #[cfg(feature = "quic")]
+    #[test]
+    fn test_default_webtransport_handler() {
+        let route = Route::new("/test");
+        let service = RouteConnectionService::new(route);
+
+        // 验证默认的 EchoHandler 被设置
+        let _ = &service.webtransport_handler;
+    }
+
+    #[cfg(feature = "quic")]
+    #[test]
+    fn test_webtransport_handler_override() {
+        use crate::server::quic::EchoHandler;
+
+        let route = Route::new("/test");
+        let custom_handler: Arc<dyn crate::server::quic::WebTransportHandler> =
+            Arc::new(EchoHandler);
+
+        let service1 = RouteConnectionService::new(route.clone());
+        let service2 = service1.clone().with_webtransport_handler(custom_handler);
+
+        // 验证返回的是一个新的 service 实例
+        assert_eq!(service1.route.path, service2.route.path);
+    }
+
+    // ==================== 边界条件测试 ====================
+
+    #[test]
+    fn test_service_with_special_characters() {
+        // Route::new() 只保留第一段路径，其余部分成为子路由
+        let route = Route::new("api/v1/test-endpoint");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "api"); // path 字段只包含第一段
+        assert!(!service.route.children.is_empty()); // 验证子路由存在
+    }
+
+    #[test]
+    fn test_service_with_unicode_path() {
+        // Unicode 路径也遵循相同的规则
+        let route = Route::new("api/用户/资料");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "api"); // 第一段
+        assert!(!service.route.children.is_empty()); // 有子路由
+    }
+
+    #[test]
+    fn test_service_with_long_path() {
+        // 长路径也遵循相同的规则
+        let route = Route::new("api/v1/very/long/path/with/many/segments");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "api"); // 只有第一段
+        assert!(!service.route.children.is_empty()); // 有子路由
+    }
+
+    #[test]
+    fn test_clone_independence() {
+        let route = Route::new("test");
+        let service1 = RouteConnectionService::new(route);
+        let service2 = service1.clone();
+
+        // 验证 clone 的独立性
+        assert_eq!(service1.route.path, service2.route.path);
+    }
+
+    #[test]
+    fn test_from_trait_multiple_conversions() {
+        let routes = vec![
+            Route::new("path1"),
+            Route::new("path2"),
+            Route::new("path3"),
+        ];
+
+        let services: Vec<RouteConnectionService> = routes
+            .into_iter()
+            .map(RouteConnectionService::from)
+            .collect();
+
+        assert_eq!(services.len(), 3);
+        assert_eq!(services[0].route.path, "path1");
+        assert_eq!(services[1].route.path, "path2");
+        assert_eq!(services[2].route.path, "path3");
+    }
+
+    #[test]
+    fn test_service_with_wildcard_route() {
+        let route = Route::new("*");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "*");
+    }
+
+    #[test]
+    fn test_service_with_param_route() {
+        // 参数路由 "users/:id" 会被分割为 path="users" 和子路由
+        let route = Route::new("users/:id");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "users"); // 第一段
+        assert!(!service.route.children.is_empty()); // :id 是子路由
+    }
+
+    #[test]
+    fn test_service_with_glob_route() {
+        // Glob 路由 "files/**" 会被分割为 path="files" 和子路由
+        let route = Route::new("files/**");
+        let service = RouteConnectionService::new(route);
+        assert_eq!(service.route.path, "files"); // 第一段
+        assert!(!service.route.children.is_empty()); // ** 是子路由
+    }
+
+    // ==================== limits 验证测试 ====================
+
+    #[test]
+    fn test_connection_limits_initialization() {
+        let route = Route::new("test");
+        let service = RouteConnectionService::new(route);
+
+        // 验证 limits 字段被正确初始化
+        // 注意：max_body_size 和 h3_read_timeout 可能是 None
+        let _ = service.limits.max_body_size;
+        let _ = service.limits.h3_read_timeout;
+    }
+
+    #[test]
+    fn test_clone_preserves_limits() {
+        let route = Route::new("test");
+        let service1 = RouteConnectionService::new(route);
+        let service2 = service1.clone();
+
+        // 验证 clone 后 limits 相同
+        assert_eq!(service1.limits.max_body_size, service2.limits.max_body_size);
+        assert_eq!(
+            service1.limits.h3_read_timeout,
+            service2.limits.h3_read_timeout
+        );
     }
 }

@@ -24,3 +24,6 @@ out/
 static-advanced/
 docs/requirements/
 .claude
+coverage/
+coverage*.*
+lcov.info

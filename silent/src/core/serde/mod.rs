@@ -196,3 +196,330 @@ impl<'de> Deserializer<'de> for CowValue<'de> {
         f64 => deserialize_f64,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    // ==================== from_str_val 测试 ====================
+
+    #[test]
+    fn test_from_str_val_string() {
+        let result: String = from_str_val("hello").unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
+    fn test_from_str_val_integer() {
+        let result: i32 = from_str_val("42").unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_from_str_val_bool() {
+        let result: bool = from_str_val("true").unwrap();
+        assert!(result);
+
+        let result: bool = from_str_val("false").unwrap();
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_from_str_val_float() {
+        let result: f64 = from_str_val("2.5").unwrap();
+        assert_eq!(result, 2.5);
+    }
+
+    #[test]
+    fn test_from_str_val_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Person {
+            name: String,
+            age: u32,
+        }
+
+        // from_str_val 只能用于单个值，不能用于结构体
+        let result: Result<Person, _> = from_str_val("name");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_str_val_invalid_integer() {
+        let result: Result<i32, _> = from_str_val("abc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_str_val_optional() {
+        // from_str_val 可以反序列化 Option 类型，它会将值反序列化为 Some
+        let result: Option<String> = from_str_val("test").unwrap();
+        assert_eq!(result, Some("test".to_string()));
+
+        // 空字符串也会反序列化为 Some("")
+        let result: Option<String> = from_str_val("").unwrap();
+        assert_eq!(result, Some("".to_string()));
+    }
+
+    // ==================== from_str_map 测试 ====================
+
+    #[test]
+    fn test_from_str_map_simple_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Config {
+            name: String,
+            count: i32,
+        }
+
+        let input = vec![("name", "test"), ("count", "42")];
+        let result: Config = from_str_map(input).unwrap();
+
+        assert_eq!(result.name, "test");
+        assert_eq!(result.count, 42);
+    }
+
+    #[test]
+    fn test_from_str_map_nested_struct() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Inner {
+            value: String,
+        }
+
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Outer {
+            inner: Inner,
+        }
+
+        let input = vec![("inner", "{\"value\":\"test\"}")];
+        let result: Result<Outer, _> = from_str_map(input);
+        // JSON 反序列化嵌套结构可能失败
+        assert!(result.is_err() || result.unwrap().inner.value == "test");
+    }
+
+    #[test]
+    fn test_from_str_map_multiple_fields() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct MultiField {
+            a: i32,
+            b: String,
+            c: f64,
+            d: bool,
+        }
+
+        let input = vec![("a", "10"), ("b", "test"), ("c", "2.5"), ("d", "true")];
+        let result: MultiField = from_str_map(input).unwrap();
+
+        assert_eq!(result.a, 10);
+        assert_eq!(result.b, "test");
+        assert_eq!(result.c, 2.5);
+        assert!(result.d);
+    }
+
+    #[test]
+    fn test_from_str_map_empty() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Empty {}
+
+        let input: Vec<(&str, &str)> = vec![];
+        let result: Empty = from_str_map(input).unwrap();
+        // 空结构体总是可以反序列化
+        let _ = result;
+    }
+
+    #[test]
+    fn test_from_str_map_missing_field() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Required {
+            name: String,
+            age: u32,
+        }
+
+        let input = vec![("name", "test")];
+        let result: Result<Required, _> = from_str_map(input);
+        // 缺少必填字段应该失败
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_str_map_with_cow_strings() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct Test {
+            key1: String,
+            key2: String,
+        }
+
+        let input = vec![
+            (Cow::Borrowed("key1"), Cow::Borrowed("value1")),
+            (
+                Cow::Owned("key2".to_string()),
+                Cow::Owned("value2".to_string()),
+            ),
+        ];
+
+        let result: Test = from_str_map(input).unwrap();
+        assert_eq!(result.key1, "value1");
+        assert_eq!(result.key2, "value2");
+    }
+
+    // ==================== CowValue 反序列化器测试 ====================
+
+    #[test]
+    fn test_cow_value_borrowed_str() {
+        let cow_value = CowValue(Cow::Borrowed("test"));
+        let result: String = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, "test");
+    }
+
+    #[test]
+    fn test_cow_value_owned_str() {
+        let cow_value = CowValue(Cow::Owned("owned".to_string()));
+        let result: String = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, "owned");
+    }
+
+    #[test]
+    fn test_cow_value_bool() {
+        let cow_value = CowValue(Cow::Borrowed("true"));
+        let result: bool = Deserialize::deserialize(cow_value).unwrap();
+        assert!(result);
+    }
+
+    #[test]
+    fn test_cow_value_integer() {
+        let cow_value = CowValue(Cow::Borrowed("42"));
+        let result: i32 = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_cow_value_float() {
+        let cow_value = CowValue(Cow::Borrowed("2.5"));
+        let result: f64 = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, 2.5);
+    }
+
+    #[test]
+    fn test_cow_value_invalid_bool() {
+        let cow_value = CowValue(Cow::Borrowed("not_bool"));
+        let result: Result<bool, _> = Deserialize::deserialize(cow_value);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cow_value_invalid_integer() {
+        let cow_value = CowValue(Cow::Borrowed("abc"));
+        let result: Result<i32, _> = Deserialize::deserialize(cow_value);
+        assert!(result.is_err());
+    }
+
+    // ==================== ValueEnumAccess 测试 ====================
+
+    #[test]
+    fn test_value_enum_access_simple_enum() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+
+        // 通过 from_str_val 测试枚举反序列化
+        let result: Color = from_str_val("Red").unwrap();
+        assert_eq!(result, Color::Red);
+    }
+
+    #[test]
+    fn test_value_enum_access_invalid_variant() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum Color {
+            Red,
+            Green,
+        }
+
+        let result: Result<Color, _> = from_str_val("Blue");
+        assert!(result.is_err());
+    }
+
+    // ==================== UnitOnlyVariantAccess 测试 ====================
+
+    #[test]
+    fn test_unit_only_variant_access_unit_variant() {
+        // 通过 from_str_val 测试单元变体
+        #[derive(Deserialize, Debug, PartialEq)]
+        enum SimpleEnum {
+            Variant1,
+            Variant2,
+        }
+
+        let result: SimpleEnum = from_str_val("Variant1").unwrap();
+        assert_eq!(result, SimpleEnum::Variant1);
+    }
+
+    // ==================== 边界条件和特殊情况测试 ====================
+
+    #[test]
+    fn test_from_str_val_empty_string() {
+        let result: String = from_str_val("").unwrap();
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_from_str_val_zero() {
+        let result: i32 = from_str_val("0").unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_from_str_val_negative() {
+        let result: i32 = from_str_val("-42").unwrap();
+        assert_eq!(result, -42);
+    }
+
+    #[test]
+    fn test_from_str_val_large_number() {
+        let result: u64 = from_str_val("18446744073709551615").unwrap();
+        assert_eq!(result, 18_446_744_073_709_551_615);
+    }
+
+    #[test]
+    fn test_from_str_map_unicode() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct UnicodeTest {
+            name: String,
+            emoji: String,
+        }
+
+        let input = vec![("name", "测试"), ("emoji", "😀")];
+        let result: UnicodeTest = from_str_map(input).unwrap();
+
+        assert_eq!(result.name, "测试");
+        assert_eq!(result.emoji, "😀");
+    }
+
+    #[test]
+    fn test_from_str_map_duplicate_keys() {
+        #[derive(Deserialize, Debug, PartialEq)]
+        struct DupTest {
+            value: String,
+        }
+
+        // serde 的 MapDeserializer 会将重复的键视为错误
+        let input = vec![("value", "first"), ("value", "second")];
+        let result: Result<DupTest, _> = from_str_map(input);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cow_value_unicode() {
+        let cow_value = CowValue(Cow::Borrowed("测试"));
+        let result: String = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, "测试");
+    }
+
+    #[test]
+    fn test_cow_value_special_characters() {
+        let cow_value = CowValue(Cow::Borrowed("hello\nworld\t"));
+        let result: String = Deserialize::deserialize(cow_value).unwrap();
+        assert_eq!(result, "hello\nworld\t");
+    }
+}

@@ -263,8 +263,312 @@ mod tests {
     use super::*;
     use crate::prelude::Route;
 
+    // ==================== CorsType 测试 ====================
+
+    #[test]
+    fn test_cors_type_any_get_value() {
+        let cors_type = CorsType::Any;
+        assert_eq!(cors_type.get_value(), "*");
+    }
+
+    #[test]
+    fn test_cors_type_allow_some_get_value() {
+        let cors_type = CorsType::AllowSome(vec!["GET".to_string(), "POST".to_string()]);
+        assert_eq!(cors_type.get_value(), "GET,POST");
+    }
+
+    #[test]
+    fn test_cors_type_allow_some_empty() {
+        let cors_type = CorsType::AllowSome(vec![]);
+        assert_eq!(cors_type.get_value(), "");
+    }
+
+    #[test]
+    fn test_cors_type_from_vec_str() {
+        let cors_type: CorsType = vec!["GET", "POST"].into();
+        match cors_type {
+            CorsType::AllowSome(ref v) => {
+                assert_eq!(v, &["GET".to_string(), "POST".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_type_from_vec_method() {
+        let methods = vec![Method::GET, Method::POST];
+        let cors_type: CorsType = methods.into();
+        match cors_type {
+            CorsType::AllowSome(ref v) => {
+                assert_eq!(v, &["GET".to_string(), "POST".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_type_from_vec_header_name() {
+        let headers = vec![header::AUTHORIZATION, header::ACCEPT];
+        let cors_type: CorsType = headers.into();
+        match cors_type {
+            CorsType::AllowSome(ref v) => {
+                assert_eq!(v, &["authorization".to_string(), "accept".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_type_from_str_any() {
+        let cors_type: CorsType = "*".into();
+        assert!(matches!(cors_type, CorsType::Any));
+    }
+
+    #[test]
+    fn test_cors_type_from_str_multiple() {
+        let cors_type: CorsType = "GET,POST,PUT".into();
+        match cors_type {
+            CorsType::AllowSome(ref v) => {
+                assert_eq!(
+                    v,
+                    &["GET".to_string(), "POST".to_string(), "PUT".to_string()]
+                );
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    // ==================== CorsOriginType 测试 ====================
+
+    #[test]
+    fn test_cors_origin_type_any_get_value() {
+        let origin_type = CorsOriginType::Any;
+        assert_eq!(
+            origin_type.get_value("http://example.com"),
+            "http://example.com"
+        );
+    }
+
+    #[test]
+    fn test_cors_origin_type_allow_some_match() {
+        let origin_type = CorsOriginType::AllowSome(vec![
+            "http://example.com".to_string(),
+            "http://localhost:8080".to_string(),
+        ]);
+        assert_eq!(
+            origin_type.get_value("http://example.com"),
+            "http://example.com"
+        );
+    }
+
+    #[test]
+    fn test_cors_origin_type_allow_some_no_match() {
+        let origin_type = CorsOriginType::AllowSome(vec!["http://example.com".to_string()]);
+        assert_eq!(origin_type.get_value("http://evil.com"), "");
+    }
+
+    #[test]
+    fn test_cors_origin_type_from_cors_type_any() {
+        let cors_type = CorsType::Any;
+        let origin_type: CorsOriginType = cors_type.into();
+        assert!(matches!(origin_type, CorsOriginType::Any));
+    }
+
+    #[test]
+    fn test_cors_origin_type_from_cors_type_allow_some() {
+        let cors_type = CorsType::AllowSome(vec!["http://example.com".to_string()]);
+        let origin_type: CorsOriginType = cors_type.into();
+        match origin_type {
+            CorsOriginType::AllowSome(ref v) => {
+                assert_eq!(v, &["http://example.com".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    // ==================== Cors 结构体构造测试 ====================
+
+    #[test]
+    fn test_cors_new() {
+        let cors = Cors::new();
+        assert!(cors.origin.is_none());
+        assert!(cors.methods.is_none());
+        assert!(cors.headers.is_none());
+        assert!(cors.credentials.is_none());
+        assert!(cors.max_age.is_none());
+        assert!(cors.expose.is_none());
+    }
+
+    #[test]
+    fn test_cors_default() {
+        let cors = Cors::default();
+        assert!(cors.origin.is_none());
+        assert!(cors.methods.is_none());
+        assert!(cors.headers.is_none());
+    }
+
+    #[test]
+    fn test_cors_origin_any() {
+        let cors = Cors::new().origin(CorsType::Any);
+        assert!(matches!(cors.origin, Some(CorsOriginType::Any)));
+    }
+
+    #[test]
+    fn test_cors_origin_str() {
+        let cors = Cors::new().origin("http://example.com");
+        match cors.origin {
+            Some(CorsOriginType::AllowSome(ref v)) => {
+                assert_eq!(v, &["http://example.com".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_methods() {
+        let cors = Cors::new().methods(vec![Method::GET, Method::POST]);
+        match cors.methods {
+            Some(CorsType::AllowSome(ref v)) => {
+                assert_eq!(v, &["GET".to_string(), "POST".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_headers() {
+        let cors = Cors::new().headers(vec![header::AUTHORIZATION, header::ACCEPT]);
+        match cors.headers {
+            Some(CorsType::AllowSome(ref v)) => {
+                assert_eq!(v, &["authorization".to_string(), "accept".to_string()]);
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_credentials() {
+        let cors = Cors::new().credentials(true);
+        assert_eq!(cors.credentials, Some(true));
+
+        let cors = Cors::new().credentials(false);
+        assert_eq!(cors.credentials, Some(false));
+    }
+
+    #[test]
+    fn test_cors_max_age() {
+        let cors = Cors::new().max_age(3600);
+        assert_eq!(cors.max_age, Some(3600));
+    }
+
+    #[test]
+    fn test_cors_expose() {
+        let cors = Cors::new().expose("Content-Length,X-Custom-Header");
+        match cors.expose {
+            Some(CorsType::AllowSome(ref v)) => {
+                assert_eq!(
+                    v,
+                    &["Content-Length".to_string(), "X-Custom-Header".to_string()]
+                );
+            }
+            _ => panic!("Expected AllowSome"),
+        }
+    }
+
+    #[test]
+    fn test_cors_builder_chain() {
+        let cors = Cors::new()
+            .origin(CorsType::Any)
+            .methods(vec![Method::GET])
+            .headers(vec![header::ACCEPT])
+            .credentials(true)
+            .max_age(3600)
+            .expose("Content-Length");
+
+        assert!(matches!(cors.origin, Some(CorsOriginType::Any)));
+        assert!(cors.methods.is_some());
+        assert!(cors.headers.is_some());
+        assert_eq!(cors.credentials, Some(true));
+        assert_eq!(cors.max_age, Some(3600));
+        assert!(cors.expose.is_some());
+    }
+
+    // ==================== get_cached_headers 测试 ====================
+
+    #[test]
+    fn test_get_cached_headers_with_methods() {
+        let cors = Cors::new().methods(vec![Method::GET, Method::POST]);
+        let headers = cors.get_cached_headers();
+
+        assert_eq!(
+            headers.get("Access-Control-Allow-Methods"),
+            Some(&"GET,POST".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_get_cached_headers_with_headers() {
+        let cors = Cors::new().headers("authorization,accept");
+        let headers = cors.get_cached_headers();
+
+        assert_eq!(
+            headers.get("Access-Control-Allow-Headers"),
+            Some(&"authorization,accept".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_get_cached_headers_with_credentials() {
+        let cors = Cors::new().credentials(true);
+        let headers = cors.get_cached_headers();
+
+        assert_eq!(
+            headers.get("Access-Control-Allow-Credentials"),
+            Some(&"true".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_get_cached_headers_with_max_age() {
+        let cors = Cors::new().max_age(3600);
+        let headers = cors.get_cached_headers();
+
+        assert_eq!(
+            headers.get("Access-Control-Max-Age"),
+            Some(&"3600".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_get_cached_headers_with_expose() {
+        let cors = Cors::new().expose("Content-Length");
+        let headers = cors.get_cached_headers();
+
+        assert_eq!(
+            headers.get("Access-Control-Expose-Headers"),
+            Some(&"Content-Length".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn test_get_cached_headers_combined() {
+        let cors = Cors::new()
+            .methods("GET,POST")
+            .headers("authorization")
+            .credentials(true)
+            .max_age(3600);
+        let headers = cors.get_cached_headers();
+
+        assert!(headers.contains_key("Access-Control-Allow-Methods"));
+        assert!(headers.contains_key("Access-Control-Allow-Headers"));
+        assert!(headers.contains_key("Access-Control-Allow-Credentials"));
+        assert!(headers.contains_key("Access-Control-Max-Age"));
+    }
+
+    // ==================== 集成测试 ====================
+
     #[tokio::test]
-    async fn test_cors() {
+    async fn test_cors_integration() {
         let route = Route::new("/")
             .hook(Cors::new().origin(CorsType::Any))
             .get(|_req: Request| async { Ok("hello world") });
@@ -281,6 +585,83 @@ mod tests {
             "content-type".parse().unwrap(),
         );
         let res = route.call(req).await.unwrap();
+        assert_eq!(res.status, http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_cors_with_post_request() {
+        let route = Route::new("/")
+            .hook(
+                Cors::new()
+                    .origin("http://localhost:8080")
+                    .methods(vec![Method::GET, Method::POST])
+                    .credentials(true),
+            )
+            .post(|_req: Request| async { Ok("posted") });
+        let route = Route::new_root().append(route);
+
+        let mut req = Request::empty();
+        *req.method_mut() = Method::POST;
+        *req.uri_mut() = "http://localhost:8080/".parse().unwrap();
+        req.headers_mut()
+            .insert("origin", "http://localhost:8080".parse().unwrap());
+
+        let res = route.call(req).await.unwrap();
+        assert_eq!(res.status, http::StatusCode::OK);
+        assert!(res.headers().contains_key("Access-Control-Allow-Origin"));
+        assert!(
+            res.headers()
+                .contains_key("Access-Control-Allow-Credentials")
+        );
+    }
+
+    // ==================== 边界条件测试 ====================
+
+    #[test]
+    fn test_cors_type_empty_methods() {
+        let cors_type = CorsType::AllowSome(vec![]);
+        assert_eq!(cors_type.get_value(), "");
+    }
+
+    #[test]
+    fn test_cors_origin_empty_list() {
+        let origin_type = CorsOriginType::AllowSome(vec![]);
+        assert_eq!(origin_type.get_value("http://example.com"), "");
+    }
+
+    #[tokio::test]
+    async fn test_handle_without_origin_header() {
+        // 测试同源请求（没有 origin header）
+        let route = Route::new("/")
+            .hook(Cors::new().origin(CorsType::Any))
+            .get(|_req: Request| async { Ok("hello") });
+        let route = Route::new_root().append(route);
+
+        let mut req = Request::empty();
+        *req.method_mut() = Method::GET;
+        *req.uri_mut() = "http://localhost:8080/".parse().unwrap();
+        // 不添加 origin header
+
+        let res = route.call(req).await.unwrap();
+        // 没有 origin 应该正常返回（同源请求）
+        assert_eq!(res.status, http::StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn test_handle_empty_string_origin() {
+        // 测试空字符串 origin
+        let route = Route::new("/")
+            .hook(Cors::new().origin("http://example.com"))
+            .get(|_req: Request| async { Ok("hello") });
+        let route = Route::new_root().append(route);
+
+        let mut req = Request::empty();
+        *req.method_mut() = Method::GET;
+        *req.uri_mut() = "http://localhost:8080/".parse().unwrap();
+        req.headers_mut().insert("origin", "".parse().unwrap());
+
+        let res = route.call(req).await.unwrap();
+        // 空 origin 应该被视为同源请求
         assert_eq!(res.status, http::StatusCode::OK);
     }
 }

@@ -503,4 +503,196 @@ mod tests {
             );
         }
     }
+
+    // ==================== Route 基础方法测试 ====================
+
+    #[test]
+    fn test_route_new_empty() {
+        let route = Route::new("");
+        assert_eq!(route.path, "");
+    }
+
+    #[test]
+    fn test_route_new_with_path() {
+        let route = Route::new("api");
+        assert_eq!(route.path, "api");
+    }
+
+    #[test]
+    fn test_route_new_with_leading_slash() {
+        let route = Route::new("/api");
+        assert_eq!(route.path, "api");
+    }
+
+    #[test]
+    fn test_route_new_with_nested_path() {
+        let route = Route::new("api/v1");
+        // 第一个路径段作为 path，第二个被添加为子路由
+        assert_eq!(route.path, "api");
+        assert_eq!(route.children.len(), 1);
+        assert_eq!(route.children[0].path, "v1");
+    }
+
+    #[test]
+    fn test_route_default() {
+        let route = Route::default();
+        assert_eq!(route.path, "");
+    }
+
+    #[test]
+    fn test_route_new_root() {
+        let route = Route::new_root();
+        assert_eq!(route.path, "");
+        assert!(route.configs.is_some());
+    }
+
+    #[test]
+    fn test_route_special_match_detection() {
+        // 测试特殊匹配标记的自动检测
+        let route1 = Route::new("<path:**>");
+        assert!(route1.special_match);
+
+        let route2 = Route::new("api");
+        assert!(!route2.special_match);
+    }
+
+    // ==================== extend 方法测试 ====================
+
+    #[test]
+    fn test_route_extend_empty() {
+        let mut route = Route::new("api");
+        route.extend::<Route>(vec![]);
+        assert_eq!(route.children.len(), 0);
+    }
+
+    #[test]
+    fn test_route_extend_single() {
+        let mut route = Route::new("api");
+        route.extend(vec![Route::new("v1")]);
+        assert_eq!(route.children.len(), 1);
+    }
+
+    #[test]
+    fn test_route_extend_multiple() {
+        let mut route = Route::new("api");
+        route.extend(vec![Route::new("v1"), Route::new("v2"), Route::new("v3")]);
+        assert_eq!(route.children.len(), 3);
+    }
+
+    #[test]
+    fn test_route_extend_with_handlers() {
+        let mut route = Route::new("api");
+        route.extend(vec![
+            Route::new("v1").get(|_req: Request| async { Ok("v1") }),
+            Route::new("v2").post(|_req: Request| async { Ok("v2") }),
+        ]);
+        assert_eq!(route.children.len(), 2);
+    }
+
+    // ==================== push 方法测试 ====================
+
+    #[test]
+    fn test_route_push_single() {
+        let mut route = Route::new("api");
+        route.push(Route::new("v1"));
+        assert_eq!(route.children.len(), 1);
+    }
+
+    #[test]
+    fn test_route_push_nested() {
+        let mut route = Route::new("api");
+        route.push(Route::new("v1").append(Route::new("users")));
+        assert_eq!(route.children.len(), 1);
+        assert_eq!(route.children[0].children.len(), 1);
+    }
+
+    // ==================== merge_from 方法测试 ====================
+
+    #[test]
+    fn test_route_merge_from_same_path() {
+        let mut route1 = Route::new("api").get(|_req: Request| async { Ok("r1") });
+        let route2 = Route::new("api").post(|_req: Request| async { Ok("r2") });
+        route1.merge_from(route2);
+        // 合并相同路径的路由，处理器应该被合并
+        assert!(route1.handler.contains_key(&Method::GET));
+        assert!(route1.handler.contains_key(&Method::POST));
+        // 不应该有子路由
+        assert_eq!(route1.children.len(), 0);
+    }
+
+    #[test]
+    fn test_route_merge_from_handlers() {
+        let mut route1 = Route::new("api").get(|_req: Request| async { Ok("r1") });
+        let route2 = Route::new("api").post(|_req: Request| async { Ok("r2") });
+        route1.merge_from(route2);
+        // 合并后应该有两个处理器
+        assert!(route1.handler.contains_key(&Method::GET));
+        assert!(route1.handler.contains_key(&Method::POST));
+    }
+
+    #[test]
+    fn test_route_merge_from_middlewares() {
+        let mut route1 = Route::new("api").hook(MiddlewareTest {});
+        let route2 = Route::new("api").hook(MiddlewareTest {});
+        route1.merge_from(route2);
+        // 合并后应该有两个中间件
+        assert_eq!(route1.middlewares.len(), 2);
+    }
+
+    #[test]
+    fn test_route_merge_from_with_children() {
+        let mut route1 = Route::new("api");
+        let route2 = Route::new("test").append(Route::new("users"));
+        route1.merge_from(route2);
+        // 合并后应该有子路由
+        assert_eq!(route1.children.len(), 1);
+    }
+
+    // ==================== RouterAdapt trait 测试 ====================
+
+    #[test]
+    fn test_router_adapt_into_router() {
+        let route = Route::new("test");
+        let _converted = route.into_router();
+    }
+
+    #[test]
+    fn test_router_adapt_with_append() {
+        let route1 = Route::new("api");
+        let route2 = Route::new("test");
+        let _result = route1.append(route2);
+    }
+
+    // ==================== Debug trait 测试 ====================
+
+    #[test]
+    fn test_route_debug_empty() {
+        let route = Route::new("test");
+        let _debug_str = format!("{:?}", route);
+        // 空路由（没有处理器）可能不会被显示
+        // 这是 Debug trait 的预期行为
+    }
+
+    #[test]
+    fn test_route_debug_with_handler() {
+        let route = Route::new("test").get(|_req: Request| async { Ok("test") });
+        let debug_str = format!("{:?}", route);
+        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("(GET)"));
+    }
+
+    #[test]
+    fn test_route_debug_with_handlers() {
+        let route = Route::new("test").get(|_req: Request| async { Ok("test") });
+        let debug_str = format!("{:?}", route);
+        assert!(debug_str.contains("test"));
+        assert!(debug_str.contains("(GET)"));
+    }
+
+    #[test]
+    fn test_route_debug_with_children() {
+        let route = Route::new("api").append(Route::new("test"));
+        let debug_str = format!("{:?}", route);
+        assert!(debug_str.contains("api"));
+    }
 }

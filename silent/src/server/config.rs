@@ -81,3 +81,146 @@ pub fn set_global_server_config(config: ServerConfig) {
 pub fn global_server_config() -> RwLockReadGuard<'static, ServerConfig> {
     ServerConfigRegistry::get()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_connection_limits_default() {
+        let limits = ConnectionLimits::default();
+        assert_eq!(limits.handler_timeout, None);
+        assert_eq!(limits.max_body_size, None);
+        assert_eq!(limits.h3_read_timeout, None);
+        assert_eq!(limits.max_webtransport_frame_size, None);
+        assert_eq!(limits.webtransport_read_timeout, None);
+        assert_eq!(limits.max_webtransport_sessions, None);
+        assert_eq!(limits.webtransport_datagram_max_size, None);
+        assert_eq!(limits.webtransport_datagram_rate, None);
+        assert!(!limits.webtransport_datagram_drop_metric);
+    }
+
+    #[test]
+    fn test_connection_limits_clone() {
+        let limits = ConnectionLimits {
+            handler_timeout: Some(std::time::Duration::from_secs(30)),
+            max_body_size: Some(1024),
+            h3_read_timeout: Some(std::time::Duration::from_secs(20)),
+            max_webtransport_frame_size: Some(4096),
+            webtransport_read_timeout: Some(std::time::Duration::from_secs(10)),
+            max_webtransport_sessions: Some(100),
+            webtransport_datagram_max_size: Some(1350),
+            webtransport_datagram_rate: Some(1000),
+            webtransport_datagram_drop_metric: true,
+        };
+
+        let cloned = limits.clone();
+        assert_eq!(cloned.handler_timeout, limits.handler_timeout);
+        assert_eq!(cloned.max_body_size, limits.max_body_size);
+        assert_eq!(cloned.h3_read_timeout, limits.h3_read_timeout);
+        assert_eq!(
+            cloned.max_webtransport_frame_size,
+            limits.max_webtransport_frame_size
+        );
+        assert_eq!(
+            cloned.webtransport_read_timeout,
+            limits.webtransport_read_timeout
+        );
+        assert_eq!(
+            cloned.max_webtransport_sessions,
+            limits.max_webtransport_sessions
+        );
+        assert_eq!(
+            cloned.webtransport_datagram_max_size,
+            limits.webtransport_datagram_max_size
+        );
+        assert_eq!(
+            cloned.webtransport_datagram_rate,
+            limits.webtransport_datagram_rate
+        );
+        assert_eq!(
+            cloned.webtransport_datagram_drop_metric,
+            limits.webtransport_datagram_drop_metric
+        );
+    }
+
+    #[test]
+    fn test_server_config_default() {
+        let config = ServerConfig::default();
+        assert_eq!(config.connection_limits.handler_timeout, None);
+        assert_eq!(config.connection_limits.max_body_size, None);
+    }
+
+    #[test]
+    fn test_server_config_clone() {
+        let config = ServerConfig {
+            connection_limits: ConnectionLimits {
+                handler_timeout: Some(std::time::Duration::from_secs(60)),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let cloned = config.clone();
+        assert_eq!(
+            cloned.connection_limits.handler_timeout,
+            config.connection_limits.handler_timeout
+        );
+    }
+
+    #[test]
+    fn test_set_global_server_config() {
+        let custom_config = ServerConfig {
+            connection_limits: ConnectionLimits {
+                handler_timeout: Some(std::time::Duration::from_secs(120)),
+                max_body_size: Some(2048),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        set_global_server_config(custom_config);
+
+        let config = global_server_config();
+        assert_eq!(
+            config.connection_limits.handler_timeout,
+            Some(std::time::Duration::from_secs(120))
+        );
+        assert_eq!(config.connection_limits.max_body_size, Some(2048));
+    }
+
+    #[test]
+    fn test_global_server_config_multiple_reads() {
+        set_global_server_config(ServerConfig::default());
+
+        // 可以多次读取全局配置
+        let config1 = global_server_config();
+        let config2 = global_server_config();
+
+        assert_eq!(
+            config1.connection_limits.handler_timeout,
+            config2.connection_limits.handler_timeout
+        );
+    }
+
+    #[test]
+    fn test_connection_limits_debug() {
+        let limits = ConnectionLimits {
+            handler_timeout: Some(std::time::Duration::from_secs(30)),
+            ..Default::default()
+        };
+
+        // 验证 Debug trait 实现
+        let debug_str = format!("{:?}", limits);
+        assert!(debug_str.contains("ConnectionLimits"));
+    }
+
+    #[test]
+    fn test_server_config_debug() {
+        let config = ServerConfig::default();
+
+        // 验证 Debug trait 实现
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("ServerConfig"));
+    }
+}

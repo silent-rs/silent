@@ -731,4 +731,733 @@ mod tests {
             .clone();
         assert_eq!(body, Bytes::from("ok"));
     }
+
+    // ==================== SpecialSeg 方法测试 ====================
+
+    #[test]
+    fn test_special_seg_is_full_path() {
+        assert!(!SpecialSeg::Root.is_full_path());
+        assert!(!SpecialSeg::Static("test".to_string()).is_full_path());
+        assert!(
+            !SpecialSeg::String {
+                key: "k".to_string()
+            }
+            .is_full_path()
+        );
+        assert!(
+            SpecialSeg::FullPath {
+                key: "k".to_string()
+            }
+            .is_full_path()
+        );
+        assert!(
+            !SpecialSeg::Path {
+                key: "k".to_string()
+            }
+            .is_full_path()
+        );
+    }
+
+    #[test]
+    fn test_special_seg_as_static_key() {
+        assert_eq!(
+            SpecialSeg::Static("api".to_string()).as_static_key(),
+            Some("api")
+        );
+        assert_eq!(SpecialSeg::Root.as_static_key(), None);
+        assert_eq!(
+            SpecialSeg::String {
+                key: "k".to_string()
+            }
+            .as_static_key(),
+            None
+        );
+    }
+
+    // ==================== parse_special_seg 函数测试 ====================
+
+    #[test]
+    fn test_parse_special_seg_empty() {
+        assert!(matches!(
+            parse_special_seg("".to_string()),
+            SpecialSeg::Root
+        ));
+    }
+
+    #[test]
+    fn test_parse_special_seg_static() {
+        assert!(matches!(
+            parse_special_seg("api".to_string()),
+            SpecialSeg::Static(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_special_seg_string_param() {
+        match parse_special_seg("<id:str>".to_string()) {
+            SpecialSeg::String { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected String segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_int_param() {
+        match parse_special_seg("<id:int>".to_string()) {
+            SpecialSeg::Int { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected Int segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_i64_param() {
+        match parse_special_seg("<id:i64>".to_string()) {
+            SpecialSeg::I64 { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected I64 segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_i32_param() {
+        match parse_special_seg("<id:i32>".to_string()) {
+            SpecialSeg::I32 { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected I32 segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_u64_param() {
+        match parse_special_seg("<id:u64>".to_string()) {
+            SpecialSeg::U64 { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected U64 segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_u32_param() {
+        match parse_special_seg("<id:u32>".to_string()) {
+            SpecialSeg::U32 { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected U32 segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_uuid_param() {
+        match parse_special_seg("<id:uuid>".to_string()) {
+            SpecialSeg::Uuid { key } => assert_eq!(key, "id"),
+            _ => panic!("Expected Uuid segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_path_param() {
+        match parse_special_seg("<path:path>".to_string()) {
+            SpecialSeg::Path { key } => assert_eq!(key, "path"),
+            _ => panic!("Expected Path segment"),
+        }
+    }
+
+    #[test]
+    fn test_parse_special_seg_full_path_param() {
+        match parse_special_seg("<path:**>".to_string()) {
+            SpecialSeg::FullPath { key } => assert_eq!(key, "path"),
+            _ => panic!("Expected FullPath segment"),
+        }
+    }
+
+    // ==================== CapturedStr 测试 ====================
+
+    #[test]
+    fn test_captured_str_new() {
+        let full = "/api/users/123";
+        // value 必须是 full 的子切片，这样指针计算才正确
+        let value = &full[5..10]; // "users"
+        let captured = CapturedStr::new(value, full);
+        // slice_range 使用指针计算，获取的是子字符串在完整字符串中的位置
+        assert_eq!(captured.range.start, 5);
+        assert_eq!(captured.range.end, 10);
+        assert_eq!(&full[captured.range.clone()], "users");
+    }
+
+    // ==================== PathMatch 测试 ====================
+
+    #[test]
+    fn test_path_match_new() {
+        let match_result = PathMatch::new("remain", None);
+        assert_eq!(match_result.remain, "remain");
+        assert!(match_result.capture.is_none());
+    }
+
+    #[test]
+    fn test_path_match_new_with_capture() {
+        let full = "/api/users";
+        let captured = CapturedStr::new("users", full);
+        let match_result = PathMatch::new("remain", Some(PathMatchCapture::Str(captured)));
+        assert_eq!(match_result.remain, "remain");
+        assert!(match_result.capture.is_some());
+    }
+
+    // ==================== 辅助函数测试 ====================
+
+    #[test]
+    fn test_strip_leading_slash() {
+        assert_eq!(strip_leading_slash("/api/users"), "api/users");
+        assert_eq!(strip_leading_slash("api/users"), "api/users");
+        assert_eq!(strip_leading_slash("/"), "");
+        assert_eq!(strip_leading_slash(""), "");
+    }
+
+    #[test]
+    fn test_strip_one_segment() {
+        // 测试单段路径
+        let (seg, remain) = strip_one_segment("/api");
+        assert_eq!(seg, "api");
+        assert_eq!(remain, "");
+
+        // 测试多段路径
+        let (seg, remain) = strip_one_segment("/api/users");
+        assert_eq!(seg, "api");
+        assert_eq!(remain, "users");
+
+        // 测试三段路径
+        let (seg, remain) = strip_one_segment("/api/users/123");
+        assert_eq!(seg, "api");
+        assert_eq!(remain, "users/123");
+
+        // 测试空路径
+        let (seg, remain) = strip_one_segment("");
+        assert_eq!(seg, "");
+        assert_eq!(remain, "");
+
+        // 测试无斜杠路径
+        let (seg, remain) = strip_one_segment("api");
+        assert_eq!(seg, "api");
+        assert_eq!(remain, "");
+    }
+
+    #[test]
+    fn test_match_static_segment() {
+        // 精确匹配
+        assert_eq!(match_static_segment("api", "/api"), Some(""));
+        assert_eq!(match_static_segment("api", "/api/"), Some(""));
+
+        // 带子路径匹配
+        assert_eq!(match_static_segment("api", "/api/users"), Some("users"));
+        assert_eq!(
+            match_static_segment("api", "/api/users/123"),
+            Some("users/123")
+        );
+
+        // 不匹配
+        assert_eq!(match_static_segment("api", "/v1"), None);
+        assert_eq!(match_static_segment("api", "/users"), None);
+
+        // 空值匹配
+        assert_eq!(match_static_segment("", "/any"), Some("/any"));
+        assert_eq!(match_static_segment("", "/"), Some("/"));
+    }
+
+    #[test]
+    fn test_slice_range() {
+        let full = "/api/users/123";
+        // slice 必须是 full 的子切片
+        // 位置: 0=/ 1=a 2=p 3=i 4=/ 5=u 6=s 7=e 8=r 9=s 10=/ 11=1 12=2 13=3
+        let slice = &full[5..10]; // "users"
+        let range = slice_range(full, slice);
+        assert_eq!(range.start, 5);
+        assert_eq!(range.end, 10);
+        assert_eq!(&full[range], "users");
+    }
+
+    #[test]
+    fn test_slice_range_with_prefix() {
+        let full = "/api/users/123";
+        // slice 必须是 full 的子切片
+        // 位置: 0=/ 1=a 2=p 3=i 4=/ 5=u 6=s 7=e 8=r 9=s 10=/ 11=1 12=2 13=3
+        let slice = &full[1..4]; // "api"
+        let range = slice_range(full, slice);
+        assert_eq!(range.start, 1);
+        assert_eq!(range.end, 4);
+        assert_eq!(&full[range], "api");
+    }
+
+    #[test]
+    fn test_remain_offset() {
+        let full = "/api/users/123";
+        // remain_offset = full.len() - remain.len()
+        assert_eq!(remain_offset(full, ""), 14); // 14 - 0
+        assert_eq!(remain_offset(full, "123"), 11); // 14 - 3
+        assert_eq!(remain_offset(full, "users/123"), 5); // 14 - 9
+        assert_eq!(remain_offset(full, "api/users/123"), 1); // 14 - 13 (缺少前导斜杠)
+    }
+
+    // ==================== RouteTree::call_path_only 测试 ====================
+
+    #[test]
+    fn test_route_tree_call_path_only_root() {
+        let route = Route::new("").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试根路径匹配
+        let result = tree.call_path_only("/", "/");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().remain, "");
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_static() {
+        let route = Route::new("api").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试静态路径匹配
+        let result = tree.call_path_only("/api", "/api");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().remain, "");
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_string_param() {
+        let route = Route::new("<id:str>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试字符串参数匹配
+        let result = tree.call_path_only("/123", "/123");
+        assert!(result.is_some());
+        assert!(result.unwrap().capture.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_int_param_valid() {
+        let route = Route::new("<id:int>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试有效整数参数
+        let result = tree.call_path_only("/123", "/123");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_int_param_invalid() {
+        let route = Route::new("<id:int>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试无效整数参数
+        let result = tree.call_path_only("/abc", "/abc");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_i64_param() {
+        let route = Route::new("<id:i64>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let result = tree.call_path_only("/123", "/123");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_u64_param() {
+        let route = Route::new("<id:u64>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let result = tree.call_path_only("/123", "/123");
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_uuid_param_valid() {
+        let route = Route::new("<id:uuid>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试有效 UUID
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let path = format!("/{}", uuid_str);
+        let result = tree.call_path_only(path.as_str(), path.as_str());
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_uuid_param_invalid() {
+        let route = Route::new("<id:uuid>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 测试无效 UUID
+        let result = tree.call_path_only("/not-a-uuid", "/not-a-uuid");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_path_param() {
+        let route = Route::new("<path:path>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let result = tree.call_path_only("/api/users/123", "/api/users/123");
+        assert!(result.is_some());
+        assert!(result.unwrap().capture.is_some());
+    }
+
+    #[test]
+    fn test_route_tree_call_path_only_full_path_param() {
+        let route = Route::new("<path:**>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let result = tree.call_path_only("/api/users/123", "/api/users/123");
+        assert!(result.is_some());
+    }
+
+    // ==================== RouteTree::bind_params 测试 ====================
+
+    #[tokio::test]
+    async fn test_route_tree_bind_params_string() {
+        let route = Route::new("<id:str>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let full_path = Arc::<str>::from("/123");
+        let captured = CapturedStr::new("123", &full_path);
+        let match_result = PathMatch::new("", Some(PathMatchCapture::Str(captured)));
+
+        let mut req = Request::empty();
+        let result = tree.bind_params(&mut req, &match_result, &full_path);
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_bind_params_int() {
+        let route = Route::new("<id:int>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let full_path = Arc::<str>::from("/123");
+        let match_result = PathMatch::new("", Some(PathMatchCapture::I32(123)));
+
+        let mut req = Request::empty();
+        let result = tree.bind_params(&mut req, &match_result, &full_path);
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_bind_params_path() {
+        let route = Route::new("<path:path>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let full_path = Arc::<str>::from("/api/users/123");
+        let captured = CapturedStr::new("api/users/123", &full_path);
+        let match_result = PathMatch::new("", Some(PathMatchCapture::Path(captured)));
+
+        let mut req = Request::empty();
+        let result = tree.bind_params(&mut req, &match_result, &full_path);
+        assert!(result);
+    }
+
+    // ==================== RouteTree::path_can_resolve 测试 ====================
+
+    #[tokio::test]
+    async fn test_route_tree_path_can_resolve_leaf() {
+        let route = Route::new("api").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // 叶子节点，没有子节点，应该可以解析
+        let result = tree.path_can_resolve(4, "/api");
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_path_can_resolve_with_children() {
+        let route = Route::new("api")
+            .append(Route::new("v1").get(hello))
+            .get(world);
+        let tree = route.convert_to_route_tree();
+
+        // 有子节点，但路径为空，有 handler，应该可以解析
+        let result = tree.path_can_resolve(4, "/api");
+        assert!(result);
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_path_can_resolve_full_path() {
+        let route = Route::new("<path:**>").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        // FullPath 节点，应该可以解析
+        let result = tree.path_can_resolve(0, "/api/users/123");
+        assert!(result);
+    }
+
+    // ==================== ContinuationHandler 测试 ====================
+
+    #[tokio::test]
+    async fn test_continuation_handler_creation() {
+        let route = Route::new("api").get(hello);
+        let tree = route.convert_to_route_tree();
+        let arc_tree = Arc::new(tree);
+
+        let _handler = ContinuationHandler::new(arc_tree, 0, make_path_arc("/api"));
+        // 验证 ContinuationHandler 可以创建
+    }
+
+    // ==================== RouteTree Handler trait 测试 ====================
+
+    #[tokio::test]
+    async fn test_route_tree_handler_with_configs() {
+        async fn with_configs(_req: Request) -> Result<String, SilentError> {
+            Ok("with_configs".into())
+        }
+
+        let mut route = Route::new("api");
+        route.configs = Some(crate::Configs::default());
+        route = route.get(with_configs);
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/api".parse().unwrap();
+
+        let result: crate::error::SilentResult<Response> = tree.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_handler_not_found() {
+        let route = Route::new("api").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/not_found".parse().unwrap();
+
+        let result = tree.call(req).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status(), StatusCode::NOT_FOUND);
+    }
+
+    // ==================== Arc<RouteTree> Handler trait 测试 ====================
+
+    #[tokio::test]
+    async fn test_arc_route_tree_handler() {
+        let route = Route::new("api").get(hello);
+        let tree = route.convert_to_route_tree();
+        let arc_tree = Arc::new(tree);
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/api".parse().unwrap();
+
+        let result = arc_tree.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    // ==================== 边界条件测试 ====================
+
+    #[tokio::test]
+    async fn test_route_tree_empty_path() {
+        let route = Route::new("").get(hello);
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/".parse().unwrap();
+
+        let result = tree.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_deep_nesting() {
+        let route = Route::new("api").append(
+            Route::new("v1").append(
+                Route::new("users")
+                    .append(Route::new("<id:i64>").append(
+                        Route::new("posts").append(Route::new("<post_id:u64>").get(hello)),
+                    )),
+            ),
+        );
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/api/v1/users/123/posts/456".parse().unwrap();
+
+        let result = tree.call(req).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_multiple_methods() {
+        async fn get_handler(_: Request) -> Result<&'static str, SilentError> {
+            Ok("GET")
+        }
+        async fn post_handler(_: Request) -> Result<&'static str, SilentError> {
+            Ok("POST")
+        }
+        async fn put_handler(_: Request) -> Result<&'static str, SilentError> {
+            Ok("PUT")
+        }
+
+        let route = Route::new("api")
+            .get(get_handler)
+            .post(post_handler)
+            .put(put_handler);
+        let tree = route.convert_to_route_tree();
+
+        // 测试 GET
+        let mut req_get = Request::empty();
+        req_get.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req_get.uri_mut() = "/api".parse().unwrap();
+        *req_get.method_mut() = Method::GET;
+        let mut res_get = tree.call(req_get).await.unwrap();
+        assert_eq!(
+            res_get
+                .body
+                .frame()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap(),
+            &Bytes::from("GET")
+        );
+
+        // 测试 POST
+        let mut req_post = Request::empty();
+        req_post.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req_post.uri_mut() = "/api".parse().unwrap();
+        *req_post.method_mut() = Method::POST;
+        let mut res_post = tree.call(req_post).await.unwrap();
+        assert_eq!(
+            res_post
+                .body
+                .frame()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap(),
+            &Bytes::from("POST")
+        );
+
+        // 测试 PUT
+        let mut req_put = Request::empty();
+        req_put.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req_put.uri_mut() = "/api".parse().unwrap();
+        *req_put.method_mut() = Method::PUT;
+        let mut res_put = tree.call(req_put).await.unwrap();
+        assert_eq!(
+            res_put
+                .body
+                .frame()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap(),
+            &Bytes::from("PUT")
+        );
+    }
+
+    // ==================== 路径参数提取测试 ====================
+
+    #[tokio::test]
+    async fn test_route_tree_extract_string_param() {
+        async fn get_user(req: Request) -> Result<String, SilentError> {
+            let id: String = req.get_path_params("id").unwrap();
+            Ok(format!("user_id: {}", id))
+        }
+
+        let route = Route::new("users").append(Route::new("<id:str>").get(get_user));
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/users/john_doe".parse().unwrap();
+
+        let mut res = tree.call(req).await.unwrap();
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from("user_id: john_doe")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_extract_int_param() {
+        async fn get_user_by_id(req: Request) -> Result<String, SilentError> {
+            let id: i32 = req.get_path_params("id").unwrap();
+            Ok(format!("user_id: {}", id))
+        }
+
+        let route = Route::new("users").append(Route::new("<id:int>").get(get_user_by_id));
+        let tree = route.convert_to_route_tree();
+
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = "/users/12345".parse().unwrap();
+
+        let mut res = tree.call(req).await.unwrap();
+        assert_eq!(
+            res.body.frame().await.unwrap().unwrap().data_ref().unwrap(),
+            &Bytes::from("user_id: 12345")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_route_tree_extract_uuid_param() {
+        async fn get_by_uuid(req: Request) -> Result<String, SilentError> {
+            let id: uuid::Uuid = req.get_path_params("id").unwrap();
+            Ok(format!("uuid: {}", id))
+        }
+
+        let route = Route::new("items").append(Route::new("<id:uuid>").get(get_by_uuid));
+        let tree = route.convert_to_route_tree();
+
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let mut req = Request::empty();
+        req.set_remote(
+            "127.0.0.1:8080"
+                .parse::<crate::core::remote_addr::RemoteAddr>()
+                .unwrap(),
+        );
+        *req.uri_mut() = format!("/items/{}", uuid_str).parse().unwrap();
+
+        let mut res = tree.call(req).await.unwrap();
+        let frame = res.body.frame().await.unwrap().unwrap();
+        let body = frame.data_ref().unwrap();
+        assert!(body.starts_with(b"uuid:"));
+    }
 }

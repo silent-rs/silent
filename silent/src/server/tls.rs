@@ -285,6 +285,8 @@ fn is_pem_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_looks_like_pem_and_ext() {
@@ -292,6 +294,66 @@ mod tests {
         assert!(!looks_like_pem(b"random bytes"));
         assert!(is_pem_path(Path::new("/tmp/test.pem")));
         assert!(!is_pem_path(Path::new("/tmp/test.der")));
+        // is_pem_path 只检查小写扩展名
+        assert!(!is_pem_path(Path::new("/tmp/test.PEM")));
+        assert!(!is_pem_path(Path::new("/tmp/test.crt")));
+    }
+
+    #[test]
+    fn test_key_der_pkcs8_to_private_der() {
+        let key_der = KeyDer::Pkcs8(vec![1, 2, 3, 4]);
+        let private_der = key_der.to_private_der();
+        match private_der {
+            PrivateKeyDer::Pkcs8(_) => {}
+            _ => panic!("Expected Pkcs8 variant"),
+        }
+    }
+
+    #[test]
+    fn test_key_der_pkcs1_to_private_der() {
+        let key_der = KeyDer::Pkcs1(vec![5, 6, 7, 8]);
+        let private_der = key_der.to_private_der();
+        match private_der {
+            PrivateKeyDer::Pkcs1(_) => {}
+            _ => panic!("Expected Pkcs1 variant"),
+        }
+    }
+
+    #[test]
+    fn test_ensure_crypto_provider_multiple_calls() {
+        // 测试多次调用 ensure_crypto_provider 不会 panic
+        ensure_crypto_provider();
+        ensure_crypto_provider();
+        ensure_crypto_provider();
+    }
+
+    #[test]
+    fn test_certificate_store_builder_new() {
+        let builder = CertificateStoreBuilder::new();
+        assert!(builder.cert_path.is_none());
+        assert!(builder.key_path.is_none());
+        assert!(builder.root_ca_path.is_none());
+    }
+
+    #[test]
+    fn test_certificate_store_builder_default() {
+        let builder = CertificateStoreBuilder::default();
+        assert!(builder.cert_path.is_none());
+        assert!(builder.key_path.is_none());
+        assert!(builder.root_ca_path.is_none());
+    }
+
+    #[test]
+    fn test_certificate_store_builder_chain() {
+        use std::path::PathBuf;
+        let builder = CertificateStoreBuilder::new()
+            .cert_path("/tmp/test.crt")
+            .key_path("/tmp/test.key")
+            .root_ca_path("/tmp/ca.crt");
+
+        assert_eq!(builder.cert_path, Some(PathBuf::from("/tmp/test.crt")));
+        assert_eq!(builder.key_path, Some(PathBuf::from("/tmp/test.key")));
+        assert_eq!(builder.root_ca_path, Some(PathBuf::from("/tmp/ca.crt")));
     }
 
     #[test]
@@ -330,8 +392,6 @@ mod tests {
 
     #[test]
     fn test_builder_success_with_raw_der_bytes() {
-        use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
         let base = std::env::temp_dir();
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -359,9 +419,148 @@ mod tests {
     }
 
     #[test]
+    fn test_builder_with_root_ca_path_not_exists() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_ca_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_ca_{}.key", unique));
+        let ca_path = base.join(format!("silent_tls_test_ca_{}.ca", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        // root_ca 不存在时应该仍然成功（会使用服务器证书作为客户端根证书）
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .root_ca_path(&ca_path)
+            .build()
+            .expect("builder should succeed even if root CA doesn't exist");
+
+        let root = store.client_root_certificate();
+        assert!(!root.is_empty());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_certificate_store_client_root_certificate() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_root_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_root_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .unwrap();
+
+        let root1 = store.client_root_certificate();
+        let root2 = store.client_root_certificate();
+        assert_eq!(root1, root2);
+        assert_eq!(root1, b"CERTBYTES");
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_certificate_store_rustls_server_config() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_conf_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_conf_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .unwrap();
+
+        // 测试不同的 ALPN 协议配置
+        let alpn_slice: &[&[u8]] = &[b"h2", b"http/1.1"];
+
+        let result = store.rustls_server_config(alpn_slice);
+        // 由于使用的是无效的 DER 字节，rustls 配置会失败
+        assert!(result.is_err());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_certificate_store_arc_rustls_server_config() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_arc_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_arc_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .unwrap();
+
+        let result = store.arc_rustls_server_config(&[b"h2", b"http/1.1"]);
+        // 由于使用的是无效的 DER 字节，rustls 配置会失败
+        assert!(result.is_err());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_certificate_store_tls_acceptor() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_acceptor_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_acceptor_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = CertificateStore::builder()
+            .cert_path(&cert_path)
+            .key_path(&key_path)
+            .build()
+            .unwrap();
+
+        let result = store.tls_acceptor(&[b"h2", b"http/1.1"]);
+        // 由于使用的是无效的 DER 字节，rustls 配置会失败
+        assert!(result.is_err());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
     fn test_https_config_error_on_invalid_der() {
-        use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
         let base = std::env::temp_dir();
         let unique = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -388,5 +587,164 @@ mod tests {
 
         let _ = fs::remove_file(&cert_path);
         let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_reloadable_certificate_store_from_paths() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_reload_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_reload_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let _store = ReloadableCertificateStore::from_paths(&cert_path, &key_path, None)
+            .expect("should create reloadable store");
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_reloadable_certificate_store_reload() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_reload2_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_reload2_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = ReloadableCertificateStore::from_paths(&cert_path, &key_path, None)
+            .expect("should create reloadable store");
+
+        // 测试 reload 方法
+        let result = store.reload();
+        assert!(result.is_ok());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_reloadable_certificate_store_with_root_ca() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_reload_ca_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_reload_ca_{}.key", unique));
+        let ca_path = base.join(format!("silent_tls_test_reload_ca_{}.ca", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store =
+            ReloadableCertificateStore::from_paths(&cert_path, &key_path, Some(ca_path.clone()))
+                .expect("should create reloadable store with root CA");
+
+        // 验证 root_ca_path 被正确保存
+        assert_eq!(store.root_ca_path, Some(ca_path));
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_reloadable_certificate_store_tls_acceptor() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_acceptor2_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_acceptor2_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = ReloadableCertificateStore::from_paths(&cert_path, &key_path, None)
+            .expect("should create reloadable store");
+
+        let result = store.tls_acceptor(&[b"h2", b"http/1.1"]);
+        // 由于使用的是无效的 DER 字节，rustls 配置会失败
+        assert!(result.is_err());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_reloadable_certificate_store_https_acceptor() {
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let cert_path = base.join(format!("silent_tls_test_https_{}.crt", unique));
+        let key_path = base.join(format!("silent_tls_test_https_{}.key", unique));
+
+        fs::write(&cert_path, b"CERTBYTES").unwrap();
+        fs::write(&key_path, b"KEYBYTES").unwrap();
+
+        let store = ReloadableCertificateStore::from_paths(&cert_path, &key_path, None)
+            .expect("should create reloadable store");
+
+        let result = store.https_acceptor();
+        // 由于使用的是无效的 DER 字节，rustls 配置会失败
+        assert!(result.is_err());
+
+        let _ = fs::remove_file(&cert_path);
+        let _ = fs::remove_file(&key_path);
+    }
+
+    #[test]
+    fn test_load_cert_chain_with_root_empty_chain() {
+        let result = load_cert_chain_with_root(vec![], None);
+        assert!(result.is_err());
+        if let Err(e) = result {
+            let msg = format!("{e:#}");
+            assert!(msg.contains("证书链为空"));
+        }
+    }
+
+    #[test]
+    fn test_load_cert_chain_with_root_without_root_ca() {
+        let cert_chain = vec![vec![1, 2, 3], vec![4, 5, 6]];
+        let (chain, client_root) = load_cert_chain_with_root(cert_chain.clone(), None)
+            .expect("should succeed without root CA");
+
+        assert_eq!(chain, cert_chain);
+        assert_eq!(client_root, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_load_cert_chain_with_root_with_root_ca() {
+        let cert_chain = vec![vec![1, 2, 3]];
+        let root_ca_chain = [vec![7, 8, 9], vec![10, 11, 12]];
+
+        let base = std::env::temp_dir();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ca_path = base.join(format!("silent_tls_test_root_ca_{}.ca", unique));
+
+        // 写入非 PEM 格式的数据
+        fs::write(&ca_path, &root_ca_chain[0]).unwrap();
+
+        let result = load_cert_chain_with_root(cert_chain, Some(&ca_path));
+        // 由于数据格式不正确，会读取为单个 DER 证书
+        assert!(result.is_ok());
+
+        let _ = fs::remove_file(&ca_path);
     }
 }
