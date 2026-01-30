@@ -2,11 +2,11 @@ name: "CodeQL Analysis"
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
   schedule:
-    - cron: '0 0 * * 1'  # 每周一运行
+    - cron: "0 0 * * 1"
 
 jobs:
   analyze:
@@ -21,24 +21,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # CodeQL 仅支持这些语言
-        language: [ 'javascript', 'python' ]
+        language: ["javascript", "python", "rust"]
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          # 使用 CodeQL 配置文件
-          config-file: .github/codeql/codeql-config.yml
+          config-file: ./.github/codeql/codeql-config.yml
 
+      # Rust 建议手动 build；其它语言可 autobuild
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v2
+        if: matrix.language != 'rust'
+        uses: github/codeql-action/autobuild@v4
+
+      - name: Build Rust
+        if: matrix.language == 'rust'
+        run: |
+          cargo build --workspace --all-targets
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v2
+        uses: github/codeql-action/analyze@v4
         with:
-          category: "/language:${{matrixlanguage}}"
+          category: "/language:${{ matrix.language }}"

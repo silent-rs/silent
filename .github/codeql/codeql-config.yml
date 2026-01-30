@@ -15,12 +15,9 @@ paths-ignore:
   - .history/**
 
   # 排除所有测试文件
-  - '**/tests/**'
-  - '**/*_test.rs'
-  - '**/test_*.rs'
-
-  # 明确排除 cookie 测试文件
-  - silent/src/cookie/cookie_ext_test.rs
+  - "**/tests/**"
+  - "**/*_test.rs"
+  - "**/test_*.rs"
 
 # 仅扫描核心源代码
 paths:
