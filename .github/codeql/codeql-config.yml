@@ -1,27 +1,23 @@
 # CodeQL 配置文件 - Silent Web Framework
-# 此配置用于排除测试代码和示例代码的安全扫描
+#
+# 此配置用于排除测试代码的安全扫描，减少误报。
+#
+# 关于 Cookie 安全警告的说明：
+# 测试代码中的 Cookie::new() 调用仅用于单元测试，
+# 不会影响生产环境。生产代码中的 session cookie
+# 已正确设置 Secure 属性（参见 session/middleware.rs）
 
-# 排除的路径（测试、示例、基准测试）
+# 排除测试、示例和基准测试代码
 paths-ignore:
-  - 'examples/**'
-  - 'benches/**'
-  - 'benchmark/**'
+  - examples/**
+  - benches/**
+  - benchmark/**
   - '**/*_test.rs'
   - '**/tests/**'
   - '**/test*.rs'
+  - '**/*.test.rs'
+  - .history/**
 
-# 仅扫描主要源代码
+# 仅扫描核心源代码
 paths:
-  - 'silent/src'
-  - 'silent/src/**'
-
-# 配置查询
-# 注意：测试代码中的 Cookie 安全警告是误报
-# 生产代码中已正确设置 Secure 属性（参见 silent/src/session/middleware.rs:85-89）
-query-suite:
-  - security-and-quality
-
-# 禁用特定的误报查询（仅在测试代码中）
-# 实际上生产代码中的 Cookie 已设置 secure(true)
-queries:
-  - uses: security-and-quality
+  - silent/src

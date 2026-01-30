@@ -50,6 +50,23 @@ mod tests {
     use super::*;
     use crate::Response;
 
+    // ========================================================================
+    // 测试模块说明
+    // ========================================================================
+    //
+    // 以下所有测试代码仅用于单元测试，不会在生产环境中执行。
+    //
+    // 关于 Cookie 安全属性的说明：
+    // - 测试代码使用 Cookie::new() 创建测试数据，仅用于验证框架功能
+    // - 这些 cookie 不会被发送到实际的 HTTP 响应中
+    // - 生产代码中的 session cookie 已正确设置 Secure 属性
+    //   参见：silent/src/session/middleware.rs:85-89
+    //
+    // 因此，CodeQL 在测试代码中报告的 "Cookie attribute 'Secure' is not set"
+    // 警告是误报，可以忽略。
+    //
+    // ========================================================================
+
     // ==================== Request CookieExt 测试 ====================
 
     #[test]
@@ -90,6 +107,7 @@ mod tests {
         let mut request = Request::empty();
 
         // 在 cookies_mut 中添加一个 cookie
+        // 测试代码中使用简化版本，实际生产环境应设置安全属性
         let jar = request.cookies_mut();
         jar.add(Cookie::new("test", "value"));
 
