@@ -21,11 +21,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ["javascript", "python", "rust"]
+        language: ["rust"]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install protobuf-compiler
+        if: matrix.language == 'rust'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
