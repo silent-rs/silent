@@ -97,7 +97,15 @@ pub use hyper_service::HyperServiceHandler;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cookie::Cookie;
     use http::Request as HttpRequest;
+
+    // 辅助函数：创建用于测试的安全 Cookie（带 Secure 属性）
+    fn test_cookie(name: &str, value: impl AsRef<str>) -> Cookie<'static> {
+        Cookie::build((name.to_owned(), value.as_ref().to_owned()))
+            .secure(true)
+            .build()
+    }
 
     #[test]
     fn test_into_internal_basic() {
@@ -127,9 +135,7 @@ mod tests {
         // 构造响应，验证 from_internal 会把 Set-Cookie 写回头部
         let mut resp = Response::empty();
         let mut jar = CookieJar::new();
-        let mut cookie = Cookie::new("x", "y");
-        cookie.set_secure(true);
-        jar.add(cookie);
+        jar.add(test_cookie("x", "y"));
         resp.extensions_mut().insert(jar);
         let hyper_resp = HyperHttpProtocol::from_internal(resp);
         assert!(hyper_resp.headers().contains_key(header::SET_COOKIE));

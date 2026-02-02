@@ -112,8 +112,15 @@ mod tests {
     use crate::handler::HandlerWrapper;
     use crate::session::session_ext::SessionExt;
     use async_session::MemoryStore;
-    use cookie::CookieJar;
+    use cookie::{Cookie, CookieJar};
     use std::sync::Arc;
+
+    // 辅助函数：创建用于测试的安全 Cookie（带 Secure 属性）
+    fn test_cookie(name: &str, value: impl AsRef<str>) -> Cookie<'static> {
+        Cookie::build((name.to_owned(), value.as_ref().to_owned()))
+            .secure(true)
+            .build()
+    }
 
     // 创建测试用的 handler
     async fn test_handler(_req: Request) -> crate::Result<Response> {
@@ -172,7 +179,7 @@ mod tests {
 
         // 创建带有 session cookie 的请求
         let mut jar = CookieJar::new();
-        jar.add(Cookie::new("silent-web-session", cookie_value));
+        jar.add(test_cookie("silent-web-session", cookie_value));
 
         let mut req = Request::empty();
         req.extensions_mut().insert(jar);
@@ -196,7 +203,7 @@ mod tests {
 
         // 创建带有无效 session cookie 的请求
         let mut jar = CookieJar::new();
-        jar.add(Cookie::new("silent-web-session", "invalid_cookie_value"));
+        jar.add(test_cookie("silent-web-session", "invalid_cookie_value"));
 
         let mut req = Request::empty();
         req.extensions_mut().insert(jar);
@@ -268,7 +275,7 @@ mod tests {
         async fn cookie_handler(_req: Request) -> crate::Result<Response> {
             let mut res = Response::empty();
             let mut jar = CookieJar::new();
-            jar.add(Cookie::new("test_cookie", "test_value"));
+            jar.add(test_cookie("test_cookie", "test_value"));
             res.extensions_mut().insert(jar);
             Ok(res)
         }

@@ -1,19 +1,17 @@
 // CookieExt trait 的独立测试文件
 //
 // 此文件包含所有 cookie_ext.rs 中 CookieExt trait 的单元测试
-//
-// 关于 Cookie 安全属性的说明：
-// - 测试代码使用 Cookie::new() 创建测试数据，仅用于验证框架功能
-// - 这些 cookie 不会被发送到实际的 HTTP 响应中
-// - 生产代码中的 session cookie 已正确设置 Secure 属性
-//   参见：silent/src/session/middleware.rs:85-89
-//
-// 因此，CodeQL 在此文件中报告的 "Cookie attribute 'Secure' is not set"
-// 警告是误报，可以忽略。
 
 use cookie::{Cookie, CookieJar};
 // 导入 CookieExt trait 和必要类型
 use crate::{CookieExt, Request, Response};
+
+// 辅助函数：创建用于测试的安全 Cookie（带 Secure 属性）
+fn test_cookie(name: &str, value: impl AsRef<str>) -> Cookie<'static> {
+    Cookie::build((name.to_owned(), value.as_ref().to_owned()))
+        .secure(true)
+        .build()
+}
 
 // ==================== Request CookieExt 测试 ====================
 
@@ -57,7 +55,7 @@ fn test_request_cookies_mut_persists() {
     // 在 cookies_mut 中添加一个 cookie
     // 测试代码中使用简化版本，实际生产环境应设置安全属性
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("test", "value"));
+    jar.add(test_cookie("test", "value"));
 
     // 通过 cookies() 应该能获取到
     let jar2 = request.cookies();
@@ -77,7 +75,7 @@ fn test_request_cookie_some() {
 
     // 添加一个 CookieJar 并设置 cookie
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("session", "abc123"));
+    jar.add(test_cookie("session", "abc123"));
 
     // 应该能获取到这个 cookie
     let cookie = request.cookie("session");
@@ -91,7 +89,7 @@ fn test_request_cookie_not_found() {
 
     // 添加一个 CookieJar
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("other", "value"));
+    jar.add(test_cookie("other", "value"));
 
     // 查找不存在的 cookie 应该返回 None
     assert!(request.cookie("session").is_none());
@@ -101,7 +99,7 @@ fn test_request_cookie_not_found() {
 fn test_request_cookie_with_string() {
     let mut request = Request::empty();
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("test", "value"));
+    jar.add(test_cookie("test", "value"));
 
     // 使用 &str 查找
     assert!(request.cookie("test").is_some());
@@ -152,7 +150,7 @@ fn test_response_cookies_mut_persists() {
 
     // 在 cookies_mut 中添加一个 cookie
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("test", "value"));
+    jar.add(test_cookie("test", "value"));
 
     // 通过 cookies() 应该能获取到
     let jar2 = response.cookies();
@@ -172,7 +170,7 @@ fn test_response_cookie_some() {
 
     // 添加一个 CookieJar 并设置 cookie
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("session", "xyz789"));
+    jar.add(test_cookie("session", "xyz789"));
 
     // 应该能获取到这个 cookie
     let cookie = response.cookie("session");
@@ -186,7 +184,7 @@ fn test_response_cookie_not_found() {
 
     // 添加一个 CookieJar
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("other", "value"));
+    jar.add(test_cookie("other", "value"));
 
     // 查找不存在的 cookie 应该返回 None
     assert!(response.cookie("session").is_none());
@@ -196,7 +194,7 @@ fn test_response_cookie_not_found() {
 fn test_response_cookie_with_string() {
     let mut response = Response::empty();
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("test", "value"));
+    jar.add(test_cookie("test", "value"));
 
     // 使用 &str 查找
     assert!(response.cookie("test").is_some());
@@ -213,9 +211,9 @@ fn test_request_multiple_cookies() {
     let mut request = Request::empty();
     let jar = request.cookies_mut();
 
-    jar.add(Cookie::new("cookie1", "value1"));
-    jar.add(Cookie::new("cookie2", "value2"));
-    jar.add(Cookie::new("cookie3", "value3"));
+    jar.add(test_cookie("cookie1", "value1"));
+    jar.add(test_cookie("cookie2", "value2"));
+    jar.add(test_cookie("cookie3", "value3"));
 
     assert_eq!(request.cookie("cookie1").unwrap().value(), "value1");
     assert_eq!(request.cookie("cookie2").unwrap().value(), "value2");
@@ -227,9 +225,9 @@ fn test_response_multiple_cookies() {
     let mut response = Response::empty();
     let jar = response.cookies_mut();
 
-    jar.add(Cookie::new("cookie1", "value1"));
-    jar.add(Cookie::new("cookie2", "value2"));
-    jar.add(Cookie::new("cookie3", "value3"));
+    jar.add(test_cookie("cookie1", "value1"));
+    jar.add(test_cookie("cookie2", "value2"));
+    jar.add(test_cookie("cookie3", "value3"));
 
     assert_eq!(response.cookie("cookie1").unwrap().value(), "value1");
     assert_eq!(response.cookie("cookie2").unwrap().value(), "value2");
@@ -242,7 +240,7 @@ fn test_response_multiple_cookies() {
 fn test_request_empty_cookie_name() {
     let mut request = Request::empty();
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("", "value"));
+    jar.add(test_cookie("", "value"));
 
     // 空名称的 cookie
     let cookie = request.cookie("");
@@ -254,7 +252,7 @@ fn test_request_empty_cookie_name() {
 fn test_response_empty_cookie_name() {
     let mut response = Response::empty();
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("", "value"));
+    jar.add(test_cookie("", "value"));
 
     // 空名称的 cookie
     let cookie = response.cookie("");
@@ -266,7 +264,7 @@ fn test_response_empty_cookie_name() {
 fn test_request_special_cookie_value() {
     let mut request = Request::empty();
     let jar = request.cookies_mut();
-    jar.add(Cookie::new("test", "value with spaces"));
+    jar.add(test_cookie("test", "value with spaces"));
 
     let cookie = request.cookie("test");
     assert_eq!(cookie.unwrap().value(), "value with spaces");
@@ -276,7 +274,7 @@ fn test_request_special_cookie_value() {
 fn test_response_special_cookie_value() {
     let mut response = Response::empty();
     let jar = response.cookies_mut();
-    jar.add(Cookie::new("test", "value with spaces"));
+    jar.add(test_cookie("test", "value with spaces"));
 
     let cookie = response.cookie("test");
     assert_eq!(cookie.unwrap().value(), "value with spaces");
@@ -290,10 +288,10 @@ fn test_cookies_isolation() {
 
     request
         .cookies_mut()
-        .add(Cookie::new("req_cookie", "req_value"));
+        .add(test_cookie("req_cookie", "req_value"));
     response
         .cookies_mut()
-        .add(Cookie::new("resp_cookie", "resp_value"));
+        .add(test_cookie("resp_cookie", "resp_value"));
 
     // Request 不应该有 Response 的 cookie
     assert!(request.cookie("resp_cookie").is_none());
@@ -304,7 +302,7 @@ fn test_cookies_isolation() {
 #[test]
 fn test_request_cookies_cloned() {
     let mut request = Request::empty();
-    request.cookies_mut().add(Cookie::new("test", "value"));
+    request.cookies_mut().add(test_cookie("test", "value"));
 
     // cookies() 应该返回克隆的 CookieJar
     let jar1 = request.cookies();
@@ -318,7 +316,7 @@ fn test_request_cookies_cloned() {
 #[test]
 fn test_response_cookies_cloned() {
     let mut response = Response::empty();
-    response.cookies_mut().add(Cookie::new("test", "value"));
+    response.cookies_mut().add(test_cookie("test", "value"));
 
     // cookies() 应该返回克隆的 CookieJar
     let jar1 = response.cookies();
@@ -336,12 +334,12 @@ fn test_request_cookies_mut_same_instance() {
     // cookies_mut() 应该总是返回同一个可变引用
     {
         let jar1 = request.cookies_mut();
-        jar1.add(Cookie::new("test", "value1"));
+        jar1.add(test_cookie("test", "value1"));
     } // 释放第一个可变引用
 
     {
         let jar2 = request.cookies_mut();
-        jar2.add(Cookie::new("test2", "value2"));
+        jar2.add(test_cookie("test2", "value2"));
     } // 释放第二个可变引用
 
     // 应该都能在同一个 CookieJar 中找到
@@ -356,12 +354,12 @@ fn test_response_cookies_mut_same_instance() {
     // cookies_mut() 应该总是返回同一个可变引用
     {
         let jar1 = response.cookies_mut();
-        jar1.add(Cookie::new("test", "value1"));
+        jar1.add(test_cookie("test", "value1"));
     } // 释放第一个可变引用
 
     {
         let jar2 = response.cookies_mut();
-        jar2.add(Cookie::new("test2", "value2"));
+        jar2.add(test_cookie("test2", "value2"));
     } // 释放第二个可变引用
 
     // 应该都能在同一个 CookieJar 中找到
