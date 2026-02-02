@@ -119,3 +119,120 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== Default trait 测试 ====================
+
+    #[test]
+    fn test_keep_alive_default() {
+        let keep_alive = KeepAlive::default();
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(15));
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed(""));
+    }
+
+    // ==================== new() 方法测试 ====================
+
+    #[test]
+    fn test_keep_alive_new() {
+        let keep_alive = KeepAlive::new();
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(15));
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed(""));
+    }
+
+    // ==================== interval() 方法测试 ====================
+
+    #[test]
+    fn test_keep_alive_interval_custom() {
+        let keep_alive = KeepAlive::new().interval(Duration::from_secs(30));
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn test_keep_alive_interval_zero() {
+        let keep_alive = KeepAlive::new().interval(Duration::ZERO);
+        assert_eq!(keep_alive.max_interval, Duration::ZERO);
+    }
+
+    #[test]
+    fn test_keep_alive_interval_millis() {
+        let keep_alive = KeepAlive::new().interval(Duration::from_millis(500));
+        assert_eq!(keep_alive.max_interval, Duration::from_millis(500));
+    }
+
+    // ==================== comment_text() 方法测试 ====================
+
+    #[test]
+    fn test_keep_alive_comment_text_string() {
+        let keep_alive = KeepAlive::new().comment_text("keep-alive");
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed("keep-alive"));
+    }
+
+    #[test]
+    fn test_keep_alive_comment_text_empty() {
+        let keep_alive = KeepAlive::new().comment_text("");
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed(""));
+    }
+
+    #[test]
+    fn test_keep_alive_comment_text_owned() {
+        let keep_alive = KeepAlive::new().comment_text(String::from("owned"));
+        assert_eq!(
+            keep_alive.comment_text,
+            Cow::Owned::<str>(String::from("owned"))
+        );
+    }
+
+    // ==================== 链式调用测试 ====================
+
+    #[test]
+    fn test_keep_alive_chain() {
+        let keep_alive = KeepAlive::new()
+            .interval(Duration::from_secs(10))
+            .comment_text("ping");
+
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(10));
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed("ping"));
+    }
+
+    #[test]
+    fn test_keep_alive_chain_reverse() {
+        let keep_alive = KeepAlive::new()
+            .comment_text("ping")
+            .interval(Duration::from_secs(20));
+
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(20));
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed("ping"));
+    }
+
+    // ==================== Debug trait 测试 ====================
+
+    #[test]
+    fn test_keep_alive_debug() {
+        let keep_alive = KeepAlive::new();
+        let debug_str = format!("{:?}", keep_alive);
+        assert!(debug_str.contains("KeepAlive"));
+    }
+
+    // ==================== 覆盖测试 ====================
+
+    #[test]
+    fn test_keep_alive_override_interval() {
+        let keep_alive = KeepAlive::new()
+            .interval(Duration::from_secs(5))
+            .interval(Duration::from_secs(10));
+
+        assert_eq!(keep_alive.max_interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn test_keep_alive_override_comment() {
+        let keep_alive = KeepAlive::new()
+            .comment_text("first")
+            .comment_text("second");
+
+        assert_eq!(keep_alive.comment_text, Cow::Borrowed("second"));
+    }
+}

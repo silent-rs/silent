@@ -521,6 +521,345 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::path_param::PathString;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr as StdSocketAddr};
+
+    // ==================== 基础构造函数测试 ====================
+
+    #[test]
+    fn test_request_empty() {
+        let req = Request::empty();
+        assert_eq!(req.method(), Method::GET);
+        assert_eq!(req.uri(), &Uri::from_static("/"));
+        assert_eq!(req.version(), Version::HTTP_11);
+        assert!(req.path_params.is_empty());
+        assert!(req.params.is_empty());
+    }
+
+    #[test]
+    fn test_request_default() {
+        let req = Request::default();
+        assert_eq!(req.method(), Method::GET);
+    }
+
+    #[test]
+    fn test_request_from_parts() {
+        let (parts, _) = BaseRequest::builder()
+            .method("POST")
+            .uri("/test")
+            .body(())
+            .unwrap()
+            .into_parts();
+
+        let req = Request::from_parts(parts, ReqBody::Empty);
+        assert_eq!(req.method(), Method::POST);
+        assert_eq!(req.uri(), &Uri::from_static("/test"));
+    }
+
+    // ==================== remote/set_remote 测试 ====================
+
+    #[test]
+    fn test_remote_with_x_real_ip() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("x-real-ip", "127.0.0.1:8080".parse().unwrap());
+
+        let remote = req.remote();
+        assert_eq!(remote.to_string(), "127.0.0.1:8080");
+    }
+
+    #[test]
+    fn test_set_remote_with_existing_x_real_ip() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("x-real-ip", "192.168.1.1:9000".parse().unwrap());
+
+        let new_addr = RemoteAddr::from(StdSocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            8080,
+        ));
+        req.set_remote(new_addr);
+
+        // x-real-ip 应该保持不变
+        assert_eq!(
+            req.headers().get("x-real-ip").unwrap(),
+            "192.168.1.1:9000".parse::<HeaderValue>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_set_remote_with_x_forwarded_for() {
+        let mut req = Request::empty();
+        req.headers_mut().insert(
+            "x-forwarded-for",
+            "203.0.113.1, 70.41.3.18, 150.172.238.178".parse().unwrap(),
+        );
+
+        let addr = RemoteAddr::from(StdSocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            8080,
+        ));
+        req.set_remote(addr);
+
+        // X-Forwarded-For 中的纯 IP 会被解析为 Ipv4，不包含端口
+        assert_eq!(
+            req.headers().get("x-real-ip").unwrap(),
+            "203.0.113.1".parse::<HeaderValue>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_set_remote_without_headers() {
+        let mut req = Request::empty();
+        let addr = RemoteAddr::from(StdSocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)),
+            8080,
+        ));
+        req.set_remote(addr);
+
+        assert_eq!(
+            req.headers().get("x-real-ip").unwrap(),
+            "10.0.0.1:8080".parse::<HeaderValue>().unwrap()
+        );
+    }
+
+    // ==================== method 相关测试 ====================
+
+    #[test]
+    fn test_method_get() {
+        let req = Request::empty();
+        assert_eq!(req.method(), Method::GET);
+    }
+
+    #[test]
+    fn test_method_mut() {
+        let mut req = Request::empty();
+        *req.method_mut() = Method::POST;
+        assert_eq!(req.method(), Method::POST);
+    }
+
+    // ==================== uri 相关测试 ====================
+
+    #[test]
+    fn test_uri_get() {
+        let req = Request::empty();
+        assert_eq!(req.uri(), &Uri::from_static("/"));
+    }
+
+    #[test]
+    fn test_uri_mut() {
+        let mut req = Request::empty();
+        *req.uri_mut() = Uri::from_static("/test/path");
+        assert_eq!(req.uri(), &Uri::from_static("/test/path"));
+    }
+
+    // ==================== version 相关测试 ====================
+
+    #[test]
+    fn test_version_get() {
+        let req = Request::empty();
+        assert_eq!(req.version(), Version::HTTP_11);
+    }
+
+    #[test]
+    fn test_version_mut() {
+        let mut req = Request::empty();
+        *req.version_mut() = Version::HTTP_2;
+        assert_eq!(req.version(), Version::HTTP_2);
+    }
+
+    // ==================== headers 相关测试 ====================
+
+    #[test]
+    fn test_headers_get() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("custom-header", "test-value".parse().unwrap());
+
+        assert_eq!(
+            req.headers().get("custom-header").unwrap(),
+            "test-value".parse::<HeaderValue>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_headers_mut() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("x-test", "value1".parse().unwrap());
+        req.headers_mut()
+            .insert("x-test", "value2".parse().unwrap());
+
+        // headers 应该有新值
+        assert!(req.headers().get("x-test").is_some());
+    }
+
+    // ==================== extensions 相关测试 ====================
+
+    #[test]
+    fn test_extensions_get() {
+        let req = Request::empty();
+        // 验证可以获取 extensions
+        let _ext = req.extensions();
+    }
+
+    #[test]
+    fn test_extensions_mut() {
+        let mut req = Request::empty();
+        req.extensions_mut().insert("test_key");
+        assert_eq!(req.extensions().get::<&'static str>(), Some(&"test_key"));
+    }
+
+    // ==================== configs 相关测试 ====================
+
+    #[test]
+    fn test_configs_get() {
+        let req = Request::empty();
+        let configs = req.configs();
+        // 验证可以获取 configs
+        assert!(configs.is_empty());
+    }
+
+    #[test]
+    fn test_configs_get_uncheck() {
+        let mut req = Request::empty();
+        req.configs_mut().insert("test_value");
+        let value = req.get_config_uncheck::<&str>();
+        assert_eq!(*value, "test_value");
+    }
+
+    #[test]
+    fn test_configs_mut() {
+        let mut req = Request::empty();
+        req.configs_mut().insert(42i32);
+        let value = req.get_config_uncheck::<i32>();
+        assert_eq!(*value, 42);
+    }
+
+    // ==================== path_params 相关测试 ====================
+
+    #[test]
+    fn test_path_params_empty() {
+        let req = Request::empty();
+        assert!(req.path_params().is_empty());
+    }
+
+    #[test]
+    fn test_get_path_params_success() {
+        let mut req = Request::empty();
+        req.path_params.insert(
+            "id".to_string(),
+            PathParam::Str(PathString::Owned("123".to_string())),
+        );
+
+        let id: String = req.get_path_params("id").unwrap();
+        assert_eq!(id, "123");
+    }
+
+    #[test]
+    fn test_get_path_params_missing() {
+        let req = Request::empty();
+        let result: Result<String> = req.get_path_params("missing");
+        assert!(result.is_err());
+    }
+
+    // ==================== params 相关测试 ====================
+
+    #[test]
+    fn test_params_get() {
+        let mut req = Request::empty();
+        req.params.insert("key".to_string(), "value".to_string());
+
+        let params = req.params();
+        assert_eq!(params.get("key"), Some(&"value".to_string()));
+    }
+
+    // ==================== body 相关测试 ====================
+
+    #[test]
+    fn test_replace_body() {
+        let mut req = Request::empty();
+        let new_body = ReqBody::Once(Bytes::from("test data"));
+
+        let old_body = req.replace_body(new_body);
+        assert!(matches!(old_body, ReqBody::Empty));
+    }
+
+    #[test]
+    fn test_take_body() {
+        let mut req = Request::empty();
+        req.body = ReqBody::Once(Bytes::from("data"));
+
+        let body = req.take_body();
+        assert!(matches!(body, ReqBody::Once(_)));
+    }
+
+    // ==================== content_type 测试 ====================
+
+    #[test]
+    fn test_content_type_json() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("content-type", "application/json".parse().unwrap());
+
+        let ct = req.content_type();
+        assert_eq!(ct.as_ref().unwrap().type_(), mime::APPLICATION);
+        assert_eq!(ct.as_ref().unwrap().subtype(), mime::JSON);
+    }
+
+    #[test]
+    fn test_content_type_missing() {
+        let req = Request::empty();
+        assert!(req.content_type().is_none());
+    }
+
+    #[test]
+    fn test_content_type_invalid() {
+        let mut req = Request::empty();
+        req.headers_mut()
+            .insert("content-type", "not-a-valid-mime".parse().unwrap());
+
+        let ct = req.content_type();
+        assert!(ct.is_none());
+    }
+
+    // ==================== into_http 测试 ====================
+
+    #[test]
+    fn test_into_http() {
+        let req = Request::empty();
+        let http_req = req.into_http();
+
+        assert_eq!(http_req.method(), Method::GET);
+        assert_eq!(http_req.uri(), &Uri::from_static("/"));
+    }
+
+    // ==================== replace_extensions/take_extensions 测试 ====================
+
+    #[test]
+    fn test_replace_extensions() {
+        let mut req = Request::empty();
+        req.extensions_mut().insert("value1");
+
+        let mut new_ext = Extensions::new();
+        new_ext.insert("value2");
+
+        let old_ext = req.replace_extensions(new_ext);
+        assert_eq!(old_ext.get::<&'static str>(), Some(&"value1"));
+        assert_eq!(req.extensions().get::<&'static str>(), Some(&"value2"));
+    }
+
+    #[test]
+    fn test_take_extensions() {
+        let mut req = Request::empty();
+        req.extensions_mut().insert("test_value");
+
+        let ext = req.take_extensions();
+        assert_eq!(ext.get::<&'static str>(), Some(&"test_value"));
+        assert!(req.extensions().is_empty());
+    }
+
+    // ==================== Default trait 测试 ====================
 
     #[derive(Deserialize, Debug, PartialEq)]
     struct TestStruct {

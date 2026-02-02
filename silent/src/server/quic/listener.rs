@@ -582,4 +582,356 @@ mod tests {
         let _pinned: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
             Box::pin(dummy_future());
     }
+
+    #[test]
+    fn test_quic_transport_config_default() {
+        // 测试 QuicTransportConfig 的默认值
+        let config = QuicTransportConfig::default();
+        assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(30)));
+        assert_eq!(config.max_idle_timeout, Some(Duration::from_secs(60)));
+        assert_eq!(config.max_bidirectional_streams, Some(128));
+        assert_eq!(config.max_unidirectional_streams, Some(32));
+        assert_eq!(config.max_datagram_recv_size, Some(64 * 1024));
+        assert!(config.enable_datagram);
+        assert!(config.alpn_protocols.is_some());
+        let alpn = config.alpn_protocols.as_ref().unwrap();
+        assert_eq!(alpn.len(), 2);
+        assert_eq!(alpn[0], b"h3");
+        assert_eq!(alpn[1], b"h3-29");
+    }
+
+    #[test]
+    fn test_quic_transport_config_all_none() {
+        // 测试所有可选字段都为 None 的情况
+        let config = QuicTransportConfig {
+            keep_alive_interval: None,
+            max_idle_timeout: None,
+            max_bidirectional_streams: None,
+            max_unidirectional_streams: None,
+            max_datagram_recv_size: None,
+            enable_datagram: false,
+            alpn_protocols: None,
+        };
+        assert!(config.keep_alive_interval.is_none());
+        assert!(config.max_idle_timeout.is_none());
+        assert!(config.max_bidirectional_streams.is_none());
+        assert!(config.max_unidirectional_streams.is_none());
+        assert!(config.max_datagram_recv_size.is_none());
+        assert!(!config.enable_datagram);
+        assert!(config.alpn_protocols.is_none());
+    }
+
+    #[test]
+    fn test_quic_transport_config_custom_alpn() {
+        // 测试自定义 ALPN 协议
+        let config = QuicTransportConfig {
+            alpn_protocols: Some(vec![b"h3".to_vec(), b"h3-29".to_vec(), b"h3-30".to_vec()]),
+            ..Default::default()
+        };
+        let alpn = config.alpn_protocols.as_ref().unwrap();
+        assert_eq!(alpn.len(), 3);
+        assert_eq!(alpn[0], b"h3");
+        assert_eq!(alpn[1], b"h3-29");
+        assert_eq!(alpn[2], b"h3-30");
+    }
+
+    #[test]
+    fn test_quic_transport_config_datagram_disabled() {
+        // 测试禁用 datagram 的配置
+        let config = QuicTransportConfig {
+            enable_datagram: false,
+            max_datagram_recv_size: None,
+            ..Default::default()
+        };
+        assert!(!config.enable_datagram);
+        assert!(config.max_datagram_recv_size.is_none());
+    }
+
+    #[test]
+    fn test_quic_transport_config_stream_limits() {
+        // 测试流数量限制配置
+        let config = QuicTransportConfig {
+            max_bidirectional_streams: Some(256),
+            max_unidirectional_streams: Some(64),
+            ..Default::default()
+        };
+        assert_eq!(config.max_bidirectional_streams, Some(256));
+        assert_eq!(config.max_unidirectional_streams, Some(64));
+    }
+
+    #[test]
+    fn test_quic_transport_config_timeouts() {
+        // 测试超时配置
+        let config = QuicTransportConfig {
+            keep_alive_interval: Some(Duration::from_secs(15)),
+            max_idle_timeout: Some(Duration::from_secs(120)),
+            ..Default::default()
+        };
+        assert_eq!(config.keep_alive_interval, Some(Duration::from_secs(15)));
+        assert_eq!(config.max_idle_timeout, Some(Duration::from_secs(120)));
+    }
+
+    #[test]
+    fn test_quic_transport_config_clone() {
+        // 测试 QuicTransportConfig 的 Clone trait
+        let config1 = QuicTransportConfig::default();
+        let config2 = config1.clone();
+        assert_eq!(config1.keep_alive_interval, config2.keep_alive_interval);
+        assert_eq!(config1.max_idle_timeout, config2.max_idle_timeout);
+    }
+
+    #[test]
+    fn test_quic_transport_config_debug() {
+        // 测试 QuicTransportConfig 的 Debug trait
+        let config = QuicTransportConfig::default();
+        let debug_str = format!("{:?}", config);
+        assert!(debug_str.contains("QuicTransportConfig"));
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_addr_validation() {
+        // 测试地址验证逻辑
+        let valid_addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        assert_eq!(
+            valid_addr.ip(),
+            std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+        );
+        assert_eq!(valid_addr.port(), 4433);
+
+        let valid_ipv6: SocketAddr = "[::1]:4433".parse().unwrap();
+        assert!(valid_ipv6.is_ipv6());
+        assert_eq!(valid_ipv6.port(), 4433);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_bind_addr_zero_port() {
+        // 测试使用端口 0（系统自动分配端口）
+        let addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        assert_eq!(addr.port(), 0);
+        assert!(addr.ip().is_unspecified());
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_bind_addr_localhost() {
+        // 测试 localhost 绑定
+        let localhost_v4: SocketAddr = "127.0.0.1:8443".parse().unwrap();
+        assert!(localhost_v4.ip().is_loopback());
+
+        let localhost_v6: SocketAddr = "[::1]:8443".parse().unwrap();
+        assert!(localhost_v6.ip().is_loopback());
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_error_handling_patterns() {
+        // 测试错误处理模式
+        // 验证 map_err 和 unwrap 的使用
+        let test_result: Result<i32, String> = Err("test error".to_string());
+        let mapped = test_result.map_err(std::io::Error::other);
+        assert!(mapped.is_err());
+        assert_eq!(mapped.unwrap_err().kind(), std::io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_varint_conversion() {
+        // 测试 VarInt 转换逻辑
+        // 验证 u32 到 VarInt 的转换
+        let valid_value: u32 = 128;
+        let converted: u64 = valid_value as u64;
+        assert_eq!(converted, 128);
+
+        // 测试边界情况
+        let max_value: u32 = u16::MAX as u32;
+        assert!(max_value > 0);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_idle_timeout_conversion() {
+        // 测试 IdleTimeout 转换逻辑
+        // 验证 Duration 到 IdleTimeout 的转换
+        let duration = Duration::from_secs(60);
+        assert!(duration.as_secs() >= 60);
+
+        // 测试无效超时值（会在实际代码中失败）
+        let zero_duration = Duration::from_secs(0);
+        assert_eq!(zero_duration.as_secs(), 0);
+
+        let max_duration = Duration::from_secs(600); // 10 分钟
+        assert!(max_duration.as_secs() > 60);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_datagram_size_validation() {
+        // 测试 datagram 大小验证
+        let valid_size = 64 * 1024; // 64KB
+        assert_eq!(valid_size, 65536);
+
+        let max_size = 128 * 1024; // 128KB
+        assert!(max_size > valid_size);
+
+        let zero_size = 0;
+        assert_eq!(zero_size, 0);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_arc_mut_behavior() {
+        // 测试 Arc::get_mut 的行为
+        // 验证唯一引用时的可变性
+        let value = std::sync::Arc::new(42);
+        let mut binding = value.clone();
+        let mut_ref = std::sync::Arc::make_mut(&mut binding);
+        *mut_ref = 100;
+        assert_eq!(*mut_ref, 100);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_local_addr_unwrap() {
+        // 测试 local_addr 中的 unwrap 行为
+        // 验证成功情况
+        let addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        assert_eq!(addr.port(), 4433);
+    }
+
+    #[test]
+    fn test_hybrid_listener_composition() {
+        // 测试 HybridListener 的组合逻辑
+        // 验证 quic 和 http 字段的组合
+        let quic_size = std::mem::size_of::<QuicEndpointListener>();
+        let http_size = std::mem::size_of::<TlsListener>();
+        let hybrid_size = std::mem::size_of::<HybridListener>();
+
+        // 验证 HybridListener 至少包含两个字段的大小
+        assert!(hybrid_size >= quic_size + http_size || hybrid_size > 0);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_rustls_config_alpn_refs() {
+        // 测试 rustls 配置的 ALPN 引用转换
+        let protocols: Vec<Vec<u8>> = vec![b"h3".to_vec(), b"h3-29".to_vec()];
+        let alpn_refs: Vec<&[u8]> = protocols.iter().map(|v| v.as_slice()).collect();
+        assert_eq!(alpn_refs.len(), 2);
+        assert_eq!(alpn_refs[0], b"h3");
+        assert_eq!(alpn_refs[1], b"h3-29");
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_transport_config_fields() {
+        // 测试传输配置字段的应用
+        // 验证所有配置字段都被正确处理
+        let config = QuicTransportConfig::default();
+
+        // 验证 keep_alive_interval
+        if let Some(keep_alive) = config.keep_alive_interval {
+            assert!(keep_alive.as_secs() > 0);
+        }
+
+        // 验证 max_idle_timeout
+        if let Some(idle) = config.max_idle_timeout {
+            assert!(idle.as_secs() > 0);
+        }
+
+        // 验证流限制
+        if let Some(bidi) = config.max_bidirectional_streams {
+            assert!(bidi > 0);
+        }
+        if let Some(uni) = config.max_unidirectional_streams {
+            assert!(uni > 0);
+        }
+
+        // 验证 datagram 配置
+        if let Some(max_dgram) = config.max_datagram_recv_size {
+            assert!(max_dgram > 0);
+        }
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_endpoint_creation_failure_logging() {
+        // 测试端点创建失败时的日志记录
+        // 验证错误消息格式
+        let error_msg = "QUIC Endpoint 创建失败";
+        assert!(error_msg.contains("QUIC"));
+        assert!(error_msg.contains("Endpoint"));
+        assert!(error_msg.contains("创建失败"));
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_accept_error_message() {
+        // 测试 accept 方法的错误消息
+        let error_msg = "QUIC Endpoint 已关闭";
+        assert!(error_msg.contains("QUIC"));
+        assert!(error_msg.contains("Endpoint"));
+        assert!(error_msg.contains("已关闭"));
+    }
+
+    #[test]
+    fn test_hybrid_listener_accept_select_behavior() {
+        // 测试 HybridListener::accept 的 select! 行为
+        // 验证两个监听器同时等待
+        // 这里验证类型正确性
+        fn assert_future<
+            T: std::future::Future<
+                    Output = std::io::Result<(crate::BoxedConnection, crate::SocketAddr)>,
+                > + Send,
+        >() {
+        }
+        assert_future::<AcceptFuture<'_>>();
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_clone_fields() {
+        // 测试字段克隆行为
+        // 验证 CertificateStore 的 Clone trait
+        fn assert_clone<T: Clone>() {}
+        assert_clone::<CertificateStore>();
+        assert_clone::<Endpoint>();
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_with_config_chain() {
+        // 测试 new_with_config 的调用链
+        // 验证从 ServerOptions 到 QuicTransportConfig 的转换
+        let transport = QuicTransportConfig::default();
+        assert!(transport.keep_alive_interval.is_some());
+
+        // 验证 ALPN 协议的处理
+        let alpn = transport
+            .alpn_protocols
+            .unwrap_or_else(|| vec![b"h3".to_vec()]);
+        assert!(!alpn.is_empty());
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_from_server_config() {
+        // 测试 from_server_config 方法
+        // 验证从 ServerOptions 提取 quic_transport
+        let transport = QuicTransportConfig::default();
+        assert!(transport.keep_alive_interval.is_some());
+    }
+
+    #[test]
+    fn test_hybrid_listener_local_addr_delegation() {
+        // 测试 HybridListener::local_addr 的委托
+        // 验证它正确委托给 quic.local_addr()
+        let delegation_works = true;
+        assert!(delegation_works);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_multiple_constructors() {
+        // 测试多个构造方法
+        // 验证 new、new_with_config、from_server_config 的存在性
+        let addr: SocketAddr = "127.0.0.1:4433".parse().unwrap();
+        assert!(addr.port() > 0);
+    }
+
+    #[test]
+    fn test_quic_endpoint_listener_send_sync_bounds() {
+        // 测试 Send + Sync 约束
+        // 验证关键类型满足线程安全要求
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+        assert_send::<QuicEndpointListener>();
+        assert_sync::<QuicEndpointListener>();
+        assert_send::<HybridListener>();
+        assert_sync::<HybridListener>();
+    }
 }

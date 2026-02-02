@@ -158,10 +158,392 @@ pub fn record_shutdown_duration(tag: &'static str, dur_ns: u64) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn test_server_metrics_default() {
+        let metrics = ServerMetrics::default();
+        assert_eq!(
+            metrics.accept_ok.load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+        assert_eq!(
+            metrics
+                .accept_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+        assert_eq!(
+            metrics
+                .handler_ok
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+        assert_eq!(
+            metrics
+                .handler_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            0
+        );
+    }
+
+    #[test]
+    fn test_server_metrics_singleton() {
+        let metrics1 = server_metrics();
+        let metrics2 = server_metrics();
+
+        // 验证返回的是同一个实例
+        assert!(std::ptr::eq(metrics1, metrics2));
+    }
+
+    #[test]
+    fn test_record_accept_ok() {
+        // 重置计数器
+        let metrics = server_metrics();
+        metrics
+            .accept_ok
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_accept_ok();
+        assert_eq!(
+            metrics.accept_ok.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        record_accept_ok();
+        record_accept_ok();
+        assert_eq!(
+            metrics.accept_ok.load(std::sync::atomic::Ordering::Relaxed),
+            3
+        );
+    }
+
+    #[test]
+    fn test_record_accept_err() {
+        let metrics = server_metrics();
+        metrics
+            .accept_err
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_accept_err();
+        assert_eq!(
+            metrics
+                .accept_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        record_accept_err();
+        assert_eq!(
+            metrics
+                .accept_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            2
+        );
+    }
+
+    #[test]
+    fn test_record_handler_ok() {
+        let metrics = server_metrics();
+        metrics
+            .handler_ok
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_handler_ok();
+        assert_eq!(
+            metrics
+                .handler_ok
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        record_handler_ok();
+        record_handler_ok();
+        assert_eq!(
+            metrics
+                .handler_ok
+                .load(std::sync::atomic::Ordering::Relaxed),
+            3
+        );
+    }
+
+    #[test]
+    fn test_record_handler_err() {
+        let metrics = server_metrics();
+        metrics
+            .handler_err
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_handler_err();
+        assert_eq!(
+            metrics
+                .handler_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        record_handler_err();
+        assert_eq!(
+            metrics
+                .handler_err
+                .load(std::sync::atomic::Ordering::Relaxed),
+            2
+        );
+    }
+
+    #[test]
+    fn test_record_handler_timeout() {
+        let metrics = server_metrics();
+        metrics
+            .handler_timeout
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_handler_timeout();
+        assert_eq!(
+            metrics
+                .handler_timeout
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+
+        record_handler_timeout();
+        record_handler_timeout();
+        assert_eq!(
+            metrics
+                .handler_timeout
+                .load(std::sync::atomic::Ordering::Relaxed),
+            3
+        );
+    }
+
+    #[test]
+    fn test_record_rate_limiter_closed() {
+        let metrics = server_metrics();
+        metrics
+            .rate_limiter_closed
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_rate_limiter_closed();
+        assert_eq!(
+            metrics
+                .rate_limiter_closed
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_record_rate_limiter_timeout() {
+        let metrics = server_metrics();
+        metrics
+            .rate_limiter_timeout
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_rate_limiter_timeout();
+        assert_eq!(
+            metrics
+                .rate_limiter_timeout
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_record_graceful_shutdown() {
+        let metrics = server_metrics();
+        metrics
+            .graceful_shutdowns
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_graceful_shutdown();
+        assert_eq!(
+            metrics
+                .graceful_shutdowns
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_record_forced_shutdown() {
+        let metrics = server_metrics();
+        metrics
+            .forced_shutdowns
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_forced_shutdown();
+        assert_eq!(
+            metrics
+                .forced_shutdowns
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_record_handler_duration() {
+        // 测试记录处理时长（仅验证不会 panic）
+        record_handler_duration(1000);
+        record_handler_duration(5000);
+        record_handler_duration(10_000_000);
+    }
+
+    #[test]
+    fn test_record_wait_duration() {
+        // 测试记录等待时长（仅验证不会 panic）
+        record_wait_duration(100);
+        record_wait_duration(500);
+        record_wait_duration(1000);
+    }
+
+    #[test]
+    fn test_record_shutdown_duration() {
+        // 测试记录关停时长（仅验证不会 panic）
+        record_shutdown_duration("phase1", 1000);
+        record_shutdown_duration("phase2", 5000);
+        record_shutdown_duration("cleanup", 10_000);
+    }
+
     #[test]
     #[cfg(feature = "quic")]
     fn test_datagram_metrics_noop() {
         super::record_webtransport_datagram_dropped();
         super::record_webtransport_rate_limited();
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_http3_body_oversize() {
+        let metrics = server_metrics();
+        metrics
+            .http3_body_oversize
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_http3_body_oversize();
+        assert_eq!(
+            metrics
+                .http3_body_oversize
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_http3_read_timeout() {
+        // 测试 HTTP3 读取超时记录（仅验证不会 panic）
+        record_http3_read_timeout();
+        record_http3_read_timeout();
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_http3_response_size() {
+        // 测试 HTTP3 响应大小记录（仅验证不会 panic）
+        record_http3_response_size(1024);
+        record_http3_response_size(4096);
+        record_http3_response_size(10_000);
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_accept() {
+        let metrics = server_metrics();
+        metrics
+            .webtransport_accept
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_webtransport_accept();
+        assert_eq!(
+            metrics
+                .webtransport_accept
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_error() {
+        let metrics = server_metrics();
+        metrics
+            .webtransport_error
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+
+        record_webtransport_error();
+        assert_eq!(
+            metrics
+                .webtransport_error
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_handshake_duration() {
+        // 测试 WebTransport 握手时长记录（仅验证不会 panic）
+        record_webtransport_handshake_duration(1000);
+        record_webtransport_handshake_duration(5000);
+        record_webtransport_handshake_duration(10_000_000);
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_session_duration() {
+        // 测试 WebTransport 会话时长记录（仅验证不会 panic）
+        record_webtransport_session_duration(1000);
+        record_webtransport_session_duration(5000);
+        record_webtransport_session_duration(10_000_000);
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_datagram_dropped() {
+        // 测试 WebTransport datagram 丢弃记录（仅验证不会 panic）
+        record_webtransport_datagram_dropped();
+        record_webtransport_datagram_dropped();
+    }
+
+    #[test]
+    #[cfg(feature = "quic")]
+    fn test_record_webtransport_rate_limited() {
+        // 测试 WebTransport 速率限制记录（仅验证不会 panic）
+        record_webtransport_rate_limited();
+        record_webtransport_rate_limited();
+    }
+
+    #[test]
+    fn test_metrics_multiple_counters() {
+        // 测试多个计数器同时增加
+        record_accept_ok();
+        record_handler_ok();
+        record_graceful_shutdown();
+
+        let metrics = server_metrics();
+        assert_eq!(
+            metrics.accept_ok.load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            metrics
+                .handler_ok
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            metrics
+                .graceful_shutdowns
+                .load(std::sync::atomic::Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[test]
+    fn test_metrics_debug() {
+        let metrics = ServerMetrics::default();
+        // 验证 Debug trait 实现
+        let debug_str = format!("{:?}", metrics);
+        assert!(debug_str.contains("ServerMetrics"));
     }
 }

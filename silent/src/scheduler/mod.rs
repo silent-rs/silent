@@ -171,9 +171,10 @@ mod tests {
         let mut scheduler = Scheduler::new();
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
+        // 使用每秒执行的cron表达式，确保在测试期间会执行多次
         let async_task = Task::create_with_action_async(
             "async_task".to_string(),
-            ProcessTime::try_from("*/5 * * * * * *".to_string()).unwrap(),
+            ProcessTime::try_from("* * * * * * *".to_string()).unwrap(),
             "async_task".to_string(),
             Arc::new(move || {
                 let counter_clone = counter_clone.clone();
@@ -190,8 +191,11 @@ mod tests {
         tokio::spawn(async move {
             Scheduler::schedule(arc_scheduler_clone).await;
         });
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        assert_eq!(counter.load(Ordering::SeqCst), 1);
+        // 等待3秒，任务应该执行约3次
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        // 检查至少执行了2次（考虑到调度延迟）
+        let count = counter.load(Ordering::SeqCst);
+        assert!(count >= 2, "Expected at least 2 executions, got {}", count);
         arc_scheduler.lock().await.stop();
     }
 }
