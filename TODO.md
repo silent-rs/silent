@@ -1,255 +1,47 @@
-# TODO（测试覆盖率改进）
+# TODO（v2.14 开发计划）
 
-> 分支: `feature/test-coverage-improvement`（自 `main` 切出）
-> 目标版本: v2.13+
+> 目标版本: v2.14+
 > 优先级: P1
-> 状态: ✅ Phase 1 + Phase 2 + Phase 3 全部完成！
+> 状态: 规划中
 
-## 目标
-- 提升整体模块测试覆盖率到 85% 以上
-- 确保核心功能路径有充分的测试覆盖
-- 为零覆盖和低覆盖率区域补充测试用例
+## 上一阶段成果（v2.13 已完成 ✅）
 
-## 当前整体覆盖率（2025-01-29 更新）
+- 统一配置入口（`ServerConfig` / `ConnectionLimits`）
+- 监听器公平调度 + 错误退避
+- metrics/tracing 全链路可观测
+- QUIC/HTTP3 参数全部可配置化
+- 测试覆盖率 89.01%（1587 个测试）
+- HTTP/1.1/2 请求路径 tracing span（peer/method/uri）
+- H3 响应分块参数可配置（`h3_chunk_size`、`h3_yield_bytes`）
 
-### 总体指标
-- **区域覆盖率**: 90.64%
-- **函数覆盖率**: 85.27%
-- **行覆盖率**: 89.01%
-- **测试数量**: 1587 个测试全部通过 ✅
+## 待开发任务
 
-### 各模块覆盖率现状
+### P1：常用中间件补充
 
-#### ✅ 已完成模块（>85% 行覆盖率）
+- [ ] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
+- [ ] Compression 中间件 — 动态响应体 gzip/brotli 压缩
+- [ ] RequestId 中间件 — 使用 scru128 为每个请求生成追踪 ID
 
-**核心模块**：
-- `core/form.rs`: 93.33% ✅
-- `core/path_param.rs`: 98.60% ✅ ✅（从 59.32% 提升，+36.83%）
-- `core/req_body.rs`: 85.85% ✅
-- `core/request.rs`: 85.45% ✅
-- `core/res_body.rs`: 87.37% ✅
-- `core/response.rs`: 98.50% ✅
-- `core/serde/mod.rs`: 88.43% ✅
-- `core/serde/multipart.rs`: 90.60% ✅
-- `error/mod.rs`: 99.81% ✅（从 64.86% 提升，+34.95%）
+### P1：OpenAPI 宏增强
 
-**中间件模块**：
-- `cookie/cookie_ext.rs`: 100.00% ✅
-- `cookie/middleware.rs`: 97.96% ✅
-- `middleware/middlewares/cors.rs`: 96.31% ✅
-- `middleware/middlewares/exception_handler.rs`: 90.53% ✅
-- `middleware/middlewares/request_time_logger.rs`: 100.00% ✅
-- `middleware/middlewares/timeout.rs`: 97.87% ✅
+- [ ] 支持复杂请求/响应类型文档化
+- [ ] 支持枚举变体文档生成
+- [ ] 与提取器（Path、Query、Json）自动集成
 
-**WebSocket 模块**：
-- `ws/handler.rs`: 100.00% ✅
-- `ws/route.rs`: 100.00% ✅
-- `ws/message.rs`: 98.63% ✅
-- `ws/upgrade.rs`: 88.51% ✅
-- `ws/handler_wrapper_websocket.rs`: 96.05% ✅
-- `ws/websocket.rs`: 79.08% ✅（从 35.20% 提升，+43.88%）
-- `ws/websocket_handler.rs`: 76.22% ✅（从 14.58% 提升）
+### P2：依赖更新
 
-**gRPC 模块**：
-- `grpc/handler.rs`: 76.92% ✅（从 58.08% 提升，+18.84%）
-- `grpc/register.rs`: 78.00% ✅（从 71.05% 提升，+6.95%）
-- `grpc/service.rs`: 67.44% ⚠️（从 51.32% 提升，+16.12%）
-- `grpc/utils.rs`: 99.63% ✅
+- [ ] scru128 3.2.3 → 最新版本
+- [ ] tokio → 最新 1.x
+- [ ] chrono → 最新 0.4.x
 
-**调度器模块**：
-- `scheduler/middleware.rs`: 100.00% ✅
-- `scheduler/traits.rs`: 100.00% ✅
-- `scheduler/mod.rs`: 88.16% ✅
-- `scheduler/task.rs`: 89.52% ✅
-- `scheduler/process_time.rs`: 75.56% ✅
+### P2：低覆盖率模块测试补全
 
-**其他模块**：
-- `configs/mod.rs`: 81.67% ✅
-- `extractor/from_request.rs`: 91.11% ✅
-- `extractor/mod.rs`: 89.29% ✅
-- `handler/handler_fn.rs`: 95.17% ✅
-- `handler/handler_trait.rs`: 100.00% ✅
-- `handler/handler_wrapper.rs`: 100.00% ✅
-- `handler/static/compression.rs`: 100.00% ✅（从 62.67% 提升，+37.33%）
-- `handler/static/directory.rs`: 97.37% ✅（从 79.71% 提升，+17.66%）
-- `handler/static/handler.rs`: 88.93% ✅
-- `handler/static/options.rs`: 100.00% ✅
-- `middleware/middleware_trait.rs`: 100.00% ✅
-- `route/handler_match.rs`: 100.00% ✅
-- `route/route_service.rs`: 88.89% ✅
-- `server/connection.rs`: 96.77% ✅
-- `server/connection_service.rs`: 100.00% ✅
-- `server/listener.rs`: 81.75% ✅（从 69.37% 提升，+12.38%）
-- `server/metrics.rs`: 100.00% ✅（从 66.67% 提升，+33.33%）
-- `server/mod.rs`: 86.69% ✅（从 44.74% 提升，+41.95%）
-- `server/net_server.rs`: 83.90% ✅（从 81.71% 提升，+2.19%）
-- `server/protocol/hyper_http/hyper_service.rs`: 84.78% ✅（从 70.77% 提升，+14.01%）
-- `server/protocol/hyper_http/mod.rs`: 93.51% ✅
-- `server/route_connection.rs`: 80.65% ✅（从 68.46% 提升，+12.19%）
-- `server/stream.rs`: 86.60% ✅
-- `server/tls.rs`: 92.34% ✅（从 63.67% 提升，+28.67%）
+- [ ] `grpc/service.rs` — 67.44%，目标 75%+
+- [ ] `route/handler_append.rs` — 59.16%，分析不可测路径
+- [ ] `templates/middleware.rs` — 71.95%，目标 85%+
 
-**QUIC 模块**：
-- `server/quic/connection.rs`: 84.43% ✅
-- `server/quic/core.rs`: 75.78% ✅（从 64.33% 提升，+11.45%）
-- `server/quic/echo.rs`: 88.81% ✅
-- `server/quic/listener.rs`: 77.54% ✅
-- `server/quic/middleware.rs`: 100.00% ✅
-- `server/quic/service.rs`: 84.10% ✅（从 73.07% 提升，+11.03%）
+### P3：架构优化
 
----
-
-## 待完成任务
-
-### 🔴 零覆盖率模块（优先级：P0）
-
-#### 1. Session 模块（已完成 ✅）
-- `session/middleware.rs` - 93.59% ✅（从0%提升）
-- `session/session_ext.rs` - 100.00% ✅（从0%提升）
-
-#### 2. SSE 模块（已完成 ✅）
-- `sse/event.rs` - 100.00% ✅（从0%提升）
-- `sse/keep_alive.rs` - 81.67% ✅（从0%提升）
-- `sse/reply.rs` - 92.16% ✅（从0%提升）
-
-#### 3. WebSocket 模块（已完成 ✅）
-- `ws/handler_wrapper_websocket.rs` - 96.05% ✅（从0%提升）
-- `ws/route.rs` - 100.00% ✅（从0%提升）
-- `ws/websocket_handler.rs` - 76.22% ✅（从14.58%提升）
-- `ws/websocket.rs` - 79.08% ✅（从35.20%提升，+43.88%）
-
-### 🟡 低覆盖率模块（<70%，优先级：P1）
-
-#### 核心模块
-- `core/socket_addr.rs` - 91.88% ✅（从 56.00% 提升，+35.88%）
-
-#### gRPC 模块
-- `grpc/handler.rs` - 76.92% ✅（从 58.08% 提升，+18.84%）
-- `grpc/register.rs` - 78.00% ✅（从 71.05% 提升，+6.95%）
-- `grpc/service.rs` - 67.44% ⚠️（从 51.32% 提升，+16.12%，未达 75% 目标）
-
-#### 路由模块
-- `route/handler_append.rs` - 59.16% ✅（从 58.03% 提升，+1.13%）
-- `route/mod.rs` - 91.52% ✅（从 73.84% 提升，+17.68%）
-- `route/route_tree.rs` - 78.42% ✅（新增 50+ 测试用例，增强测试覆盖）
-
-#### 服务器模块（已完成 ✅）
-- `server/mod.rs` - 86.69% ✅（从 44.74% 提升，+41.95%）
-- `server/config.rs` - 100.00% ✅（从 52.94% 提升，+47.06%）
-- `server/metrics.rs` - 100.00% ✅（从 66.67% 提升，+33.33%）
-- `server/tls.rs` - 92.34% ✅（从 63.67% 提升，+28.67%）
-
-#### 静态文件处理（已完成 ✅）
-- `handler/static/compression.rs` - 100.00% ✅（从 62.67% 提升，+37.33%）
-- `handler/static/directory.rs` - 97.37% ✅（从 79.71% 提升，+17.66%）
-
-#### 其他
-- `templates/middleware.rs` - 71.95% (23/82 行未覆盖)
-- `server/protocol/hyper_http/hyper_service.rs` - 70.77% (19/65 行未覆盖)
-- `route/route_tree.rs` - 78.42% (104/482 行未覆盖)
-- `core/next.rs` - 91.30% (2/23 行未覆盖) - 接近目标
-
----
-
-## 工作计划
-
-### Phase 1: 零覆盖率模块（优先级最高）
-
-#### 1.1 WebSocket 模块剩余文件（已完成 ✅）
-- [x] `ws/handler_wrapper_websocket.rs` - 0% → 96.05% ✅
-- [x] `ws/route.rs` - 0% → 100.00% ✅
-- [x] `ws/websocket.rs` - 35.20% → 79.08% ✅（+43.88%）
-- [x] `ws/websocket_handler.rs` - 14.58% → 76.22% ✅
-
-#### 1.2 SSE 模块（已完成 ✅）
-- [x] `sse/event.rs` - 0% → 100.00% ✅
-- [x] `sse/keep_alive.rs` - 0% → 81.67% ✅
-- [x] `sse/reply.rs` - 0% → 92.16% ✅
-
-#### 1.3 Session 模块（已完成 ✅）
-- [x] `session/middleware.rs` - 0% → 93.59% ✅
-- [x] `session/session_ext.rs` - 0% → 100.00% ✅
-
-### Phase 2: 低覆盖率核心模块（优先级：P1）
-
-#### 2.1 核心模块（已完成 ✅）
-- [x] `core/remote_addr.rs` - 59.32% → 96.15% ✅（+36.83%）
-- [x] `core/socket_addr.rs` - 56.00% → 91.88% ✅（+35.88%）
-- [x] `error/mod.rs` - 64.86% → 99.81% ✅（+34.95%）
-
-#### 2.2 gRPC 模块（已完成 ✅）
-- [x] `grpc/handler.rs` - 58.08% → 76.92% ✅（+18.84%）
-- [x] `grpc/register.rs` - 71.05% → 78.00% ✅（+6.95%）
-- [x] `grpc/service.rs` - 51.32% → 67.44% ⚠️（+16.12%，未达 75% 目标）
-
-#### 2.3 路由模块（已完成 ✅）
-- [x] `route/handler_append.rs` - 58.03% → 59.16% ✅（+1.13%，虽未达 75% 但已达极限）
-- [x] `route/mod.rs` - 73.84% → 91.52% ✅（+17.68%，超过 75% 目标）
-- [x] `route/route_tree.rs` - 78.42% ✅（新增 50+ 测试用例，增强测试覆盖）
-
-### Phase 3: 其他模块优化（优先级：P2）（已完成 ✅）
-
-#### 3.1 服务器模块（已完成 ✅）
-- [x] `server/mod.rs` - 44.74% → 86.69% ✅（超过 70% 目标，+41.95%）
-- [x] `server/config.rs` - 52.94% → 100.00% ✅（超过 70% 目标，+47.06%）
-- [x] `server/metrics.rs` - 66.67% → 100.00% ✅（超过 70% 目标，+33.33%）
-- [x] `server/tls.rs` - 63.67% → 92.34% ✅（超过 70% 目标，+28.67%）
-
-#### 3.2 静态文件处理（已完成 ✅）
-- [x] `handler/static/compression.rs` - 62.67% → 100.00% ✅（超过 75% 目标，+37.33%）
-- [x] `handler/static/directory.rs` - 79.71% → 97.37% ✅（超过 85% 目标，+17.66%）
-
-#### 3.3 QUIC 模块（已完成 ✅）
-- [x] `server/quic/core.rs` - 64.33% → 75.78% ✅（达到 70% 目标，+11.45%）
-- [x] `server/quic/service.rs` - 73.07% → 84.10% ✅（超过 75% 目标，+11.03%）
-
----
-
-## 验收标准
-
-### 主要目标
-- [x] 整体行覆盖率 > 85% ✅（已达到 89.01%）
-- [x] 所有零覆盖率模块达到 75% 以上 ✅（包括 WebSocket 模块）
-- [x] 所有测试通过 `cargo nextest run --all-features` ✅（1587 个测试）
-- [x] 代码检查通过 `cargo clippy --all-targets --all-features --tests --benches -- -D warnings` ✅
-
-### 次要目标
-- [ ] gRPC 模块整体行覆盖率 > 75%
-- [x] WebSocket 模块整体行覆盖率 > 85% ✅（约 91.21%）
-- [x] 路由模块整体行覆盖率 > 75% ✅（约 83.04%，3 个文件）
-- [x] 服务器模块整体行覆盖率 > 70% ✅（约 94.76%，4 个文件）
-- [x] 静态文件处理整体行覆盖率 > 75% ✅（约 98.69%，2 个文件）
-- [x] QUIC 模块整体行覆盖率 > 70% ✅（约 85.27%，6 个文件）
-
----
-
-## 下一步行动
-
-✅ **Phase 1 已完成**：所有零覆盖率模块均已达到 75% 以上
-✅ **Phase 2 已完成**：核心模块、gRPC 模块、路由模块均已完成优化
-✅ **Phase 3 已完成**：服务器模块、静态文件处理、QUIC 模块均已完成优化
-
-🎉 **所有三个阶段全部完成！**
-
-### 当前进度总结
-
-✅ **已完成**（Phase 1 + Phase 2 + Phase 3 全部）：
-- Session 模块（2 个文件）：93.59% + 100.00%
-- SSE 模块（3 个文件）：100% + 81.67% + 92.16%
-- WebSocket 模块（4 个文件）：100% + 96.05% + 76.22% + 79.08%
-- Error 模块（1 个文件）：99.81% ✅（从 64.86% 提升，+34.95%）
-- RemoteAddr 模块（1 个文件）：96.15% ✅（从 59.32% 提升，+36.83%）
-- SocketAddr 模块（1 个文件）：91.88% ✅（从 56.00% 提升，+35.88%）
-- gRPC 模块（3 个文件）：76.92% + 78.00% + 67.44%
-- 路由模块（3 个文件）：91.52% + 59.16% + 78.42%（新增 50+ 测试用例）
-- 服务器模块（4 个文件）：86.69% + 100.00% + 100.00% + 92.34%
-- 静态文件处理（2 个文件）：100.00% + 97.37%
-- QUIC 模块（2 个文件）：75.78% + 84.10%（新增 62 个测试用例）
-
-📊 **覆盖率提升**：
-- 测试数量：1019 → 1587（+568 个测试，+55.7%）
-- 整体行覆盖率：82.46% → 89.01%（+6.55%）
-- 区域覆盖率：84.51% → 90.64%（+6.13%）
-- 函数覆盖率：81.55% → 85.27%（+3.72%）
-
-✅ **所有三个阶段的主要目标全部达成**！
+- [ ] 路由性能优化（参数路由匹配预编译，减少内存分配）
+- [ ] TestClient 集成测试工具
+- [ ] Cloudflare Worker 生态增强（文档、KV/D1/R2 示例）
