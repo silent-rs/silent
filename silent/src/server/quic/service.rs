@@ -293,8 +293,13 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
         .send_response(Response::from_parts(parts, ()))
         .await?;
 
-    const H3_CHUNK_SIZE: usize = 16 * 1024;
-    const H3_YIELD_BYTES: usize = 256 * 1024;
+    let (h3_chunk_size, h3_yield_bytes) = {
+        let cfg = crate::server::config::global_server_config();
+        (
+            cfg.connection_limits.h3_chunk_size.unwrap_or(16 * 1024),
+            cfg.connection_limits.h3_yield_bytes.unwrap_or(256 * 1024),
+        )
+    };
     let mut sent_since_yield = 0usize;
     #[cfg(feature = "metrics")]
     let mut total_sent = 0usize;
@@ -307,7 +312,7 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
             }
             let mut buf = data;
             while !buf.is_empty() {
-                let chunk_len = buf.len().min(H3_CHUNK_SIZE);
+                let chunk_len = buf.len().min(h3_chunk_size);
                 let chunk = buf.split_to(chunk_len);
                 stream.send_data(chunk).await?;
                 sent_since_yield = sent_since_yield.saturating_add(chunk_len);
@@ -315,7 +320,7 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
                 {
                     total_sent = total_sent.saturating_add(chunk_len);
                 }
-                if sent_since_yield >= H3_YIELD_BYTES {
+                if sent_since_yield >= h3_yield_bytes {
                     tokio::task::yield_now().await;
                     sent_since_yield = 0;
                 }

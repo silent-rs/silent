@@ -22,6 +22,10 @@ pub struct ConnectionLimits {
     pub webtransport_datagram_rate: Option<u64>,
     /// WebTransport datagram 丢弃计数（只做观测）。
     pub webtransport_datagram_drop_metric: bool,
+    /// HTTP/3 响应体分块大小（字节）。默认 16KB。
+    pub h3_chunk_size: Option<usize>,
+    /// HTTP/3 响应体 yield 阈值（字节），达到后让出执行权。默认 256KB。
+    pub h3_yield_bytes: Option<usize>,
 }
 
 /// Server 级配置入口。
@@ -53,6 +57,8 @@ static CONFIG_REGISTRY: ServerConfigRegistry = ServerConfigRegistry {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         },
         #[cfg(feature = "quic")]
         quic_transport: None,
@@ -98,6 +104,8 @@ mod tests {
         assert_eq!(limits.webtransport_datagram_max_size, None);
         assert_eq!(limits.webtransport_datagram_rate, None);
         assert!(!limits.webtransport_datagram_drop_metric);
+        assert_eq!(limits.h3_chunk_size, None);
+        assert_eq!(limits.h3_yield_bytes, None);
     }
 
     #[test]
@@ -112,6 +120,8 @@ mod tests {
             webtransport_datagram_max_size: Some(1350),
             webtransport_datagram_rate: Some(1000),
             webtransport_datagram_drop_metric: true,
+            h3_chunk_size: Some(32 * 1024),
+            h3_yield_bytes: Some(512 * 1024),
         };
 
         let cloned = limits.clone();
@@ -142,6 +152,8 @@ mod tests {
             cloned.webtransport_datagram_drop_metric,
             limits.webtransport_datagram_drop_metric
         );
+        assert_eq!(cloned.h3_chunk_size, limits.h3_chunk_size);
+        assert_eq!(cloned.h3_yield_bytes, limits.h3_yield_bytes);
     }
 
     #[test]

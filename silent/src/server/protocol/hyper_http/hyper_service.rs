@@ -5,7 +5,7 @@ use hyper::service::Service as HyperService;
 use hyper::{Request as HyperRequest, Response as HyperResponse};
 #[cfg(feature = "upgrade")]
 use tokio_util::compat::TokioAsyncReadCompatExt;
-use tracing::debug;
+use tracing::{Instrument, debug, info_span};
 
 use crate::core::remote_addr::RemoteAddr;
 use crate::core::res_body::ResBody;
@@ -80,25 +80,34 @@ where
         let body = body.into().with_limit(self.max_body_size);
         let request = HyperRequest::from_parts(parts, body);
         let request = HyperHttpProtocol::into_internal(request);
+        let span = info_span!(
+            "http_request",
+            peer = %self.remote_addr,
+            method = %request.method(),
+            uri = %request.uri(),
+        );
         debug!("Request: \n{:#?}", request);
         let response = self.handle(request);
-        Box::pin(async move {
-            let res = response.await;
-            #[cfg(feature = "upgrade")]
-            if let Some(on_upgrade) = on_upgrade
-                && let Some(tx) = tx_opt
-            {
-                tokio::task::spawn(async move {
-                    if let Ok(up) = on_upgrade.await {
-                        // 将 Hyper 升级流适配为 futures-io
-                        let compat = hyper_util::rt::TokioIo::new(up).compat();
-                        let _ = tx.send(compat);
-                    }
-                });
+        Box::pin(
+            async move {
+                let res = response.await;
+                #[cfg(feature = "upgrade")]
+                if let Some(on_upgrade) = on_upgrade
+                    && let Some(tx) = tx_opt
+                {
+                    tokio::task::spawn(async move {
+                        if let Ok(up) = on_upgrade.await {
+                            // 将 Hyper 升级流适配为 futures-io
+                            let compat = hyper_util::rt::TokioIo::new(up).compat();
+                            let _ = tx.send(compat);
+                        }
+                    });
+                }
+                debug!("Response: \n{:?}", res);
+                Ok(HyperHttpProtocol::from_internal(res))
             }
-            debug!("Response: \n{:?}", res);
-            Ok(HyperHttpProtocol::from_internal(res))
-        })
+            .instrument(span),
+        )
     }
 }
 

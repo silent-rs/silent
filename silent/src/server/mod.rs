@@ -346,6 +346,8 @@ mod tests {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         let server = Server::new().with_connection_limits(limits);
@@ -392,6 +394,8 @@ mod tests {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         let server = Server::new()
@@ -441,6 +445,8 @@ mod tests {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         let config = ServerConfig {
@@ -528,6 +534,8 @@ mod tests {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: true,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         assert_eq!(limits.handler_timeout, Some(Duration::from_secs(30)));
@@ -550,6 +558,8 @@ mod tests {
             webtransport_datagram_max_size: None,
             webtransport_datagram_rate: None,
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         assert_eq!(limits.handler_timeout, None);
@@ -621,6 +631,8 @@ mod tests {
                 webtransport_datagram_max_size: None,
                 webtransport_datagram_rate: None,
                 webtransport_datagram_drop_metric: false,
+                h3_chunk_size: None,
+                h3_yield_bytes: None,
             },
             ..Default::default()
         };
@@ -724,6 +736,8 @@ mod tests {
             webtransport_datagram_max_size: Some(1350),
             webtransport_datagram_rate: Some(1000),
             webtransport_datagram_drop_metric: true,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         assert_eq!(limits.handler_timeout, Some(Duration::from_secs(60)));
@@ -817,6 +831,8 @@ mod tests {
             webtransport_datagram_max_size: Some(0),
             webtransport_datagram_rate: Some(0),
             webtransport_datagram_drop_metric: false,
+            h3_chunk_size: None,
+            h3_yield_bytes: None,
         };
 
         let server = Server::new().with_connection_limits(limits);
