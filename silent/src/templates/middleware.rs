@@ -89,6 +89,119 @@ mod tests {
     use bytes::Bytes;
     use http_body_util::BodyExt;
 
+    // ==================== TemplateResponse 测试 ====================
+
+    #[test]
+    fn test_template_response_from_tuple() {
+        let resp = TemplateResponse::from(("index.html", serde_json::json!({"key": "val"})));
+        assert_eq!(resp.template, "index.html");
+        assert_eq!(resp.data["key"], "val");
+    }
+
+    #[test]
+    fn test_template_response_from_string_template_name() {
+        let resp = TemplateResponse::from(("page.html".to_string(), vec![1, 2, 3]));
+        assert_eq!(resp.template, "page.html");
+        assert!(resp.data.is_array());
+    }
+
+    #[test]
+    fn test_template_response_clone() {
+        let resp = TemplateResponse::from(("t.html", "data"));
+        let cloned = resp.clone();
+        assert_eq!(resp.template, cloned.template);
+        assert_eq!(resp.data, cloned.data);
+    }
+
+    #[test]
+    fn test_template_response_into_response() {
+        let template_resp = TemplateResponse::from(("t.html", "hello"));
+        let response: Response = template_resp.into();
+        // Response 的 extensions 应包含 TemplateResponse
+        assert!(response.extensions.get::<TemplateResponse>().is_some());
+    }
+
+    // ==================== TemplateMiddleware 构造测试 ====================
+
+    #[test]
+    fn test_try_new_invalid_glob_pattern() {
+        // Tera 对无效 glob 模式报错（如缺少 * 的模式）
+        let result = TemplateMiddleware::try_new("[invalid glob");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to load templates")]
+    fn test_new_invalid_glob_panics() {
+        let _ = TemplateMiddleware::new("[invalid glob");
+    }
+
+    // ==================== MiddleWareHandler 错误路径测试 ====================
+
+    #[tokio::test]
+    async fn test_handle_missing_template_response() {
+        let mut tera = Tera::default();
+        tera.add_raw_template("t.html", "hi").unwrap();
+        let mid = TemplateMiddleware {
+            template: Arc::new(tera),
+        };
+        // handler 返回普通 Response（没有 TemplateResponse extension）
+        let route = Route::default()
+            .get(|_req: Request| async { Ok(Response::text("no template")) })
+            .hook(mid);
+        let mut req = Request::empty();
+        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        let res = route.call(req).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_unknown_template_name() {
+        let mut tera = Tera::default();
+        tera.add_raw_template("known.html", "ok").unwrap();
+        let mid = TemplateMiddleware {
+            template: Arc::new(tera),
+        };
+        // handler 返回引用不存在模板名的 TemplateResponse
+        let route = Route::default()
+            .get(|_req: Request| async { Ok(TemplateResponse::from(("unknown.html", "data"))) })
+            .hook(mid);
+        let mut req = Request::empty();
+        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        let res = route.call(req).await;
+        assert!(res.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_handle_sets_content_type_html() {
+        let mut tera = Tera::default();
+        tera.add_raw_template("t.html", "<p>{{ v }}</p>").unwrap();
+        let mid = TemplateMiddleware {
+            template: Arc::new(tera),
+        };
+        let route = Route::default()
+            .get(|_req: Request| async {
+                Ok(TemplateResponse::from((
+                    "t.html",
+                    serde_json::json!({"v": "x"}),
+                )))
+            })
+            .hook(mid);
+        let mut req = Request::empty();
+        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        let res = route.call(req).await.unwrap();
+        let ct = res
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(ct.contains("text/html"));
+    }
+
+    // ==================== 成功路径测试（原有） ====================
+
     #[derive(Serialize)]
     struct Temp {
         name: String,

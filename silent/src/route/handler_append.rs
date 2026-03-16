@@ -691,6 +691,104 @@ mod tests {
         assert_eq!(route.handler.len(), 2);
     }
 
+    // ==================== Extractor (_ex) 方法测试 ====================
+
+    #[test]
+    fn test_get_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .get_ex(|Path(id): Path<u64>| async move { Ok(format!("user {}", id)) });
+        assert!(route.handler.contains_key(&Method::GET));
+    }
+
+    #[test]
+    fn test_post_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .post_ex(|Path(id): Path<u64>| async move { Ok(format!("created {}", id)) });
+        assert!(route.handler.contains_key(&Method::POST));
+    }
+
+    #[test]
+    fn test_put_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .put_ex(|Path(id): Path<u64>| async move { Ok(format!("updated {}", id)) });
+        assert!(route.handler.contains_key(&Method::PUT));
+    }
+
+    #[test]
+    fn test_delete_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .delete_ex(|Path(id): Path<u64>| async move { Ok(format!("deleted {}", id)) });
+        assert!(route.handler.contains_key(&Method::DELETE));
+    }
+
+    #[test]
+    fn test_patch_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .patch_ex(|Path(id): Path<u64>| async move { Ok(format!("patched {}", id)) });
+        assert!(route.handler.contains_key(&Method::PATCH));
+    }
+
+    #[test]
+    fn test_options_ex_with_extractor() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .options_ex(|Path(id): Path<u64>| async move { Ok(format!("options {}", id)) });
+        assert!(route.handler.contains_key(&Method::OPTIONS));
+    }
+
+    #[test]
+    fn test_all_ex_methods_chain() {
+        use crate::extractor::Path;
+        let route = Route::new("test")
+            .get_ex(|Path(_): Path<u64>| async { Ok("get") })
+            .post_ex(|Path(_): Path<u64>| async { Ok("post") })
+            .put_ex(|Path(_): Path<u64>| async { Ok("put") })
+            .delete_ex(|Path(_): Path<u64>| async { Ok("delete") })
+            .patch_ex(|Path(_): Path<u64>| async { Ok("patch") })
+            .options_ex(|Path(_): Path<u64>| async { Ok("options") });
+        assert_eq!(route.handler.len(), 6);
+    }
+
+    // ==================== get_handler_mut 递归路径测试 ====================
+
+    #[test]
+    fn test_get_handler_mut_deep_nested() {
+        let mut route = Route::new("api");
+        let child = Route::new("v1");
+        let grandchild = Route::new("users");
+        let mut child_with_grandchild = child;
+        child_with_grandchild.children.push(grandchild);
+        route.children.push(child_with_grandchild);
+        route.create_path = "api/v1".to_string();
+
+        // 应递归到 children 中找到 create_path == "v1" 的子路由
+        let handler_map = route.get_handler_mut();
+        assert!(handler_map.is_empty());
+    }
+
+    #[test]
+    fn test_handler_getter_handler_on_child_route() {
+        // 通过 HandlerGetter::handler 方法在子路由上插入 handler
+        let mut route = Route::new("api");
+        let child = Route::new("users");
+        route.children.push(child);
+        route.create_path = "api/users".to_string();
+
+        let handler = Arc::new(HandlerWrapper::new(|_req: Request| async {
+            Ok(Response::text("ok"))
+        }));
+        let route = <Route as HandlerGetter>::handler(route, Method::GET, handler);
+
+        // handler 应被插入到子路由的 handler map
+        let child_route = &route.children[0];
+        assert!(child_route.handler.contains_key(&Method::GET));
+    }
+
     // ==================== 边界条件测试 ====================
 
     #[test]
