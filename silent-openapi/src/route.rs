@@ -3,7 +3,8 @@
 //! 提供路由文档自动收集功能和路由扩展trait。
 
 use crate::doc::{
-    DocMeta, ResponseMeta, lookup_doc_by_handler_ptr, lookup_response_by_handler_ptr,
+    DocMeta, RequestMeta, ResponseMeta, lookup_doc_by_handler_ptr, lookup_request_by_handler_ptr,
+    lookup_response_by_handler_ptr,
 };
 use crate::{OpenApiDoc, schema::PathInfo};
 use silent::prelude::Route;
@@ -144,7 +145,8 @@ fn collect_paths_recursive(route: &Route, current_path: &str, paths: &mut Vec<(S
         let ptr = std::sync::Arc::as_ptr(handler) as *const () as usize;
         let doc = lookup_doc_by_handler_ptr(ptr);
         let resp = lookup_response_by_handler_ptr(ptr);
-        let operation = create_operation_with_doc(method, &full_path, doc, resp);
+        let req_meta = lookup_request_by_handler_ptr(ptr);
+        let operation = create_operation_with_doc(method, &full_path, doc, resp, req_meta);
         let path_item = create_or_update_path_item(None, method, operation);
 
         // 查找是否已存在相同路径
@@ -233,6 +235,7 @@ fn create_operation_with_doc(
     path: &str,
     doc: Option<DocMeta>,
     resp: Option<ResponseMeta>,
+    req_meta: Option<Vec<RequestMeta>>,
 ) -> Operation {
     use utoipa::openapi::Required;
     use utoipa::openapi::path::{OperationBuilder, ParameterBuilder};
@@ -305,6 +308,58 @@ fn create_operation_with_doc(
 
     if let Some(tag) = default_tag {
         builder = builder.tags(Some(vec![tag]));
+    }
+
+    // 处理请求元信息：requestBody 和 query parameters
+    if let Some(req_metas) = req_meta {
+        for meta in req_metas {
+            match meta {
+                RequestMeta::JsonBody { type_name } => {
+                    use utoipa::openapi::{
+                        Ref, RefOr, content::ContentBuilder, request_body::RequestBodyBuilder,
+                        schema::Schema,
+                    };
+                    let schema_ref = RefOr::Ref(Ref::from_schema_name(type_name));
+                    let content = ContentBuilder::new()
+                        .schema::<RefOr<Schema>>(Some(schema_ref))
+                        .build();
+                    let request_body = RequestBodyBuilder::new()
+                        .content("application/json", content)
+                        .required(Some(Required::True))
+                        .build();
+                    builder = builder.request_body(Some(request_body));
+                }
+                RequestMeta::FormBody { type_name } => {
+                    use utoipa::openapi::{
+                        Ref, RefOr, content::ContentBuilder, request_body::RequestBodyBuilder,
+                        schema::Schema,
+                    };
+                    let schema_ref = RefOr::Ref(Ref::from_schema_name(type_name));
+                    let content = ContentBuilder::new()
+                        .schema::<RefOr<Schema>>(Some(schema_ref))
+                        .build();
+                    let request_body = RequestBodyBuilder::new()
+                        .content("application/x-www-form-urlencoded", content)
+                        .required(Some(Required::True))
+                        .build();
+                    builder = builder.request_body(Some(request_body));
+                }
+                RequestMeta::QueryParams { type_name } => {
+                    // 查询参数：添加一个引用 schema 的 query parameter
+                    let param = ParameterBuilder::new()
+                        .name(type_name)
+                        .parameter_in(utoipa::openapi::path::ParameterIn::Query)
+                        .required(Required::False)
+                        .schema::<utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>>(Some(
+                            utoipa::openapi::RefOr::Ref(utoipa::openapi::Ref::from_schema_name(
+                                type_name,
+                            )),
+                        ))
+                        .build();
+                    builder = builder.parameter(param);
+                }
+            }
+        }
     }
 
     // 先尝试解析 Silent 风格 <name:type>
@@ -411,7 +466,7 @@ impl RouteOpenApiExt for Route {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::doc::{DocMeta, ResponseMeta};
+    use crate::doc::{DocMeta, RequestMeta, ResponseMeta};
 
     #[test]
     fn test_path_format_conversion() {
@@ -513,6 +568,7 @@ mod tests {
                 description: Some("d".into()),
             }),
             Some(ResponseMeta::TextPlain),
+            None,
         );
         let resp = op.responses.responses.get("200").expect("200 resp");
         let resp = match resp {
@@ -530,6 +586,7 @@ mod tests {
             "/users/{id}",
             None,
             Some(ResponseMeta::Json { type_name: "User" }),
+            None,
         );
         let resp = op.responses.responses.get("200").expect("200 resp");
         let resp = match resp {
@@ -546,16 +603,71 @@ mod tests {
     }
 
     #[test]
+    fn test_operation_with_json_request_body() {
+        let op = create_operation_with_doc(
+            &http::Method::POST,
+            "/users",
+            None,
+            None,
+            Some(vec![RequestMeta::JsonBody {
+                type_name: "CreateUser",
+            }]),
+        );
+        let body = op.request_body.as_ref().expect("request body");
+        let content = body.content.get("application/json").expect("app/json");
+        let schema = content.schema.as_ref().expect("schema");
+        match schema {
+            utoipa::openapi::RefOr::Ref(r) => {
+                assert!(r.ref_location.ends_with("/CreateUser"))
+            }
+            _ => panic!("ref expected"),
+        }
+    }
+
+    #[test]
+    fn test_operation_with_form_request_body() {
+        let op = create_operation_with_doc(
+            &http::Method::POST,
+            "/login",
+            None,
+            None,
+            Some(vec![RequestMeta::FormBody {
+                type_name: "LoginForm",
+            }]),
+        );
+        let body = op.request_body.as_ref().expect("request body");
+        assert!(
+            body.content
+                .contains_key("application/x-www-form-urlencoded")
+        );
+    }
+
+    #[test]
+    fn test_operation_with_query_params() {
+        let op = create_operation_with_doc(
+            &http::Method::GET,
+            "/search",
+            None,
+            None,
+            Some(vec![RequestMeta::QueryParams {
+                type_name: "SearchQuery",
+            }]),
+        );
+        let params = op.parameters.as_ref().expect("should have parameters");
+        assert!(!params.is_empty());
+    }
+
+    #[test]
     fn test_merge_path_items_get_post() {
         let get = create_or_update_path_item(
             None,
             &http::Method::GET,
-            create_operation_with_doc(&http::Method::GET, "/a", None, None),
+            create_operation_with_doc(&http::Method::GET, "/a", None, None, None),
         );
         let post = create_or_update_path_item(
             None,
             &http::Method::POST,
-            create_operation_with_doc(&http::Method::POST, "/a", None, None),
+            create_operation_with_doc(&http::Method::POST, "/a", None, None, None),
         );
         let merged = merge_path_items(&get, &post);
         assert!(merged.get.is_some());
@@ -564,16 +676,13 @@ mod tests {
 
     #[test]
     fn test_merge_prefers_first_for_same_method() {
-        // 创建两个 GET 操作，operation_id 不同，合并后应保留第一个
-        let op1 = create_operation_with_doc(&http::Method::GET, "/a", None, None);
+        let op1 = create_operation_with_doc(&http::Method::GET, "/a", None, None, None);
         let mut item1 = PathItem::default();
         item1.get = Some(op1);
-        let op2 = create_operation_with_doc(&http::Method::GET, "/a", None, None);
+        let op2 = create_operation_with_doc(&http::Method::GET, "/a", None, None, None);
         let mut item2 = PathItem::default();
         item2.get = Some(op2);
         let merged = merge_path_items(&item1, &item2);
         assert!(merged.get.is_some());
-        // 简要校验：合并后仍有 GET，且未被覆盖（函数当前实现按先后 or 保留）
-        // 无直接字段比较，存在即视为保留先者语义
     }
 }
