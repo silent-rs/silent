@@ -218,6 +218,67 @@ fn endpoint_impl(
         }
     };
 
+    // 从提取器类型中生成请求元信息注册代码
+    fn gen_request_meta_register(ty: &syn::Type) -> proc_macro2::TokenStream {
+        if let syn::Type::Path(tp) = ty {
+            if let Some(seg) = tp.path.segments.last() {
+                let ident = seg.ident.to_string();
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner_ty)) = args.args.first() {
+                        // 获取内部类型名称
+                        let inner_name = if let syn::Type::Path(inner_tp) = inner_ty {
+                            inner_tp
+                                .path
+                                .segments
+                                .last()
+                                .map(|s| s.ident.to_string())
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        };
+
+                        if !inner_name.is_empty() {
+                            match ident.as_str() {
+                                "Json" => {
+                                    let inner = inner_ty.clone();
+                                    return quote! {
+                                        ::silent_openapi::doc::register_request_by_ptr(
+                                            ptr,
+                                            ::silent_openapi::doc::RequestMeta::JsonBody { type_name: #inner_name },
+                                        );
+                                        ::silent_openapi::doc::register_schema_for::<#inner>();
+                                    };
+                                }
+                                "Form" => {
+                                    let inner = inner_ty.clone();
+                                    return quote! {
+                                        ::silent_openapi::doc::register_request_by_ptr(
+                                            ptr,
+                                            ::silent_openapi::doc::RequestMeta::FormBody { type_name: #inner_name },
+                                        );
+                                        ::silent_openapi::doc::register_schema_for::<#inner>();
+                                    };
+                                }
+                                "Query" => {
+                                    let inner = inner_ty.clone();
+                                    return quote! {
+                                        ::silent_openapi::doc::register_request_by_ptr(
+                                            ptr,
+                                            ::silent_openapi::doc::RequestMeta::QueryParams { type_name: #inner_name },
+                                        );
+                                        ::silent_openapi::doc::register_schema_for::<#inner>();
+                                    };
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        quote!()
+    }
+
     // 根据函数参数形态生成 IntoRouteHandler 实现
     let inputs = sig.inputs.clone().into_iter().collect::<Vec<_>>();
     let impls = if inputs.len() == 1 {
@@ -248,6 +309,7 @@ fn endpoint_impl(
                     }
                 } else {
                     // 单萃取器参数
+                    let req_meta_register = gen_request_meta_register(ty);
                     quote! {
                         impl ::silent::prelude::IntoRouteHandler<#ty> for #ep_ty {
                             fn into_handler(self) -> std::sync::Arc<dyn ::silent::Handler> {
@@ -261,6 +323,7 @@ fn endpoint_impl(
                                 );
                                 #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
+                                #req_meta_register
                                 handler
                             }
                         }
@@ -280,6 +343,7 @@ fn endpoint_impl(
                     syn::Type::Path(tp) if tp.path.segments.last().map(|s| s.ident == "Request").unwrap_or(false)
                 );
                 if is_request_first {
+                    let req_meta_register = gen_request_meta_register(ty2);
                     quote! {
                         impl ::silent::prelude::IntoRouteHandler<(::silent::Request, #ty2)> for #ep_ty {
                             fn into_handler(self) -> std::sync::Arc<dyn ::silent::Handler> {
@@ -293,6 +357,7 @@ fn endpoint_impl(
                                 );
                                 #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
+                                #req_meta_register
                                 handler
                             }
                         }
@@ -365,6 +430,128 @@ mod tests {
         assert!(s.contains("const get_user"));
         assert!(s.contains("IntoRouteHandler"));
         assert!(s.contains("GetUserEndpoint"));
+    }
+
+    #[test]
+    fn registers_request_meta_for_json_extractor() {
+        let attr = quote!();
+        let item = quote!(
+            async fn create_user(body: Json<UserInput>) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("RequestMeta :: JsonBody"));
+        assert!(s.contains("register_request_by_ptr"));
+        assert!(s.contains("register_schema_for"));
+    }
+
+    #[test]
+    fn registers_request_meta_for_query_extractor() {
+        let attr = quote!();
+        let item = quote!(
+            async fn list_users(params: Query<ListParams>) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("RequestMeta :: QueryParams"));
+        assert!(s.contains("register_request_by_ptr"));
+    }
+
+    #[test]
+    fn registers_request_meta_for_form_extractor() {
+        let attr = quote!();
+        let item = quote!(
+            async fn submit_form(data: Form<FormData>) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("RequestMeta :: FormBody"));
+        assert!(s.contains("register_request_by_ptr"));
+    }
+
+    #[test]
+    fn registers_request_meta_for_request_with_extractor() {
+        let attr = quote!();
+        let item = quote!(
+            async fn update_user(
+                _req: ::silent::Request,
+                body: Json<UserInput>,
+            ) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("RequestMeta :: JsonBody"));
+        assert!(s.contains("register_request_by_ptr"));
+    }
+
+    #[test]
+    fn no_request_meta_for_plain_request() {
+        let attr = quote!();
+        let item = quote!(
+            async fn health(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(!s.contains("register_request_by_ptr"));
+    }
+
+    #[test]
+    fn registers_schema_for_enum_return_type() {
+        let attr = quote!();
+        let item = quote!(
+            async fn get_status(_req: ::silent::Request) -> ::silent::Result<ApiResponse> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        // 枚举返回类型应生成 Json 响应元信息和 schema 注册
+        assert!(s.contains("ResponseMeta :: Json"));
+        assert!(s.contains("register_schema_for"));
+        assert!(s.contains("ApiResponse"));
+    }
+
+    #[test]
+    fn registers_schema_for_enum_request_body() {
+        let attr = quote!();
+        let item = quote!(
+            async fn create_item(body: Json<CreateAction>) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        // 枚举请求体类型同样应注册 schema
+        assert!(s.contains("RequestMeta :: JsonBody"));
+        assert!(s.contains("register_schema_for"));
+        assert!(s.contains("CreateAction"));
+    }
+
+    #[test]
+    fn doc_comment_as_summary_and_description() {
+        let attr = quote!();
+        let item = quote!(
+            /// 获取用户信息
+            ///
+            /// 根据用户 ID 查询完整的用户资料
+            async fn get_user(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("获取用户信息"));
+        assert!(s.contains("根据用户 ID 查询完整的用户资料"));
     }
 
     #[test]

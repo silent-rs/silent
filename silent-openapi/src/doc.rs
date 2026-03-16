@@ -75,6 +75,34 @@ pub fn list_registered_json_types() -> Vec<&'static str> {
     out
 }
 
+// ====== 请求元信息注册 ======
+
+/// 请求参数/请求体元信息
+#[derive(Clone, Debug)]
+pub enum RequestMeta {
+    /// JSON 请求体（对应 Json<T> 提取器）
+    JsonBody { type_name: &'static str },
+    /// 表单请求体（对应 Form<T> 提取器）
+    FormBody { type_name: &'static str },
+    /// 查询参数（对应 Query<T> 提取器）
+    QueryParams { type_name: &'static str },
+}
+
+static REQUEST_REGISTRY: Lazy<Mutex<HashMap<usize, Vec<RequestMeta>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_request_by_ptr(ptr: usize, meta: RequestMeta) {
+    let mut map = REQUEST_REGISTRY.lock().expect("request registry poisoned");
+    map.entry(ptr).or_default().push(meta);
+}
+
+pub(crate) fn lookup_request_by_handler_ptr(ptr: usize) -> Option<Vec<RequestMeta>> {
+    REQUEST_REGISTRY
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&ptr).cloned())
+}
+
 // ====== ToSchema 完整 schema 注册 ======
 type SchemaRegFn = fn(&mut Components);
 static SCHEMA_REGISTRY: Lazy<Mutex<Vec<SchemaRegFn>>> = Lazy::new(|| Mutex::new(Vec::new()));
@@ -246,5 +274,89 @@ mod tests {
         apply_registered_schemas(&mut openapi);
         let components = openapi.components.expect("components");
         assert!(components.schemas.contains_key("FooSchema"));
+    }
+
+    // ====== 枚举变体文档测试 ======
+
+    #[derive(Serialize, ToSchema)]
+    #[allow(dead_code)]
+    enum ApiResponse {
+        Success { data: String },
+        Error { code: i32, message: String },
+    }
+
+    #[test]
+    fn test_register_enum_schema() {
+        register_schema_for::<ApiResponse>();
+        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
+        apply_registered_schemas(&mut openapi);
+        let components = openapi.components.expect("components");
+        assert!(components.schemas.contains_key("ApiResponse"));
+    }
+
+    #[derive(Serialize, ToSchema)]
+    #[allow(dead_code)]
+    enum Status {
+        Active,
+        Inactive,
+        Pending,
+    }
+
+    #[test]
+    fn test_register_unit_enum_schema() {
+        register_schema_for::<Status>();
+        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
+        apply_registered_schemas(&mut openapi);
+        let components = openapi.components.expect("components");
+        assert!(components.schemas.contains_key("Status"));
+    }
+
+    #[derive(Serialize, ToSchema)]
+    struct NestedData {
+        value: i32,
+    }
+
+    #[derive(Serialize, ToSchema)]
+    #[allow(dead_code)]
+    enum ComplexEnum {
+        WithStruct(NestedData),
+        WithString(String),
+        Empty,
+    }
+
+    #[test]
+    fn test_register_enum_with_nested_schemas() {
+        register_schema_for::<ComplexEnum>();
+        let mut openapi = crate::OpenApiDoc::new("T", "1").into_openapi();
+        apply_registered_schemas(&mut openapi);
+        let components = openapi.components.expect("components");
+        assert!(components.schemas.contains_key("ComplexEnum"));
+        // 嵌套的 NestedData 也应被注册
+        assert!(components.schemas.contains_key("NestedData"));
+    }
+
+    #[test]
+    fn test_register_request_and_lookup() {
+        let handler = Arc::new(HandlerWrapper::new(ok_handler));
+        let ptr = Arc::as_ptr(&handler) as *const () as usize;
+        register_request_by_ptr(ptr, RequestMeta::JsonBody { type_name: "User" });
+        register_request_by_ptr(
+            ptr,
+            RequestMeta::QueryParams {
+                type_name: "Filter",
+            },
+        );
+        let got = lookup_request_by_handler_ptr(ptr).expect("request meta");
+        assert_eq!(got.len(), 2);
+        assert!(matches!(
+            &got[0],
+            RequestMeta::JsonBody { type_name: "User" }
+        ));
+        assert!(matches!(
+            &got[1],
+            RequestMeta::QueryParams {
+                type_name: "Filter"
+            }
+        ));
     }
 }
