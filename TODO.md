@@ -18,8 +18,8 @@
 
 ### P1：常用中间件补充
 
-- [ ] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
-- [ ] Compression 中间件 — 动态响应体 gzip/brotli 压缩
+- [x] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
+- [x] Compression 中间件 — 动态响应体 gzip/brotli 压缩
 - [x] RequestId 中间件 — 自动生成/透传请求追踪 ID（UUID v4）
 
 ### P1：OpenAPI 宏增强

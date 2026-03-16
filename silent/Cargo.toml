@@ -24,6 +24,7 @@ version.workspace = true
 admin = ["server", "sse", "template", "session"]
 cookie = ["dep:cookie"]
 default = ["server"]
+compression = ["dep:async-compression"]
 full = [
     "admin",
     "server",
@@ -40,6 +41,7 @@ full = [
     "tls",
     "quic",
     "metrics",
+    "compression",
 ]
 multipart = [
     "server",
@@ -59,7 +61,7 @@ server = [
 ]
 session = ["cookie", "dep:async-session", "dep:async-lock"]
 sse = ["dep:pin-project"]
-static = ["server", "dep:urlencoding", "dep:async-compression", "dep:async-fs"]
+static = ["server", "dep:urlencoding", "compression", "dep:async-fs"]
 template = ["dep:tera"]
 upgrade = [
     "dep:async-tungstenite",
