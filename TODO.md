@@ -20,7 +20,7 @@
 
 - [x] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
 - [x] Compression 中间件 — 动态响应体 gzip/brotli 压缩
-- [ ] RequestId 中间件 — 使用 scru128 为每个请求生成追踪 ID
+- [x] RequestId 中间件 — 自动生成/透传请求追踪 ID（UUID v4）
 
 ### P1：OpenAPI 宏增强
 
