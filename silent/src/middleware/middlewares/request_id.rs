@@ -1,7 +1,6 @@
 use crate::{Handler, MiddleWareHandler, Next, Request, Response, Result};
 use async_trait::async_trait;
 use http::HeaderName;
-use uuid::Uuid;
 
 const DEFAULT_HEADER: &str = "x-request-id";
 
@@ -12,7 +11,7 @@ const DEFAULT_HEADER: &str = "x-request-id";
 /// # 行为
 ///
 /// 1. 如果请求头中已包含指定的 ID 头（默认 `x-request-id`），则复用该值（上游代理透传场景）
-/// 2. 否则生成一个新的 UUID v4 作为请求 ID
+/// 2. 否则使用 scru128 生成一个新的有序唯一 ID
 /// 3. 将请求 ID 设置到请求头中，下游 handler 可通过 `req.headers().get("x-request-id")` 获取
 /// 4. 将请求 ID 设置到响应头中，方便客户端关联
 /// 5. 将请求 ID 注入 tracing span，便于日志追踪
@@ -78,7 +77,7 @@ impl MiddleWareHandler for RequestId {
             .get(&self.header_name)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_owned())
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
+            .unwrap_or_else(scru128::new_string);
 
         // 将 ID 注入请求头，下游 handler 可获取
         if let Ok(val) = request_id.parse() {
@@ -156,9 +155,9 @@ mod tests {
         // 响应中应包含自动生成的 x-request-id
         let id = resp.headers().get("x-request-id");
         assert!(id.is_some());
-        // 应该是有效的 UUID
+        // 应该是有效的 scru128 ID（25 字符）
         let id_str = id.unwrap().to_str().unwrap();
-        assert!(Uuid::parse_str(id_str).is_ok());
+        assert_eq!(id_str.len(), 25);
     }
 
     #[cfg(feature = "server")]
