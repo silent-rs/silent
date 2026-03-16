@@ -20,7 +20,7 @@
 
 - [x] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
 - [x] Compression 中间件 — 动态响应体 gzip/brotli 压缩
-- [x] RequestId 中间件 — 自动生成/透传请求追踪 ID（UUID v4）
+- [x] RequestId 中间件 — 自动生成/透传请求追踪 ID（scru128）
 
 ### P1：OpenAPI 宏增强
 
@@ -30,9 +30,9 @@
 
 ### P2：依赖更新
 
-- [ ] scru128 3.2.3 → 最新版本
-- [ ] tokio → 最新 1.x
-- [ ] chrono → 最新 0.4.x
+- [x] scru128 3.2.3 → 3.6.0（升级为非可选依赖）
+- [x] tokio 1.49.0 → 1.50.0
+- [x] chrono 0.4.43 → 0.4.44
 
 ### P2：低覆盖率模块测试补全
 
