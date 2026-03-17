@@ -1,47 +1,26 @@
-# TODO（v2.14 开发计划）
+# TODO（v2.15 开发计划）
 
-> 目标版本: v2.14+
-> 优先级: P1
-> 状态: 规划中
+> 目标版本: v2.15
+> 状态: 开发中
 
-## 上一阶段成果（v2.13 已完成 ✅）
+## 上一阶段成果（v2.14 已完成 ✅）
 
-- 统一配置入口（`ServerConfig` / `ConnectionLimits`）
-- 监听器公平调度 + 错误退避
-- metrics/tracing 全链路可观测
-- QUIC/HTTP3 参数全部可配置化
-- 测试覆盖率 89.01%（1587 个测试）
-- HTTP/1.1/2 请求路径 tracing span（peer/method/uri）
-- H3 响应分块参数可配置（`h3_chunk_size`、`h3_yield_bytes`）
+- RateLimiter / Compression / RequestId 三个常用中间件
+- OpenAPI 宏增强：提取器自动集成、枚举变体文档、复杂类型文档化
+- 依赖更新：scru128 非可选化、tokio 1.50、chrono 0.4.44
+- 低覆盖率模块测试补全（+22 个测试，总计 1717）
 
 ## 待开发任务
 
-### P1：常用中间件补充
+### P1：TestClient 集成测试工具
 
-- [x] RateLimiter 中间件 — 路由/API 级别限流（区别于连接级 `RateLimiterConfig`）
-- [x] Compression 中间件 — 动态响应体 gzip/brotli 压缩
-- [x] RequestId 中间件 — 自动生成/透传请求追踪 ID（scru128）
+- [ ] TestClient / TestRequest 请求构建器（支持 GET/POST/PUT/DELETE/PATCH）
+- [ ] TestResponse 响应包装器（status/headers/body_bytes/body_string/body_json）
+- [ ] 链式断言方法（assert_status/assert_header/assert_body_contains）
+- [ ] JSON/Form 请求体支持
+- [ ] 中间件和提取器完整测试路径验证
 
-### P1：OpenAPI 宏增强
-
-- [x] 支持复杂请求/响应类型文档化
-- [x] 支持枚举变体文档生成
-- [x] 与提取器（Path、Query、Json）自动集成
-
-### P2：依赖更新
-
-- [x] scru128 3.2.3 → 3.6.0（升级为非可选依赖）
-- [x] tokio 1.49.0 → 1.50.0
-- [x] chrono 0.4.43 → 0.4.44
-
-### P2：低覆盖率模块测试补全
-
-- [x] `grpc/service.rs` — 新增 4 个测试（MockService 实际调用、并发、元数据保持）
-- [x] `route/handler_append.rs` — 新增 9 个测试（_ex 方法全覆盖、深层递归、子路由插入）
-- [x] `templates/middleware.rs` — 新增 9 个测试（错误路径、Content-Type、构造函数）
-
-### P3：架构优化
+### P2：架构优化
 
 - [ ] 路由性能优化（参数路由匹配预编译，减少内存分配）
-- [ ] TestClient 集成测试工具
 - [ ] Cloudflare Worker 生态增强（文档、KV/D1/R2 示例）

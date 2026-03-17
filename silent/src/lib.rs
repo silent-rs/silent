@@ -26,6 +26,8 @@ mod session;
 mod sse;
 #[cfg(feature = "template")]
 mod templates;
+#[cfg(feature = "test")]
+pub mod testing;
 #[cfg(feature = "upgrade")]
 pub mod ws;
 
