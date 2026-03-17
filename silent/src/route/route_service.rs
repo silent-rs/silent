@@ -16,10 +16,10 @@ impl RouteService for Route {
 }
 
 impl Route {
-    /// 递归将Route转换为RouteTree
+    /// 递归将Route转换为RouteTree，并调用 freeze() 预构建 Arc 引用
     pub(crate) fn convert_to_route_tree(self) -> RouteTree {
         let empty: Arc<[Arc<dyn MiddleWareHandler>]> = Arc::from(Vec::new());
-        self.into_route_tree_with_chain(empty)
+        self.into_route_tree_with_chain(empty).freeze()
     }
 
     fn into_route_tree_with_chain(
@@ -74,6 +74,7 @@ impl Route {
             configs,
             segment,
             has_handler,
+            self_arc: None,
         }
     }
 
