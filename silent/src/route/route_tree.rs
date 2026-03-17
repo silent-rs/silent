@@ -12,19 +12,27 @@ use crate::middleware::MiddleWareHandler;
 use crate::route::handler_match::SpecialPath;
 use crate::{Method, Next, Request, Response, SilentError};
 
+/// 静态 "not found" 错误字符串，避免每次请求都分配新字符串
+const NOT_FOUND_MSG: &str = "not found";
+
+#[inline]
+fn not_found_error() -> SilentError {
+    SilentError::business_error(StatusCode::NOT_FOUND, NOT_FOUND_MSG.to_string())
+}
+
 #[derive(Clone)]
 pub(crate) enum SpecialSeg {
     Root,
-    Static(String),
-    String { key: String },
-    Int { key: String },
-    I64 { key: String },
-    I32 { key: String },
-    U64 { key: String },
-    U32 { key: String },
-    Uuid { key: String },
-    Path { key: String },
-    FullPath { key: String },
+    Static(Box<str>),
+    String { key: Box<str> },
+    Int { key: Box<str> },
+    I64 { key: Box<str> },
+    I32 { key: Box<str> },
+    U64 { key: Box<str> },
+    U32 { key: Box<str> },
+    Uuid { key: Box<str> },
+    Path { key: Box<str> },
+    FullPath { key: Box<str> },
 }
 
 impl SpecialSeg {
@@ -34,7 +42,7 @@ impl SpecialSeg {
 
     pub(crate) fn as_static_key(&self) -> Option<&str> {
         if let SpecialSeg::Static(value) = self {
-            Some(value.as_str())
+            Some(value)
         } else {
             None
         }
@@ -48,18 +56,36 @@ pub(crate) fn parse_special_seg(raw: String) -> SpecialSeg {
 
     if raw.starts_with('<') && raw.ends_with('>') {
         match SpecialPath::from(raw.as_str()) {
-            SpecialPath::String(key) => SpecialSeg::String { key },
-            SpecialPath::Int(key) => SpecialSeg::Int { key },
-            SpecialPath::I64(key) => SpecialSeg::I64 { key },
-            SpecialPath::I32(key) => SpecialSeg::I32 { key },
-            SpecialPath::U64(key) => SpecialSeg::U64 { key },
-            SpecialPath::U32(key) => SpecialSeg::U32 { key },
-            SpecialPath::UUid(key) => SpecialSeg::Uuid { key },
-            SpecialPath::Path(key) => SpecialSeg::Path { key },
-            SpecialPath::FullPath(key) => SpecialSeg::FullPath { key },
+            SpecialPath::String(key) => SpecialSeg::String {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::Int(key) => SpecialSeg::Int {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::I64(key) => SpecialSeg::I64 {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::I32(key) => SpecialSeg::I32 {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::U64(key) => SpecialSeg::U64 {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::U32(key) => SpecialSeg::U32 {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::UUid(key) => SpecialSeg::Uuid {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::Path(key) => SpecialSeg::Path {
+                key: key.into_boxed_str(),
+            },
+            SpecialPath::FullPath(key) => SpecialSeg::FullPath {
+                key: key.into_boxed_str(),
+            },
         }
     } else {
-        SpecialSeg::Static(raw)
+        SpecialSeg::Static(raw.into_boxed_str())
     }
 }
 
@@ -108,9 +134,39 @@ pub struct RouteTree {
     pub(crate) configs: Option<crate::Configs>,
     pub(crate) segment: SpecialSeg,
     pub(crate) has_handler: bool,
+    /// 预构建的 Arc 自引用，避免 call_with_path 中每次请求深拷贝
+    pub(crate) self_arc: Option<Arc<RouteTree>>,
 }
 
 impl RouteTree {
+    /// 递归为所有节点填充 self_arc 字段
+    /// 必须在构建完成后、服务启动前调用
+    pub(crate) fn freeze(mut self) -> Self {
+        // 先递归 freeze 所有子节点
+        let children: Vec<RouteTree> = self
+            .children
+            .into_iter()
+            .map(|child| child.freeze())
+            .collect();
+        self.children = children;
+
+        // 创建不含 self_arc 的临时拷贝用于构建 Arc
+        let arc = Arc::new(RouteTree {
+            children: self.children.clone(),
+            handler: self.handler.clone(),
+            middlewares: Arc::clone(&self.middlewares),
+            static_children: self.static_children.clone(),
+            dynamic_children: self.dynamic_children.clone(),
+            middleware_start: self.middleware_start,
+            configs: self.configs.clone(),
+            segment: self.segment.clone(),
+            has_handler: self.has_handler,
+            self_arc: None, // Arc 内部不需要再持有 self_arc
+        });
+        self.self_arc = Some(arc);
+        self
+    }
+
     pub(crate) fn get_configs(&self) -> Option<&crate::Configs> {
         self.configs.as_ref()
     }
@@ -212,42 +268,42 @@ impl RouteTree {
             (SpecialSeg::Root | SpecialSeg::Static(_), _) => true,
             (SpecialSeg::String { key }, Some(PathMatchCapture::Str(captured))) => {
                 req.set_path_params(
-                    key.clone(),
+                    key.to_string(),
                     PathParam::borrowed_str(Arc::clone(source), captured.range.clone()),
                 );
                 true
             }
             (SpecialSeg::Int { key }, Some(PathMatchCapture::I32(value)))
             | (SpecialSeg::I32 { key }, Some(PathMatchCapture::I32(value))) => {
-                req.set_path_params(key.clone(), (*value).into());
+                req.set_path_params(key.to_string(), (*value).into());
                 true
             }
             (SpecialSeg::I64 { key }, Some(PathMatchCapture::I64(value))) => {
-                req.set_path_params(key.clone(), (*value).into());
+                req.set_path_params(key.to_string(), (*value).into());
                 true
             }
             (SpecialSeg::U64 { key }, Some(PathMatchCapture::U64(value))) => {
-                req.set_path_params(key.clone(), (*value).into());
+                req.set_path_params(key.to_string(), (*value).into());
                 true
             }
             (SpecialSeg::U32 { key }, Some(PathMatchCapture::U32(value))) => {
-                req.set_path_params(key.clone(), (*value).into());
+                req.set_path_params(key.to_string(), (*value).into());
                 true
             }
             (SpecialSeg::Uuid { key }, Some(PathMatchCapture::Uuid(value))) => {
-                req.set_path_params(key.clone(), (*value).into());
+                req.set_path_params(key.to_string(), (*value).into());
                 true
             }
             (SpecialSeg::Path { key }, Some(PathMatchCapture::Path(captured))) => {
                 req.set_path_params(
-                    key.clone(),
+                    key.to_string(),
                     PathParam::borrowed_path(Arc::clone(source), captured.range.clone()),
                 );
                 true
             }
             (SpecialSeg::FullPath { key }, Some(PathMatchCapture::Full(captured))) => {
                 req.set_path_params(
-                    key.clone(),
+                    key.to_string(),
                     PathParam::borrowed_path(Arc::clone(source), captured.range.clone()),
                 );
                 true
@@ -266,8 +322,14 @@ impl RouteTree {
             req.configs_mut().extend_from(configs);
         }
 
+        // 使用预构建的 Arc 引用（freeze 后），避免每次请求深拷贝整棵子树
+        let node_arc = match &self.self_arc {
+            Some(arc) => Arc::clone(arc),
+            None => Arc::new(self.clone()),
+        };
+
         let endpoint: Arc<dyn Handler> = Arc::new(ContinuationHandler::new(
-            Arc::new(self.clone()),
+            node_arc,
             offset,
             Arc::clone(&path),
         ));
@@ -306,10 +368,7 @@ impl RouteTree {
                 }
                 let mut real_req = req;
                 if !child.bind_params(&mut real_req, &candidate, &path) {
-                    return Err(SilentError::business_error(
-                        StatusCode::NOT_FOUND,
-                        "not found".to_string(),
-                    ));
+                    return Err(not_found_error());
                 }
                 return child
                     .call_with_path(real_req, next_offset, Arc::clone(&path))
@@ -321,10 +380,7 @@ impl RouteTree {
             return if self.has_handler {
                 self.handler.call(req).await
             } else {
-                Err(SilentError::business_error(
-                    StatusCode::NOT_FOUND,
-                    "not found".to_string(),
-                ))
+                Err(not_found_error())
             };
         }
 
@@ -332,10 +388,7 @@ impl RouteTree {
             return self.handler.call(req).await;
         }
 
-        Err(SilentError::business_error(
-            StatusCode::NOT_FOUND,
-            "not found".to_string(),
-        ))
+        Err(not_found_error())
     }
 
     fn path_can_resolve(&self, offset: usize, full_path: &str) -> bool {
@@ -379,17 +432,11 @@ impl Handler for RouteTree {
         req.set_path_source(path_source.clone());
 
         let Some(candidate) = self.call_path_only(full_path, full_path) else {
-            return Err(SilentError::business_error(
-                StatusCode::NOT_FOUND,
-                "not found".to_string(),
-            ));
+            return Err(not_found_error());
         };
 
         if !self.bind_params(&mut req, &candidate, &path_source) {
-            return Err(SilentError::business_error(
-                StatusCode::NOT_FOUND,
-                "not found".to_string(),
-            ));
+            return Err(not_found_error());
         }
 
         let offset = remain_offset(full_path, candidate.remain);
@@ -737,41 +784,20 @@ mod tests {
     #[test]
     fn test_special_seg_is_full_path() {
         assert!(!SpecialSeg::Root.is_full_path());
-        assert!(!SpecialSeg::Static("test".to_string()).is_full_path());
-        assert!(
-            !SpecialSeg::String {
-                key: "k".to_string()
-            }
-            .is_full_path()
-        );
-        assert!(
-            SpecialSeg::FullPath {
-                key: "k".to_string()
-            }
-            .is_full_path()
-        );
-        assert!(
-            !SpecialSeg::Path {
-                key: "k".to_string()
-            }
-            .is_full_path()
-        );
+        assert!(!SpecialSeg::Static("test".into()).is_full_path());
+        assert!(!SpecialSeg::String { key: "k".into() }.is_full_path());
+        assert!(SpecialSeg::FullPath { key: "k".into() }.is_full_path());
+        assert!(!SpecialSeg::Path { key: "k".into() }.is_full_path());
     }
 
     #[test]
     fn test_special_seg_as_static_key() {
         assert_eq!(
-            SpecialSeg::Static("api".to_string()).as_static_key(),
+            SpecialSeg::Static("api".into()).as_static_key(),
             Some("api")
         );
         assert_eq!(SpecialSeg::Root.as_static_key(), None);
-        assert_eq!(
-            SpecialSeg::String {
-                key: "k".to_string()
-            }
-            .as_static_key(),
-            None
-        );
+        assert_eq!(SpecialSeg::String { key: "k".into() }.as_static_key(), None);
     }
 
     // ==================== parse_special_seg 函数测试 ====================
@@ -795,7 +821,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_string_param() {
         match parse_special_seg("<id:str>".to_string()) {
-            SpecialSeg::String { key } => assert_eq!(key, "id"),
+            SpecialSeg::String { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected String segment"),
         }
     }
@@ -803,7 +829,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_int_param() {
         match parse_special_seg("<id:int>".to_string()) {
-            SpecialSeg::Int { key } => assert_eq!(key, "id"),
+            SpecialSeg::Int { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected Int segment"),
         }
     }
@@ -811,7 +837,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_i64_param() {
         match parse_special_seg("<id:i64>".to_string()) {
-            SpecialSeg::I64 { key } => assert_eq!(key, "id"),
+            SpecialSeg::I64 { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected I64 segment"),
         }
     }
@@ -819,7 +845,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_i32_param() {
         match parse_special_seg("<id:i32>".to_string()) {
-            SpecialSeg::I32 { key } => assert_eq!(key, "id"),
+            SpecialSeg::I32 { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected I32 segment"),
         }
     }
@@ -827,7 +853,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_u64_param() {
         match parse_special_seg("<id:u64>".to_string()) {
-            SpecialSeg::U64 { key } => assert_eq!(key, "id"),
+            SpecialSeg::U64 { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected U64 segment"),
         }
     }
@@ -835,7 +861,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_u32_param() {
         match parse_special_seg("<id:u32>".to_string()) {
-            SpecialSeg::U32 { key } => assert_eq!(key, "id"),
+            SpecialSeg::U32 { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected U32 segment"),
         }
     }
@@ -843,7 +869,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_uuid_param() {
         match parse_special_seg("<id:uuid>".to_string()) {
-            SpecialSeg::Uuid { key } => assert_eq!(key, "id"),
+            SpecialSeg::Uuid { key } => assert_eq!(&*key, "id"),
             _ => panic!("Expected Uuid segment"),
         }
     }
@@ -851,7 +877,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_path_param() {
         match parse_special_seg("<path:path>".to_string()) {
-            SpecialSeg::Path { key } => assert_eq!(key, "path"),
+            SpecialSeg::Path { key } => assert_eq!(&*key, "path"),
             _ => panic!("Expected Path segment"),
         }
     }
@@ -859,7 +885,7 @@ mod tests {
     #[test]
     fn test_parse_special_seg_full_path_param() {
         match parse_special_seg("<path:**>".to_string()) {
-            SpecialSeg::FullPath { key } => assert_eq!(key, "path"),
+            SpecialSeg::FullPath { key } => assert_eq!(&*key, "path"),
             _ => panic!("Expected FullPath segment"),
         }
     }
