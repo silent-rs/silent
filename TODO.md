@@ -36,9 +36,9 @@
 
 ### P2：低覆盖率模块测试补全
 
-- [ ] `grpc/service.rs` — 67.44%，目标 75%+
-- [ ] `route/handler_append.rs` — 59.16%，分析不可测路径
-- [ ] `templates/middleware.rs` — 71.95%，目标 85%+
+- [x] `grpc/service.rs` — 新增 4 个测试（MockService 实际调用、并发、元数据保持）
+- [x] `route/handler_append.rs` — 新增 9 个测试（_ex 方法全覆盖、深层递归、子路由插入）
+- [x] `templates/middleware.rs` — 新增 9 个测试（错误路径、Content-Type、构造函数）
 
 ### P3：架构优化
 
