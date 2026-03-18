@@ -54,10 +54,29 @@ let wr = WorkRoute::new(route).with_configs(cfg);
 ```rust
 async fn my_handler(req: Request) -> silent::Result<Response> {
     let env = req.get_config::<Env>()?;
-    let kv = env.kv("MY_KV").map_err(worker_err)?;
-    let d1 = env.d1("MY_DB").map_err(worker_err)?;
-    let bucket = env.bucket("MY_BUCKET").map_err(worker_err)?;
+    let kv = env.kv(“MY_KV”).map_err(worker_err)?;
+    let d1 = env.d1(“MY_DB”).map_err(worker_err)?;
+    let bucket = env.bucket(“MY_BUCKET”).map_err(worker_err)?;
     // ...
+}
+```
+
+Context 注入
+- 将 `worker::Context` 与 `Env` 一样注入到 `Configs` 中
+- 处理器通过 `req.get_config::<worker::Context>()` 获取
+- 适用于需要调度后台任务（`ctx.wait_until(fut)`）的场景
+
+```rust
+let mut cfg = Configs::default();
+cfg.insert(env);
+cfg.insert(ctx);  // Context 也注入 Configs
+let wr = WorkRoute::new(route).with_configs(cfg);
+
+// 处理器中使用 Context
+async fn my_handler(req: Request) -> silent::Result<Response> {
+    let ctx = req.get_config::<worker::Context>()?;
+    ctx.wait_until(async { /* 后台任务 */ });
+    Ok(Response::empty())
 }
 ```
 
@@ -68,9 +87,9 @@ async fn my_handler(req: Request) -> silent::Result<Response> {
 
 Env 与 Context 的使用
 - `Env`：用于获取绑定（KV/DO/D1/R2/Queues 等）。建议将只读句柄注入到 `Configs`，供路由/处理器读取。
-- `Context`：用于调度后台任务（`ctx.wait_until(fut)`），任务可在响应返回后继续执行。它是“每次请求”的上下文，不建议放入 `Configs`；如需在处理链上传递，可放入 `Request.extensions`。
+- `Context`：与 `Env` 一样通过 `Configs` 注入，处理器通过 `req.get_config::<Context>()` 获取。用于调度后台任务（`ctx.wait_until(fut)`），任务可在响应返回后继续执行。
 
-示例：注入 Env 并访问 KV/D1/R2 绑定
+示例：注入 Env + Context 并访问 KV 绑定
 ```rust
 use worker::{Context, Env, Request, Response, Result};
 use silent::prelude::*;
@@ -79,17 +98,12 @@ use silent::prelude::*;
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
-    // 将 Env 注入到 Configs 中，处理器可通过 req.get_config::<Env>() 获取
+    // 将 Env 和 Context 注入到 Configs
     let mut cfg = Configs::default();
     cfg.insert(env);
+    cfg.insert(ctx);
 
     let wr = WorkRoute::new(get_route()).with_configs(cfg);
-
-    // 可选：使用 Context 调度后台任务（响应返回后执行）
-    ctx.wait_until(async move {
-        // 例如：写入日志、异步清理、异步持久化等
-        Ok(())
-    });
 
     Ok(wr.call(req).await)
 }
@@ -99,13 +113,14 @@ fn get_route() -> Route {
         .append(Route::new("hello").get(hello))
         .append(Route::new("kv").append(
             Route::new("<key>").get(kv_get).put(kv_put),
-        ));
+        ))
 }
 
 async fn hello(_req: silent::Request) -> silent::Result<&'static str> {
     Ok("hello from Worker")
 }
 
+/// KV 读取示例
 async fn kv_get(req: silent::Request) -> silent::Result<silent::Response> {
     let env = req.get_config::<Env>()?;
     let key: String = req.get_path_params("key")?;
@@ -123,6 +138,28 @@ async fn kv_get(req: silent::Request) -> silent::Result<silent::Response> {
             silent::StatusCode::INTERNAL_SERVER_ERROR, e.to_string(),
         )),
     }
+}
+
+/// KV 写入示例
+async fn kv_put(mut req: silent::Request) -> silent::Result<silent::Response> {
+    let env = req.get_config::<Env>()?.clone();
+    let key: String = req.get_path_params("key")?;
+    let value = read_body_text(&mut req).await?;
+    let kv = env.kv("MY_KV").map_err(|e| {
+        silent::SilentError::business_error(
+            silent::StatusCode::INTERNAL_SERVER_ERROR, e.to_string(),
+        )
+    })?;
+    kv.put(&key, &value).map_err(|e| {
+        silent::SilentError::business_error(
+            silent::StatusCode::INTERNAL_SERVER_ERROR, e.to_string(),
+        )
+    })?.execute().await.map_err(|e| {
+        silent::SilentError::business_error(
+            silent::StatusCode::INTERNAL_SERVER_ERROR, e.to_string(),
+        )
+    })?;
+    Ok(silent::Response::json(&serde_json::json!({"status": "ok", "key": key})))
 }
 ```
 
