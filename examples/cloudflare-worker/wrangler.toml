@@ -4,3 +4,25 @@ compatibility_date = "2025-09-24"
 
 [build]
 command = "cargo install -q worker-build && worker-build --release"
+
+# KV 命名空间绑定
+# 创建命令: wrangler kv namespace create MY_KV
+# 本地开发时自动使用本地存储
+[[kv_namespaces]]
+binding = "MY_KV"
+id = "your-kv-namespace-id"           # 替换为实际 ID
+preview_id = "your-kv-preview-id"     # 替换为预览 ID
+
+# D1 数据库绑定
+# 创建命令: wrangler d1 create my-database
+# 建表: wrangler d1 execute MY_DB --local --command "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT NOT NULL)"
+[[d1_databases]]
+binding = "MY_DB"
+database_name = "my-database"
+database_id = "your-d1-database-id"   # 替换为实际 ID
+
+# R2 存储桶绑定
+# 创建命令: wrangler r2 bucket create my-bucket
+[[r2_buckets]]
+binding = "MY_BUCKET"
+bucket_name = "my-bucket"

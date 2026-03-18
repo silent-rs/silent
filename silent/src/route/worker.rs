@@ -13,6 +13,18 @@ use crate::handler::Handler;
 use crate::route::Route;
 
 /// Cloudflare Workers 适配路由
+///
+/// 将 Silent 的路由系统适配到 Cloudflare Worker 环境。
+///
+/// # 示例
+///
+/// ```rust,ignore
+/// use silent::prelude::*;
+///
+/// let route = Route::new_root()
+///     .append(Route::new("hello").get(|_: Request| async { Ok("hello") }));
+/// let wr = WorkRoute::new(route);
+/// ```
 pub struct WorkRoute {
     pub route: Route,
 }
@@ -20,6 +32,24 @@ pub struct WorkRoute {
 impl WorkRoute {
     pub fn new(route: Route) -> Self {
         Self { route }
+    }
+
+    /// 注入只读配置到路由
+    ///
+    /// 用于将 Cloudflare Worker 的绑定（KV/D1/R2 等）注入到路由中，
+    /// 处理器可通过 `req.get_config::<T>()` 获取。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// let kv = env.kv("MY_KV")?;
+    /// let mut cfg = Configs::default();
+    /// cfg.insert(kv);
+    /// let wr = WorkRoute::new(route).with_configs(cfg);
+    /// ```
+    pub fn with_configs(mut self, configs: crate::Configs) -> Self {
+        self.route.set_configs(Some(configs));
+        self
     }
 
     /// 处理 Cloudflare Worker 请求
@@ -37,8 +67,9 @@ impl WorkRoute {
         let mut sres = match self.route.call(sreq).await {
             Ok(r) => r,
             Err(e) => {
+                let status = e.status();
                 let mut r = SResponse::empty();
-                r.set_status(http::StatusCode::INTERNAL_SERVER_ERROR);
+                r.set_status(status);
                 r.set_body(ResBody::from(e.to_string()));
                 r
             }
