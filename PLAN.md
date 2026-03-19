@@ -33,35 +33,50 @@
   - 行覆盖率 89.01%，1587 个测试全部通过
   - 三阶段优化全部完成
 
-## 下一阶段规划（v2.14+）
+### v2.14（已完成 ✅）
 
-### 优先级排序
+- **常用中间件补充** ✅
+  - RateLimiter 中间件（路由/API 级别限流）
+  - Compression 中间件（动态响应 gzip/brotli 压缩）
+  - RequestId 中间件（scru128 生成请求追踪 ID）
 
-1. **P1：常用中间件补充**
-   - RateLimiter 中间件（路由/API 级别限流）
-   - Compression 中间件（动态响应 gzip/brotli 压缩）
-   - RequestId 中间件（scru128 生成请求追踪 ID）
+- **OpenAPI 宏系统增强** ✅
+  - 复杂请求/响应类型文档化
+  - 枚举变体文档生成
+  - 与提取器（Path、Query、Json 等）自动集成
 
-2. **P1：OpenAPI 宏系统增强**
-   - 复杂请求/响应类型文档化
-   - 枚举变体文档生成
-   - 与提取器（Path、Query、Json 等）自动集成
+- **依赖版本更新** ✅
+  - scru128 非可选化、tokio 1.50、chrono 0.4.44
 
-3. **P2：依赖版本更新**
-   - scru128、tokio、chrono 等依赖更新
+- **低覆盖率模块测试补全** ✅
+  - +22 个测试，总计 1717
 
-4. **P2：低覆盖率模块测试补全**
-   - `grpc/service.rs` (67.44%)
-   - `route/handler_append.rs` (59.16%)
-   - `templates/middleware.rs` (71.95%)
+### v2.15（已完成 ✅）
 
-5. **P3：路由性能优化**
-   - 参数路由匹配预编译
-   - 减少路径参数提取的内存分配
+- **TestClient 集成测试工具** ✅ (#183)
+  - TestClient / TestRequest 请求构建器（支持全 HTTP 方法）
+  - TestResponse 响应包装器（status/headers/bytes/text/json）
+  - 链式断言方法（assert_status/assert_header/assert_body_contains）
+  - JSON/Form/Text 请求体支持
 
-6. **P3：TestClient 测试工具**
-   - 提供内建的集成测试辅助工具
+- **路由性能优化** ✅ (#184)
+  - freeze 模式预构建 Arc<RouteTree>，消除请求级深拷贝
+  - SpecialSeg 从 String 优化为 Box<str>
+  - 大规模路由表 180x 性能提升
 
-7. **P3：Cloudflare Worker 生态增强**
-   - 完善 Worker 集成文档
-   - 添加 KV、D1、R2 场景示例
+- **Cloudflare Worker 生态增强** ✅ (#185)
+  - WorkRoute 新增 with_configs() 方法
+  - Context 与 Env 统一通过 Configs 注入
+  - 完整的 KV/D1/R2 CRUD 示例
+  - 错误状态码正确传递
+
+- **Logger 中间件** ✅ (#186)
+  - 结构化 tracing 字段替代位置参数字符串
+  - Instant 单调时钟计时
+  - 安全获取客户端 IP
+  - 区分 4xx(WARN)/5xx(ERROR) 日志级别
+  - RequestTimeLogger 标记 deprecated，将在 v2.17.0 移除
+
+## 下一阶段规划（v2.16+）
+
+### 待规划
