@@ -271,13 +271,13 @@ mod tests {
     #[cfg(feature = "server")]
     #[tokio::test]
     async fn test_scheduler_middleware_chain_with_other_middleware() {
-        use crate::middlewares::{ExceptionHandler, RequestTimeLogger};
+        use crate::middlewares::{ExceptionHandler, Logger};
         use crate::route::Route;
 
         let scheduler_middleware = SchedulerMiddleware::new();
         let exception_handler =
             ExceptionHandler::new(|result: Result<Response>, _configs| async move { result });
-        let time_logger = RequestTimeLogger::new();
+        let time_logger = Logger::new();
 
         let route = Route::new("/")
             .hook(scheduler_middleware)

@@ -2,21 +2,36 @@ use crate::{Handler, MiddleWareHandler, Next, Request, Response, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 
-/// ExceptionHandler 中间件
+/// 请求耗时日志中间件
+///
+/// # 已弃用
+///
+/// 此中间件将在 v2.17.0 版本移除，请使用 [`Logger`](super::Logger) 替代。
+///
+/// `Logger` 相比 `RequestTimeLogger` 的改进：
+/// - 使用 `Instant` 单调时钟替代 `Utc::now().time()`，避免跨午夜负值问题
+/// - 使用 tracing 结构化字段替代位置参数字符串
+/// - 安全获取客户端 IP，不再 panic
+/// - 区分 4xx（WARN）和 5xx（ERROR）日志级别
+///
 /// ```rust
 /// use silent::prelude::*;
-/// use silent::middlewares::{RequestTimeLogger};
-/// // Define a request time logger middleware
+/// use silent::middlewares::RequestTimeLogger;
+///
 /// let _ = RequestTimeLogger::new();
+/// ```
+#[deprecated(since = "2.15.0", note = "将在 v2.17.0 移除，请使用 Logger 替代")]
 #[derive(Default, Clone)]
 pub struct RequestTimeLogger;
 
+#[allow(deprecated)]
 impl RequestTimeLogger {
     pub fn new() -> Self {
         Self {}
     }
 }
 
+#[allow(deprecated)]
 #[async_trait]
 impl MiddleWareHandler for RequestTimeLogger {
     async fn handle(&self, req: Request, next: &Next) -> Result<Response> {
@@ -74,6 +89,7 @@ impl MiddleWareHandler for RequestTimeLogger {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use std::sync::Arc;
