@@ -28,7 +28,7 @@ fn nested_route_benchmark(c: &mut Criterion) {
 
 fn middleware_route_benchmark(c: &mut Criterion) {
     let route = Route::new("")
-        .hook(silent::middlewares::RequestTimeLogger)
+        .hook(silent::middlewares::Logger)
         .get(|_req: Request| async { Ok("hello world") });
 
     c.bench_function("route with middleware", |b| {
@@ -81,8 +81,8 @@ fn complex_route_benchmark(c: &mut Criterion) {
 
 fn multiple_middleware_benchmark(c: &mut Criterion) {
     let route = Route::new("")
-        .hook(silent::middlewares::RequestTimeLogger)
-        .hook(silent::middlewares::RequestTimeLogger) // Using same middleware twice for testing
+        .hook(silent::middlewares::Logger)
+        .hook(silent::middlewares::Logger) // Using same middleware twice for testing
         .get(|_req: Request| async { Ok("hello world") });
 
     c.bench_function("route with multiple middleware", |b| {
@@ -222,43 +222,45 @@ fn complex_deep_route_with_params_benchmark(c: &mut Criterion) {
 fn deep_route_with_middleware_benchmark(c: &mut Criterion) {
     // 创建带中间件的10层复杂路由
     let route = Route::new("api/v1")
-        .hook(silent::middlewares::RequestTimeLogger)
+        .hook(silent::middlewares::Logger)
         .append(
             Route::new("users")
-                .hook(silent::middlewares::RequestTimeLogger)
+                .hook(silent::middlewares::Logger)
                 .append(
-                    Route::new("profiles")
-                        .hook(silent::middlewares::RequestTimeLogger)
+                Route::new("profiles")
+                    .hook(silent::middlewares::Logger)
+                    .append(
+                    Route::new("settings")
+                        .hook(silent::middlewares::Logger)
                         .append(
-                            Route::new("settings")
-                                .hook(silent::middlewares::RequestTimeLogger)
+                        Route::new("preferences")
+                            .hook(silent::middlewares::Logger)
+                            .append(
+                            Route::new("notifications")
+                                .hook(silent::middlewares::Logger)
                                 .append(
-                                    Route::new("preferences")
-                                        .hook(silent::middlewares::RequestTimeLogger)
+                                    Route::new("email")
+                                        .hook(silent::middlewares::Logger)
                                         .append(
-                                            Route::new("notifications")
-                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                .append(
-                                                    Route::new("email")
-                                                        .hook(silent::middlewares::RequestTimeLogger)
-                                                        .append(
-                                                            Route::new("templates")
-                                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                                .append(
-                                                                    Route::new("custom")
-                                                                        .hook(silent::middlewares::RequestTimeLogger)
-                                                                        .append(
-                                                                            Route::new("advanced")
-                                                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                                                .get(|_req: Request| async { Ok("deep nested with middleware") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
+                                        Route::new("templates")
+                                            .hook(silent::middlewares::Logger)
+                                            .append(
+                                                Route::new("custom")
+                                                    .hook(silent::middlewares::Logger)
+                                                    .append(
+                                                        Route::new("advanced")
+                                                            .hook(silent::middlewares::Logger)
+                                                            .get(|_req: Request| async {
+                                                                Ok("deep nested with middleware")
+                                                            }),
+                                                    ),
+                                            ),
+                                    ),
+                                ),
+                        ),
+                    ),
+                ),
+            ),
         );
 
     let mut group = c.benchmark_group("Deep Nested Routes with Middleware (10 levels)");
@@ -278,39 +280,37 @@ fn deep_route_with_middleware_benchmark(c: &mut Criterion) {
 fn deep_route_mixed_benchmark(c: &mut Criterion) {
     // 创建混合了静态路径、参数路径和中间件的10层复杂路由
     let route = Route::new("api/v1")
-        .hook(silent::middlewares::RequestTimeLogger)
+        .hook(silent::middlewares::Logger)
         .append(
             Route::new("users/<user_id:i64>")
-                .hook(silent::middlewares::RequestTimeLogger)
+                .hook(silent::middlewares::Logger)
                 .append(
-                    Route::new("profiles")
-                        .append(
-                            Route::new("settings/<setting_id>")
-                                .hook(silent::middlewares::RequestTimeLogger)
-                                .append(
-                                    Route::new("preferences")
+                    Route::new("profiles").append(
+                        Route::new("settings/<setting_id>")
+                            .hook(silent::middlewares::Logger)
+                            .append(
+                                Route::new("preferences").append(
+                                    Route::new("notifications/<notif_type>")
+                                        .hook(silent::middlewares::Logger)
                                         .append(
-                                            Route::new("notifications/<notif_type>")
-                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                .append(
-                                                    Route::new("email")
-                                                        .append(
-                                                            Route::new("templates/<template_id:i64>")
-                                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                                .append(
-                                                                    Route::new("custom")
-                                                                        .append(
-                                                                            Route::new("advanced/<advanced_param>")
-                                                                                .hook(silent::middlewares::RequestTimeLogger)
-                                                                                .get(|_req: Request| async { Ok("mixed deep nested") })
-                                                                        )
-                                                                )
-                                                        )
-                                                )
-                                        )
-                                )
-                        )
-                )
+                                            Route::new("email").append(
+                                                Route::new("templates/<template_id:i64>")
+                                                    .hook(silent::middlewares::Logger)
+                                                    .append(
+                                                        Route::new("custom").append(
+                                                            Route::new("advanced/<advanced_param>")
+                                                                .hook(silent::middlewares::Logger)
+                                                                .get(|_req: Request| async {
+                                                                    Ok("mixed deep nested")
+                                                                }),
+                                                        ),
+                                                    ),
+                                            ),
+                                        ),
+                                ),
+                            ),
+                    ),
+                ),
         );
 
     let mut group = c.benchmark_group("Mixed Deep Nested Routes (10 levels)");
