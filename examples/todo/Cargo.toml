@@ -4,10 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 silent = { path = "../../silent" }
 serde.workspace = true
-uuid.workspace = true
+serde_json = "1"
 async-trait.workspace = true
+chrono = { workspace = true, features = ["serde"] }
+scru128 = "3"

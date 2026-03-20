@@ -1,149 +1,82 @@
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
+//! Todo REST API 示例
+//!
+//! 展示 Silent 框架的最佳实践：
+//! - 路由组织与嵌套
+//! - Logger / ExceptionHandler 中间件
+//! - 提取器（Path / Json / Query）
+//! - Configs 注入共享状态
+//! - 结构化 JSON 错误响应
+//! - 完整 CRUD 操作
+//!
+//! ## API 端点
+//!
+//! | 方法   | 路径            | 说明           |
+//! |--------|-----------------|----------------|
+//! | GET    | /api/todos      | 列表（支持分页）|
+//! | POST   | /api/todos      | 创建           |
+//! | GET    | /api/todos/:id  | 详情           |
+//! | PUT    | /api/todos/:id  | 更新           |
+//! | DELETE | /api/todos/:id  | 删除           |
+//!
+//! ## 测试
+//!
+//! ```bash
+//! # 创建
+//! curl -X POST http://localhost:8080/api/todos \
+//!   -H "Content-Type: application/json" \
+//!   -d '{"title":"买菜"}'
+//!
+//! # 列表
+//! curl http://localhost:8080/api/todos
+//! curl "http://localhost:8080/api/todos?offset=0&limit=10"
+//!
+//! # 详情（替换 ID）
+//! curl http://localhost:8080/api/todos/<id>
+//!
+//! # 更新
+//! curl -X PUT http://localhost:8080/api/todos/<id> \
+//!   -H "Content-Type: application/json" \
+//!   -d '{"title":"买水果","completed":true}'
+//!
+//! # 删除
+//! curl -X DELETE http://localhost:8080/api/todos/<id>
+//! ```
+
+mod model;
+mod route;
+
+use silent::middlewares::{ExceptionHandler, Logger};
 use silent::prelude::*;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-use uuid::Uuid;
 
 fn main() {
-    logger::fmt().init();
-    let db = Db::default();
-    let middle_ware = MiddleWare { db };
-    let route = Route::new("todos")
-        .hook(middle_ware)
-        .get(todos_index)
-        .post(todos_create)
-        .append(
-            Route::new("<id:uuid>")
-                .get(todos_one)
-                .patch(todos_update)
-                .delete(todos_delete),
-        );
+    logger::fmt().with_max_level(Level::INFO).init();
+
+    // 初始化内存数据库并注入到 Configs
+    let db = model::Db::default();
+    let mut configs = Configs::default();
+    configs.insert(db);
+
+    // 构建路由
+    let mut route = Route::new_root()
+        .hook(Logger::new())
+        .hook(ExceptionHandler::new(
+            |result: Result<Response>, _configs| async move {
+                match result {
+                    Ok(res) => Ok(res),
+                    Err(e) => {
+                        let status = e.status();
+                        Ok(Response::json(&serde_json::json!({
+                            "error": e.to_string(),
+                            "code": status.as_u16(),
+                        }))
+                        .with_status(status))
+                    }
+                }
+            },
+        ))
+        .append(route::api_routes());
+
+    route.set_configs(Some(configs));
+
     Server::new().run(route);
-}
-
-struct MiddleWare {
-    db: Db,
-}
-
-#[async_trait]
-impl MiddleWareHandler for MiddleWare {
-    async fn handle(&self, mut req: Request, next: &Next) -> Result<Response> {
-        req.extensions_mut().insert(self.db.clone());
-        next.call(req).await
-    }
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct Pagination {
-    pub offset: Option<usize>,
-    pub limit: Option<usize>,
-}
-
-async fn todos_index(mut req: Request) -> Result<Vec<Todo>> {
-    let pagination = req.params_parse::<Pagination>()?;
-
-    let db = req.extensions().get::<Db>().unwrap();
-    let todos = db.read().unwrap();
-
-    let todos = todos
-        .values()
-        .skip(pagination.offset.unwrap_or(0))
-        .take(pagination.limit.unwrap_or(usize::MAX))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    Ok(todos)
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct CreateTodo {
-    text: String,
-}
-
-async fn todos_create(mut req: Request) -> Result<Todo> {
-    let create_todo = req.json_parse::<CreateTodo>().await?;
-    let db = req.extensions().get::<Db>().unwrap();
-
-    let todo = Todo {
-        id: Uuid::new_v4(),
-        text: create_todo.text,
-        completed: false,
-    };
-
-    db.write().unwrap().insert(todo.id, todo.clone());
-
-    Ok(todo)
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct UpdateTodo {
-    text: Option<String>,
-    completed: Option<bool>,
-}
-
-async fn todos_update(mut req: Request) -> Result<Todo> {
-    let input = req.json_parse::<UpdateTodo>().await?;
-    let db = req.extensions().get::<Db>().unwrap();
-    let id: Uuid = req.get_path_params("id")?;
-    let todo = db.read().unwrap().get(&id).cloned();
-
-    if todo.is_none() {
-        return Err(SilentError::BusinessError {
-            code: StatusCode::NOT_FOUND,
-            msg: "Not Found".to_string(),
-        });
-    }
-
-    let mut todo = todo.unwrap();
-
-    if let Some(text) = input.text {
-        todo.text = text;
-    }
-
-    if let Some(completed) = input.completed {
-        todo.completed = completed;
-    }
-
-    db.write().unwrap().insert(todo.id, todo.clone());
-
-    Ok(todo)
-}
-
-async fn todos_one(req: Request) -> Result<Todo> {
-    let db = req.extensions().get::<Db>().unwrap();
-    let id: Uuid = req.get_path_params("id")?;
-    let todo = db.read().unwrap().get(&id).cloned();
-
-    if todo.is_none() {
-        return Err(SilentError::BusinessError {
-            code: StatusCode::NOT_FOUND,
-            msg: "Not Found".to_string(),
-        });
-    }
-
-    let todo = todo.unwrap();
-    Ok(todo)
-}
-
-async fn todos_delete(req: Request) -> Result<()> {
-    let db = req.extensions().get::<Db>().unwrap();
-    let id = req.get_path_params("id")?;
-    if db.write().unwrap().remove(&id).is_some() {
-        Ok(())
-    } else {
-        Err(SilentError::BusinessError {
-            code: StatusCode::NOT_FOUND,
-            msg: "Not Found".to_string(),
-        })
-    }
-}
-
-type Db = Arc<RwLock<HashMap<Uuid, Todo>>>;
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-struct Todo {
-    id: Uuid,
-    text: String,
-    completed: bool,
 }
