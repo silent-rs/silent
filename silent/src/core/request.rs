@@ -6,7 +6,7 @@ use crate::core::req_body::ReqBody;
 #[cfg(feature = "multipart")]
 use crate::core::serde::from_str_multi_val;
 use crate::header::CONTENT_TYPE;
-use crate::{Configs, Result, SilentError};
+use crate::{Result, SilentError, State};
 use bytes::Bytes;
 use http::request::Parts;
 use http::{Extensions, HeaderMap, HeaderValue, Method, Uri, Version};
@@ -38,7 +38,7 @@ pub struct Request {
     form_data: OnceCell<FormData>,
     json_data: OnceCell<Value>,
     form_body_cache: OnceCell<Vec<u8>>,
-    pub(crate) configs: Configs,
+    pub(crate) state: State,
 }
 
 impl Request {
@@ -123,7 +123,7 @@ impl Request {
             form_data: OnceCell::new(),
             json_data: OnceCell::new(),
             form_body_cache: OnceCell::new(),
-            configs: Configs::default(),
+            state: State::default(),
         }
     }
 
@@ -252,28 +252,56 @@ impl Request {
         self.path_params.insert(key, value);
     }
 
+    /// 获取状态
+    #[inline]
+    pub fn get_state<T: Send + Sync + 'static>(&self) -> Result<&T> {
+        self.state.get::<T>().ok_or(SilentError::ConfigNotFound)
+    }
+
+    /// 获取状态(Uncheck)
+    #[inline]
+    pub fn get_state_uncheck<T: Send + Sync + 'static>(&self) -> &T {
+        self.state.get::<T>().unwrap()
+    }
+
+    /// 获取状态容器
+    #[inline]
+    pub fn state(&self) -> State {
+        self.state.clone()
+    }
+
+    /// 获取可变状态容器
+    #[inline]
+    pub fn state_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+
     /// 获取配置
+    #[deprecated(since = "2.16.0", note = "请使用 get_state 代替")]
     #[inline]
     pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<&T> {
-        self.configs.get::<T>().ok_or(SilentError::ConfigNotFound)
+        self.get_state::<T>()
     }
 
     /// 获取配置(Uncheck)
+    #[deprecated(since = "2.16.0", note = "请使用 get_state_uncheck 代替")]
     #[inline]
     pub fn get_config_uncheck<T: Send + Sync + 'static>(&self) -> &T {
-        self.configs.get::<T>().unwrap()
+        self.get_state_uncheck::<T>()
     }
 
     /// 获取全局配置
+    #[deprecated(since = "2.16.0", note = "请使用 state() 代替")]
     #[inline]
-    pub fn configs(&self) -> Configs {
-        self.configs.clone()
+    pub fn configs(&self) -> State {
+        self.state()
     }
 
     /// 获取可变全局配置
+    #[deprecated(since = "2.16.0", note = "请使用 state_mut() 代替")]
     #[inline]
-    pub fn configs_mut(&mut self) -> &mut Configs {
-        &mut self.configs
+    pub fn configs_mut(&mut self) -> &mut State {
+        self.state_mut()
     }
 
     /// 获取路径参数集合
@@ -710,29 +738,29 @@ mod tests {
         assert_eq!(req.extensions().get::<&'static str>(), Some(&"test_key"));
     }
 
-    // ==================== configs 相关测试 ====================
+    // ==================== state 相关测试 ====================
 
     #[test]
-    fn test_configs_get() {
+    fn test_state_get() {
         let req = Request::empty();
-        let configs = req.configs();
-        // 验证可以获取 configs
-        assert!(configs.is_empty());
+        let state = req.state();
+        // 验证可以获取 state
+        assert!(state.is_empty());
     }
 
     #[test]
-    fn test_configs_get_uncheck() {
+    fn test_state_get_uncheck() {
         let mut req = Request::empty();
-        req.configs_mut().insert("test_value");
-        let value = req.get_config_uncheck::<&str>();
+        req.state_mut().insert("test_value");
+        let value = req.get_state_uncheck::<&str>();
         assert_eq!(*value, "test_value");
     }
 
     #[test]
-    fn test_configs_mut() {
+    fn test_state_mut() {
         let mut req = Request::empty();
-        req.configs_mut().insert(42i32);
-        let value = req.get_config_uncheck::<i32>();
+        req.state_mut().insert(42i32);
+        let value = req.get_state_uncheck::<i32>();
         assert_eq!(*value, 42);
     }
 

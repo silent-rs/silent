@@ -34,21 +34,29 @@ impl WorkRoute {
         Self { route }
     }
 
-    /// 注入只读配置到路由
+    /// 注入状态到路由
     ///
     /// 用于将 Cloudflare Worker 的绑定（KV/D1/R2 等）注入到路由中，
-    /// 处理器可通过 `req.get_config::<T>()` 获取。
+    /// 处理器可通过 `req.get_state::<T>()` 获取。
+    /// 支持链式调用多次注入不同类型。
     ///
     /// # 示例
     ///
     /// ```rust,ignore
     /// let kv = env.kv("MY_KV")?;
-    /// let mut cfg = Configs::default();
-    /// cfg.insert(kv);
-    /// let wr = WorkRoute::new(route).with_configs(cfg);
+    /// let wr = WorkRoute::new(route)
+    ///     .with_state(env)
+    ///     .with_state(ctx);
     /// ```
-    pub fn with_configs(mut self, configs: crate::Configs) -> Self {
-        self.route.set_configs(Some(configs));
+    pub fn with_state<T: Send + Sync + Clone + 'static>(mut self, val: T) -> Self {
+        self.route = self.route.with_state(val);
+        self
+    }
+
+    /// 注入只读配置到路由
+    #[deprecated(since = "2.16.0", note = "请使用 with_state 代替")]
+    pub fn with_configs(mut self, configs: crate::State) -> Self {
+        self.route.set_state(Some(configs));
         self
     }
 

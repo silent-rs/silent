@@ -56,7 +56,7 @@ struct ApiDoc;
     )
 )]
 async fn list_users(req: Request) -> Result<Response> {
-    let store = req.get_config::<UserStore>()?;
+    let store = req.get_state::<UserStore>()?;
     let users: Vec<User> = store.read().await.values().cloned().collect();
     Ok(Response::json(&users))
 }
@@ -73,7 +73,7 @@ async fn list_users(req: Request) -> Result<Response> {
 )]
 async fn get_user(req: Request) -> Result<Response> {
     let id: u64 = req.get_path_params("id")?;
-    let store = req.get_config::<UserStore>().unwrap();
+    let store = req.get_state::<UserStore>().unwrap();
 
     if let Some(user) = store.read().await.get(&id) {
         Ok(Response::json(user))
@@ -93,7 +93,7 @@ async fn get_user(req: Request) -> Result<Response> {
 )]
 async fn create_user(mut req: Request) -> Result<Response> {
     let user_req: UserRequest = req.json_parse().await?;
-    let store = req.get_config::<UserStore>().unwrap();
+    let store = req.get_state::<UserStore>().unwrap();
 
     let mut store_write = store.write().await;
     let id = store_write.len() as u64 + 1;
@@ -122,7 +122,7 @@ async fn create_user(mut req: Request) -> Result<Response> {
 )]
 async fn delete_user(req: Request) -> Result<Response> {
     let id: u64 = req.get_path_params("id")?;
-    let store = req.get_config::<UserStore>().unwrap();
+    let store = req.get_state::<UserStore>().unwrap();
 
     if store.write().await.remove(&id).is_some() {
         Ok(Response::empty().with_status(StatusCode::NO_CONTENT))
@@ -181,10 +181,7 @@ async fn main() -> Result<()> {
 
     // 配置服务器并启动
     let addr = "127.0.0.1:8080".parse().expect("Invalid address");
-    let mut configs = Configs::default();
-    configs.insert(store);
-
-    routes.set_configs(Some(configs));
+    routes = routes.with_state(store);
 
     Server::new().bind(addr).serve(routes).await;
 

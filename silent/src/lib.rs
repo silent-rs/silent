@@ -37,7 +37,9 @@ pub mod ws;
 #[allow(clippy::single_component_path_imports)]
 use multer;
 
+#[allow(deprecated)]
 pub use crate::configs::Configs;
+pub use crate::configs::State;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "server")]

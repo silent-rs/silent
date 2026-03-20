@@ -18,6 +18,13 @@ pub struct Json<T>(pub T);
 /// Form 萃取器：从表单解析为 T
 pub struct Form<T>(pub T);
 
+/// State 萃取器：从应用级共享状态中提取 T
+pub struct State<T>(pub T);
+
+#[deprecated(
+    since = "2.16.0",
+    note = "请使用 State<T> 代替，Configs<T> 将在 v2.18.0 移除"
+)]
 pub struct Configs<T>(pub T);
 
 /// 从 Extensions 中提取扩展

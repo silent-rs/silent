@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::core::res_body::{ResBody, full};
 use crate::headers::{ContentType, Header, HeaderMap, HeaderMapExt};
-use crate::{Configs, Result, SilentError, StatusCode, header};
+use crate::{Result, SilentError, State, StatusCode, header};
 use http::{Extensions, Version};
 use http_body::{Body, SizeHint};
 use serde::Serialize;
@@ -23,7 +23,7 @@ pub struct Response<B: Body = ResBody> {
     pub(crate) headers: HeaderMap,
     pub(crate) body: B,
     pub(crate) extensions: Extensions,
-    pub(crate) configs: Configs,
+    pub(crate) state: State,
 }
 
 impl fmt::Debug for Response {
@@ -49,7 +49,7 @@ impl Response {
             version: Version::default(),
             body: ResBody::None,
             extensions: Extensions::default(),
-            configs: Configs::default(),
+            state: State::default(),
         }
     }
     /// 获取响应状态码
@@ -154,28 +154,56 @@ impl<B: Body> Response<B> {
         &mut self.extensions
     }
 
+    /// 获取状态
+    #[inline]
+    pub fn get_state<T: Send + Sync + 'static>(&self) -> Result<&T> {
+        self.state.get::<T>().ok_or(SilentError::ConfigNotFound)
+    }
+
+    /// 获取状态(Uncheck)
+    #[inline]
+    pub fn get_state_uncheck<T: Send + Sync + 'static>(&self) -> &T {
+        self.state.get::<T>().unwrap()
+    }
+
+    /// 获取状态容器
+    #[inline]
+    pub fn state(&self) -> &State {
+        &self.state
+    }
+
+    /// 获取可变状态容器
+    #[inline]
+    pub fn state_mut(&mut self) -> &mut State {
+        &mut self.state
+    }
+
     /// 获取配置
+    #[deprecated(since = "2.16.0", note = "请使用 get_state 代替")]
     #[inline]
     pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<&T> {
-        self.configs.get::<T>().ok_or(SilentError::ConfigNotFound)
+        self.get_state::<T>()
     }
 
     /// 获取配置(Uncheck)
+    #[deprecated(since = "2.16.0", note = "请使用 get_state_uncheck 代替")]
     #[inline]
     pub fn get_config_uncheck<T: Send + Sync + 'static>(&self) -> &T {
-        self.configs.get::<T>().unwrap()
+        self.get_state_uncheck::<T>()
     }
 
     /// 获取全局配置
+    #[deprecated(since = "2.16.0", note = "请使用 state() 代替")]
     #[inline]
-    pub fn configs(&self) -> &Configs {
-        &self.configs
+    pub fn configs(&self) -> &State {
+        self.state()
     }
 
     /// 获取可变全局配置
+    #[deprecated(since = "2.16.0", note = "请使用 state_mut() 代替")]
     #[inline]
-    pub fn configs_mut(&mut self) -> &mut Configs {
-        &mut self.configs
+    pub fn configs_mut(&mut self) -> &mut State {
+        self.state_mut()
     }
     #[inline]
     /// 设置响应header
@@ -507,51 +535,51 @@ mod tests {
         assert!(res.extensions().get::<i32>().is_some());
     }
 
-    // 配置测试
+    // 状态测试
 
     #[test]
-    fn test_response_configs() {
+    fn test_response_state() {
         let res = Response::empty();
-        assert_eq!(res.configs().len(), 0);
+        assert_eq!(res.state().len(), 0);
     }
 
     #[test]
-    fn test_response_configs_mut() {
+    fn test_response_state_mut() {
         let mut res = Response::empty();
-        res.configs_mut().insert(42i32);
-        assert_eq!(res.configs().len(), 1);
+        res.state_mut().insert(42i32);
+        assert_eq!(res.state().len(), 1);
     }
 
     #[test]
-    fn test_response_get_config_not_found() {
+    fn test_response_get_state_not_found() {
         let res = Response::empty();
-        let result: Result<&i32> = res.get_config();
+        let result: Result<&i32> = res.get_state();
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_response_get_config_uncheck_panics() {
-        // 测试 get_config_uncheck 在配置不存在时会 panic
+    fn test_response_get_state_uncheck_panics() {
+        // 测试 get_state_uncheck 在状态不存在时会 panic
         // Response 包含 ResBody，而 ResBody 包含非 UnwindSafe 的 trait object
         // 因此不能使用 catch_unwind 捕获 panic
-        // 这个测试仅作为文档说明该方法在配置不存在时会 panic
+        // 这个测试仅作为文档说明该方法在状态不存在时会 panic
     }
 
     #[test]
-    fn test_response_get_config_success() {
+    fn test_response_get_state_success() {
         let mut res = Response::empty();
-        res.configs_mut().insert(42i32);
-        let config: Result<&i32> = res.get_config();
-        assert!(config.is_ok());
-        assert_eq!(*config.unwrap(), 42);
+        res.state_mut().insert(42i32);
+        let state: Result<&i32> = res.get_state();
+        assert!(state.is_ok());
+        assert_eq!(*state.unwrap(), 42);
     }
 
     #[test]
-    fn test_response_get_config_uncheck_success() {
+    fn test_response_get_state_uncheck_success() {
         let mut res = Response::empty();
-        res.configs_mut().insert(100i32);
-        let config: &i32 = res.get_config_uncheck();
-        assert_eq!(*config, 100);
+        res.state_mut().insert(100i32);
+        let state: &i32 = res.get_state_uncheck();
+        assert_eq!(*state, 100);
     }
 
     // copy_from_response 测试

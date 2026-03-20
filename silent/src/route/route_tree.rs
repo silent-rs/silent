@@ -131,7 +131,7 @@ pub struct RouteTree {
     pub(crate) static_children: HashMap<Box<str>, usize>,
     pub(crate) dynamic_children: SmallVec<[usize; 4]>,
     pub(crate) middleware_start: usize,
-    pub(crate) configs: Option<crate::Configs>,
+    pub(crate) state: Option<crate::State>,
     pub(crate) segment: SpecialSeg,
     pub(crate) has_handler: bool,
     /// 预构建的 Arc 自引用，避免 call_with_path 中每次请求深拷贝
@@ -158,7 +158,7 @@ impl RouteTree {
             static_children: self.static_children.clone(),
             dynamic_children: self.dynamic_children.clone(),
             middleware_start: self.middleware_start,
-            configs: self.configs.clone(),
+            state: self.state.clone(),
             segment: self.segment.clone(),
             has_handler: self.has_handler,
             self_arc: None, // Arc 内部不需要再持有 self_arc
@@ -167,8 +167,8 @@ impl RouteTree {
         self
     }
 
-    pub(crate) fn get_configs(&self) -> Option<&crate::Configs> {
-        self.configs.as_ref()
+    pub(crate) fn get_state(&self) -> Option<&crate::State> {
+        self.state.as_ref()
     }
 
     fn call_path_only<'p>(&self, path: &'p str, full_path: &'p str) -> Option<PathMatch<'p>> {
@@ -318,8 +318,8 @@ impl RouteTree {
         offset: usize,
         path: Arc<str>,
     ) -> crate::error::SilentResult<Response> {
-        if let Some(configs) = self.get_configs() {
-            req.configs_mut().extend_from(configs);
+        if let Some(state) = self.get_state() {
+            req.state_mut().extend_from(state);
         }
 
         // 使用预构建的 Arc 引用（freeze 后），避免每次请求深拷贝整棵子树
@@ -423,8 +423,8 @@ impl RouteTree {
 impl Handler for RouteTree {
     async fn call(&self, req: Request) -> crate::error::SilentResult<Response> {
         let mut req = req;
-        if let Some(configs) = self.get_configs().cloned() {
-            *req.configs_mut() = configs;
+        if let Some(state) = self.get_state().cloned() {
+            *req.state_mut() = state;
         }
 
         let path_source = Arc::<str>::from(req.uri().path().to_string());
@@ -1222,14 +1222,12 @@ mod tests {
     // ==================== RouteTree Handler trait 测试 ====================
 
     #[tokio::test]
-    async fn test_route_tree_handler_with_configs() {
-        async fn with_configs(_req: Request) -> Result<String, SilentError> {
-            Ok("with_configs".into())
+    async fn test_route_tree_handler_with_state() {
+        async fn with_state(_req: Request) -> Result<String, SilentError> {
+            Ok("with_state".into())
         }
 
-        let mut route = Route::new("api");
-        route.configs = Some(crate::Configs::default());
-        route = route.get(with_configs);
+        let route = Route::new("api").with_state(42i32).get(with_state);
         let tree = route.convert_to_route_tree();
 
         let mut req = Request::empty();

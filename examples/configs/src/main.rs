@@ -2,21 +2,19 @@ use silent::prelude::*;
 
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
-    let mut configs = Configs::default();
-    configs.insert(1i32);
-    let mut route = Route::new("")
+    let route = Route::new("")
+        .with_state(1i32)
         .get(|req: Request| async move {
-            let num = req.get_config::<i32>()?;
+            let num = req.get_state::<i32>()?;
             Ok(*num)
         })
         .append(Route::new("check").get(|req: Request| async move {
-            let num: &i64 = req.get_config()?;
+            let num: &i64 = req.get_state()?;
             Ok(*num)
         }))
         .append(Route::new("uncheck").get(|req: Request| async move {
-            let num: &i32 = req.get_config_uncheck();
+            let num: &i32 = req.get_state_uncheck();
             Ok(*num)
         }));
-    route.set_configs(Some(configs));
     Server::new().run(route);
 }
