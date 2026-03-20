@@ -24,6 +24,7 @@ out/
 static-advanced/
 docs/requirements/
 .claude
+!.claude/skills/
 coverage/
 coverage*.*
 lcov.info
