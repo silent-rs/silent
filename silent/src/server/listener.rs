@@ -185,11 +185,19 @@ impl Listen for ReloadableTlsListener {
 #[derive(Default)]
 pub struct ListenersBuilder {
     listeners: Vec<Box<dyn Listen + Send + Sync + 'static>>,
+    tcp_addrs: Vec<std::net::SocketAddr>,
+    #[cfg(not(target_os = "windows"))]
+    unix_paths: Vec<std::path::PathBuf>,
 }
 
 impl ListenersBuilder {
     pub fn new() -> Self {
-        Self { listeners: vec![] }
+        Self {
+            listeners: vec![],
+            tcp_addrs: vec![],
+            #[cfg(not(target_os = "windows"))]
+            unix_paths: vec![],
+        }
     }
 
     pub fn add_listener(&mut self, listener: Box<dyn Listen + Send + Sync>) {
@@ -197,45 +205,60 @@ impl ListenersBuilder {
     }
 
     pub fn bind(&mut self, addr: std::net::SocketAddr) -> Result<()> {
-        match std::net::TcpListener::bind(addr) {
-            Ok(listener) => match Listener::try_from(listener) {
-                Ok(listener) => {
-                    self.listeners.push(Box::new(listener));
-                    Ok(())
-                }
-                Err(e) => {
-                    tracing::error!(addr = ?addr, error = ?e, "failed to convert TCP listener");
-                    Err(e)
-                }
-            },
-            Err(e) => {
-                tracing::error!(addr = ?addr, error = ?e, "failed to bind TCP listener");
-                Err(e)
-            }
-        }
+        self.tcp_addrs.push(addr);
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
     pub fn bind_unix<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let path = path.as_ref();
-        match std::os::unix::net::UnixListener::bind(path) {
-            Ok(listener) => match Listener::try_from(listener) {
-                Ok(listener) => {
-                    self.listeners.push(Box::new(listener));
-                    Ok(())
-                }
+        self.unix_paths.push(path.as_ref().to_path_buf());
+        Ok(())
+    }
+
+    /// 构建 Listeners，执行实际绑定。
+    ///
+    /// 必须在 tokio runtime 内调用（`tokio::net::TcpListener::from_std` 需要 reactor）。
+    pub fn listen(mut self) -> Result<Listeners> {
+        // 绑定 TCP 地址
+        for addr in self.tcp_addrs.drain(..) {
+            match std::net::TcpListener::bind(addr) {
+                Ok(listener) => match Listener::try_from(listener) {
+                    Ok(listener) => {
+                        self.listeners.push(Box::new(listener));
+                    }
+                    Err(e) => {
+                        tracing::error!(addr = ?addr, error = ?e, "failed to convert TCP listener");
+                        return Err(e);
+                    }
+                },
                 Err(e) => {
-                    tracing::error!(path = ?path, error = ?e, "failed to convert Unix socket listener");
-                    Err(e)
+                    tracing::error!(addr = ?addr, error = ?e, "failed to bind TCP listener");
+                    return Err(e);
                 }
-            },
-            Err(e) => {
-                tracing::error!(path = ?path, error = ?e, "failed to bind Unix socket listener");
-                Err(e)
             }
         }
-    }
-    pub fn listen(mut self) -> Result<Listeners> {
+
+        // 绑定 Unix Socket 地址
+        #[cfg(not(target_os = "windows"))]
+        for path in self.unix_paths.drain(..) {
+            match std::os::unix::net::UnixListener::bind(&path) {
+                Ok(listener) => match Listener::try_from(listener) {
+                    Ok(listener) => {
+                        self.listeners.push(Box::new(listener));
+                    }
+                    Err(e) => {
+                        tracing::error!(path = ?path, error = ?e, "failed to convert Unix socket listener");
+                        return Err(e);
+                    }
+                },
+                Err(e) => {
+                    tracing::error!(path = ?path, error = ?e, "failed to bind Unix socket listener");
+                    return Err(e);
+                }
+            }
+        }
+
+        // 无任何 listener 时绑定默认地址
         if self.listeners.is_empty() {
             match std::net::TcpListener::bind("127.0.0.1:0") {
                 Ok(listener) => match Listener::try_from(listener) {
@@ -477,11 +500,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_listeners_builder_bind() {
-        // 测试绑定指定地址（使用随机端口避免冲突）
+        // 测试绑定指定地址（延迟绑定，bind 只记录地址）
         let mut builder = ListenersBuilder::new();
         builder.bind("127.0.0.1:0".parse().unwrap()).unwrap();
 
-        assert_eq!(builder.listeners.len(), 1);
+        assert_eq!(builder.tcp_addrs.len(), 1);
+
+        // listen() 时实际执行绑定
+        let listeners = builder.listen().unwrap();
+        assert!(!listeners.local_addrs().is_empty());
     }
 
     #[tokio::test]
@@ -508,14 +535,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_bind_error_handling() {
-        // 测试绑定错误时返回 Err 而不是 panic（使用确定会冲突的端口）
+        // 测试绑定冲突端口时 listen() 返回 Err 而不是 panic
         // 先占用一个随机端口
         let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = occupied.local_addr().unwrap();
 
         let mut builder = ListenersBuilder::new();
-        // 再次绑定同一地址应返回错误（地址已被占用）
-        let result = builder.bind(addr);
+        // bind() 延迟执行，不会立即失败
+        builder.bind(addr).unwrap();
+
+        // listen() 时实际绑定，此时端口被占用应返回错误
+        let result = builder.listen();
         assert!(result.is_err(), "Binding to an occupied port should fail");
         // 避免被优化掉
         drop(occupied);
