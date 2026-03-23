@@ -195,7 +195,7 @@ where
     <Args as FromRequest>::Rejection: Into<Response> + Send + 'static,
     F: Fn(Args) -> Fut + Send + Sync + 'static,
     Fut: core::future::Future<Output = crate::Result<T>> + Send + 'static,
-    T: Into<Response> + Send + 'static,
+    T: crate::IntoResponse + Send + 'static,
 {
     let f = Arc::new(f);
     move |mut req: Request| {
@@ -204,7 +204,7 @@ where
             match <Args as FromRequest>::from_request(&mut req).await {
                 Ok(args) => {
                     let res = f(args).await?;
-                    Ok(res.into())
+                    Ok(res.into_response())
                 }
                 Err(rej) => Ok(rej.into()),
             }
@@ -221,7 +221,7 @@ where
     <Args as FromRequest>::Rejection: Into<Response> + Send + 'static,
     F: Fn(crate::Request, Args) -> Fut + Send + Sync + 'static,
     Fut: core::future::Future<Output = crate::Result<T>> + Send + 'static,
-    T: Into<Response> + Send + 'static,
+    T: crate::IntoResponse + Send + 'static,
 {
     let f = Arc::new(f);
     move |mut req: Request| {
@@ -230,7 +230,7 @@ where
             match <Args as FromRequest>::from_request(&mut req).await {
                 Ok(args) => {
                     let res = f(req, args).await?;
-                    Ok(res.into())
+                    Ok(res.into_response())
                 }
                 Err(rej) => Ok(rej.into()),
             }

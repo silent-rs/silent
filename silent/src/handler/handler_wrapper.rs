@@ -1,3 +1,4 @@
+use crate::core::into_response::IntoResponse;
 use crate::handler::handler_trait::Handler;
 use crate::{Request, Response, Result};
 use async_trait::async_trait;
@@ -5,12 +6,9 @@ use std::future::Future;
 use std::sync::Arc;
 
 /// 处理器包装结构体
-/// 包含
-/// 请求类型: `Option<Method>`
-/// 请求方法: `Handler`
-/// 其中请求类型可为空，用来定义中间件
-/// 请求方法不可为空，用来定义处理器
-/// 处理器为返回值为 `Into<Bytes>` + `From<Bytes>` 的异步函数或者闭包函数
+///
+/// 将返回 `Result<T>` 的异步函数包装为 `Handler`，
+/// 其中 `T` 需实现 `IntoResponse`。
 pub struct HandlerWrapper<F> {
     handler: F,
 }
@@ -19,14 +17,14 @@ impl<F, T, Fut> HandlerWrapper<F>
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
     F: Fn(Request) -> Fut,
-    T: Into<Response>,
+    T: IntoResponse,
 {
     pub fn new(handler: F) -> Self {
         HandlerWrapper { handler }
     }
 
     pub async fn handle(&self, req: Request) -> Result<Response> {
-        Ok((self.handler)(req).await?.into())
+        Ok((self.handler)(req).await?.into_response())
     }
 
     pub fn arc(self) -> Arc<Self> {
@@ -40,7 +38,7 @@ impl<F, T, Fut> Handler for HandlerWrapper<F>
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
     F: Fn(Request) -> Fut + Send + Sync + 'static,
-    T: Into<Response>,
+    T: IntoResponse,
 {
     async fn call(&self, req: Request) -> Result<Response> {
         self.handle(req).await

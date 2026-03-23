@@ -17,7 +17,7 @@ pub fn api_routes() -> Route {
 /// GET /api/todos — 获取 Todo 列表（支持分页）
 async fn list_todos(mut req: Request) -> Result<Response> {
     let pagination = req.params_parse::<Pagination>()?;
-    let db = req.get_config::<Db>()?;
+    let db = req.get_state::<Db>()?;
     let todos = db.read().unwrap();
 
     let mut list: Vec<&Todo> = todos.values().collect();
@@ -46,7 +46,7 @@ async fn create_todo(mut req: Request) -> Result<Response> {
         ));
     }
 
-    let db = req.get_config::<Db>()?.clone();
+    let db = req.get_state::<Db>()?.clone();
     let now = chrono::Local::now().naive_local();
     let todo = Todo {
         id: scru128::new_string(),
@@ -64,7 +64,7 @@ async fn create_todo(mut req: Request) -> Result<Response> {
 /// GET /api/todos/:id — 获取单个 Todo
 async fn get_todo(req: Request) -> Result<Response> {
     let id: String = req.get_path_params("id")?;
-    let db = req.get_config::<Db>()?;
+    let db = req.get_state::<Db>()?;
     let todos = db.read().unwrap();
 
     let todo = todos.get(&id).ok_or_else(|| {
@@ -78,7 +78,7 @@ async fn get_todo(req: Request) -> Result<Response> {
 async fn update_todo(mut req: Request) -> Result<Response> {
     let id: String = req.get_path_params("id")?;
     let input: UpdateTodo = req.json_parse().await?;
-    let db = req.get_config::<Db>()?.clone();
+    let db = req.get_state::<Db>()?.clone();
 
     let mut todos = db.write().unwrap();
     let todo = todos.get_mut(&id).ok_or_else(|| {
@@ -107,7 +107,7 @@ async fn update_todo(mut req: Request) -> Result<Response> {
 /// DELETE /api/todos/:id — 删除 Todo
 async fn delete_todo(req: Request) -> Result<Response> {
     let id: String = req.get_path_params("id")?;
-    let db = req.get_config::<Db>()?;
+    let db = req.get_state::<Db>()?;
 
     db.write().unwrap().remove(&id).ok_or_else(|| {
         SilentError::business_error(StatusCode::NOT_FOUND, format!("todo '{id}' 不存在"))

@@ -7,6 +7,7 @@ pub(crate) mod request;
 pub(crate) mod res_body;
 pub(crate) mod response;
 
+pub mod into_response;
 pub(crate) mod remote_addr;
 pub(crate) mod serde;
 pub(crate) mod socket_addr;

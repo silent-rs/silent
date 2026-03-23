@@ -42,6 +42,7 @@ pub use crate::configs::Configs;
 pub use crate::configs::State;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
+pub use crate::core::into_response::IntoResponse;
 #[cfg(feature = "server")]
 pub use crate::core::remote_addr::RemoteAddr;
 #[cfg(feature = "server")]
