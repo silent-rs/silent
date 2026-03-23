@@ -3,8 +3,10 @@ use async_trait::async_trait;
 use crate::core::path_param::PathParam as CorePathParam;
 use crate::{Request, Response, SilentError, headers::HeaderMapExt};
 
+#[allow(deprecated)]
+use super::types::Configs;
 use super::types::{
-    Configs, Extension, Form, Json, Method, Path, Query, RemoteAddr, TypedHeader, Uri, Version,
+    Extension, Form, Json, Method, Path, Query, RemoteAddr, State, TypedHeader, Uri, Version,
 };
 
 /// `FromRequest` 是萃取器的核心 trait，用于从 HTTP 请求中提取特定类型的数据。
@@ -193,6 +195,20 @@ where
 }
 
 #[async_trait]
+impl<T> FromRequest for State<T>
+where
+    T: Send + Sync + Clone + 'static,
+{
+    type Rejection = SilentError;
+
+    async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
+        let val = req.get_state::<T>()?.clone();
+        Ok(State(val))
+    }
+}
+
+#[allow(deprecated)]
+#[async_trait]
 impl<T> FromRequest for Configs<T>
 where
     T: Send + Sync + Clone + 'static,
@@ -200,7 +216,7 @@ where
     type Rejection = SilentError;
 
     async fn from_request(req: &mut Request) -> Result<Self, Self::Rejection> {
-        let cfg = req.get_config::<T>()?.clone();
+        let cfg = req.get_state::<T>()?.clone();
         Ok(Configs(cfg))
     }
 }

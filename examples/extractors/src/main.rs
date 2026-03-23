@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use silent::extractor::{
-    Configs, Extension, Form, FromRequest, Json, Method, Path, Query, TypedHeader, Uri, Version,
+    Extension, Form, FromRequest, Json, Method, Path, Query, State, TypedHeader, Uri, Version,
     handler_from_extractor,
 };
 use silent::headers::UserAgent;
@@ -97,10 +97,10 @@ async fn ex_extension(Extension(MyExt(v)): Extension<MyExt>) -> Result<String> {
     Ok(format!("ext={v}"))
 }
 
-// Configs
+// State
 #[derive(Clone)]
 struct MyCfg(u32);
-async fn ex_configs(Configs(MyCfg(v)): Configs<MyCfg>) -> Result<String> {
+async fn ex_state(State(MyCfg(v)): State<MyCfg>) -> Result<String> {
     Ok(format!("cfg={v}"))
 }
 
@@ -192,14 +192,14 @@ async fn ex_cookies(req: Request) -> Result<String> {
     Ok(format!("cookies: session={}, user={}", session, user))
 }
 
-// Config - 使用结构体萃取器
-async fn ex_config(Configs(cfg): Configs<MyCfg>) -> Result<String> {
+// State - 使用结构体萃取器
+async fn ex_config(State(cfg): State<MyCfg>) -> Result<String> {
     Ok(format!("config: cfg={}", cfg.0))
 }
 
 // 组合使用多个萃取器
-async fn ex_combined(args: (Query<NameAgeQuery>, Configs<MyCfg>)) -> Result<String> {
-    let (Query(params), Configs(cfg)) = args;
+async fn ex_combined(args: (Query<NameAgeQuery>, State<MyCfg>)) -> Result<String> {
+    let (Query(params), State(cfg)) = args;
     let name = params.name.unwrap_or("guest".to_string());
     Ok(format!(
         "combined: name={}, age={}, cfg={}",
@@ -251,14 +251,14 @@ async fn ex_result_json(res: std::result::Result<Json<CreateUser>, Response>) ->
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
 
-    // 顶层中间件：注入 Extension 与 Configs 以方便演示
+    // 顶层中间件：注入 Extension 与 State 以方便演示
     #[derive(Clone)]
     struct Inject;
     #[async_trait]
     impl MiddleWareHandler for Inject {
         async fn handle(&self, mut req: Request, next: &Next) -> Result<Response> {
             req.extensions_mut().insert(MyExt("hello"));
-            req.configs_mut().insert(MyCfg(7));
+            req.state_mut().insert(MyCfg(7));
             next.call(req).await
         }
     }
@@ -283,9 +283,9 @@ fn main() {
         .append(Route::new("method").get(ex_method))
         .append(Route::new("uri").get(ex_uri))
         .append(Route::new("version").get(ex_version))
-        // extension/configs
+        // extension/state
         .append(Route::new("extension").get(ex_extension))
-        .append(Route::new("configs").get(ex_configs))
+        .append(Route::new("state").get(ex_state))
         // ===== 使用结构体萃取器的示例路由 =====
         .append(Route::new("struct/query").get(ex_query))
         .append(Route::new("struct/path/<id:int>").get(ex_path))
@@ -293,7 +293,7 @@ fn main() {
         .append(Route::new("struct/cookies").get(ex_cookies))
         .append(Route::new("struct/config").get(ex_config))
         .append(Route::new("struct/combined").get(handler_from_extractor::<
-            (Query<NameAgeQuery>, Configs<MyCfg>),
+            (Query<NameAgeQuery>, State<MyCfg>),
             _,
             _,
             _,

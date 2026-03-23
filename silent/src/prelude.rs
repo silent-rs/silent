@@ -1,4 +1,6 @@
+#[allow(deprecated)]
 pub use crate::configs::Configs;
+pub use crate::configs::State;
 #[cfg(feature = "cookie")]
 pub use crate::cookie::cookie_ext::CookieExt;
 #[cfg(feature = "multipart")]

@@ -77,7 +77,8 @@
 //! - **Form<T>**：从表单数据中提取参数
 //! - **TypedHeader<T>**：提取并解析特定类型的请求头
 //! - **Extension<T>**：从请求扩展中提取数据
-//! - **Configs<T>**：从请求配置中提取数据
+//! - **State<T>**：从应用级共享状态中提取数据
+//! - **Configs<T>**：（已弃用）从请求配置中提取数据，请使用 State<T> 代替
 //! - **Method、Uri、Version**：提取请求的基础信息
 //!
 //! ## 自定义萃取器
@@ -392,13 +393,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_configs_and_extension_and_request_ext() {
-        // configs
+    async fn test_state_and_extension_and_request_ext() {
+        // state
         #[derive(Clone)]
         struct CfgData(u32);
         let mut req = Request::empty();
-        req.configs_mut().insert(CfgData(9));
-        let Configs(CfgData(v)): Configs<CfgData> = Configs::from_request(&mut req).await.unwrap();
+        req.state_mut().insert(CfgData(9));
+        let State(CfgData(v)): State<CfgData> = State::from_request(&mut req).await.unwrap();
         assert_eq!(v, 9);
 
         // extensions
@@ -726,7 +727,7 @@ mod tests {
             .insert("user-agent", http::HeaderValue::from_static("ua"));
         req.headers_mut()
             .insert("content-type", http::HeaderValue::from_static("text/html"));
-        req.configs_mut().insert(ConfigsData(99));
+        req.state_mut().insert(StateData(99));
 
         #[derive(serde::Deserialize)]
         struct Q {
@@ -734,14 +735,14 @@ mod tests {
         }
 
         #[derive(Clone)]
-        struct ConfigsData(u32);
+        struct StateData(u32);
 
         type FourTupleResult = Result<
             (
                 Path<i32>,
                 Query<Q>,
                 TypedHeader<UserAgent>,
-                Configs<ConfigsData>,
+                State<StateData>,
             ),
             Response,
         >;
@@ -750,16 +751,16 @@ mod tests {
             Path<i32>,
             Query<Q>,
             TypedHeader<UserAgent>,
-            Configs<ConfigsData>,
+            State<StateData>,
         ) as FromRequest>::from_request(&mut req)
         .await;
 
         assert!(result.is_ok());
-        let (Path(id), Query(q), TypedHeader(ua), Configs(cfg)) = result.unwrap();
+        let (Path(id), Query(q), TypedHeader(ua), State(st)) = result.unwrap();
         assert_eq!(id, 1);
         assert_eq!(q.page, 3);
         assert!(ua.as_str().contains("ua"));
-        assert_eq!(cfg.0, 99);
+        assert_eq!(st.0, 99);
     }
 
     #[tokio::test]

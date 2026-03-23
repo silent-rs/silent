@@ -28,25 +28,35 @@ impl Hasher for IdHasher {
     }
 }
 
-/// A type map of protocol extensions.
+/// 类型安全的键值存储容器。
 ///
-/// `Configs` can be used by `Request` and `Response` to store
-/// extra data derived from the underlying protocol.
+/// `State` 用于按类型存储和检索值，是 `State` 和 `Configs` 的底层实现。
+/// 可被 `Request` 和 `Response` 用来存储从底层协议派生的额外数据。
 #[derive(Default, Clone)]
-pub struct Configs {
+pub struct State {
     // If extensions are never used, no need to carry around an empty HashMap.
     // That's 3 words. Instead, this is only 1 word.
     map: Option<Box<AnyMap>>,
 }
 
-impl Configs {
-    /// Create an empty `Configs`.
+/// `Configs` 是 `State` 的类型别名，保持向后兼容。
+///
+/// **已弃用**：请使用 `State<T>` 提取器代替 `Configs<T>` 提取器。
+/// `Configs` 将在 v2.18.0 中移除。
+#[deprecated(
+    since = "2.16.0",
+    note = "请使用 State<T> 提取器代替，Configs 将在 v2.18.0 移除"
+)]
+pub type Configs = State;
+
+impl State {
+    /// Create an empty `State`.
     #[inline]
-    pub fn new() -> Configs {
-        Configs { map: None }
+    pub fn new() -> State {
+        State { map: None }
     }
 
-    /// Insert a type into this `Configs`.
+    /// Insert a type into this `State`.
     ///
     /// If an extension of this type already existed, it will
     /// be returned.
@@ -54,8 +64,8 @@ impl Configs {
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// assert!(cfg.insert(5i32).is_none());
     /// assert!(cfg.insert(4u8).is_none());
     /// assert_eq!(cfg.insert(9i32), Some(5i32));
@@ -67,13 +77,13 @@ impl Configs {
             .and_then(|boxed| (boxed as Arc<dyn Any + 'static>).downcast_ref().cloned())
     }
 
-    /// Get a reference to a type previously inserted on this `Configs`.
+    /// Get a reference to a type previously inserted on this `State`.
     ///
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// assert!(cfg.get::<i32>().is_none());
     /// cfg.insert(5i32);
     ///
@@ -86,15 +96,15 @@ impl Configs {
             .and_then(|boxed| (&**boxed as &(dyn Any + 'static)).downcast_ref())
     }
 
-    /// Remove a type from this `Configs`.
+    /// Remove a type from this `State`.
     ///
     /// If aa extension of this type existed, it will be returned.
     ///
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// cfg.insert(5i32);
     /// assert_eq!(cfg.remove::<i32>(), Some(5i32));
     /// assert!(cfg.get::<i32>().is_none());
@@ -106,13 +116,13 @@ impl Configs {
             .and_then(|boxed| (boxed as Arc<dyn Any + 'static>).downcast_ref().cloned())
     }
 
-    /// Clear the `Configs` of all inserted extensions.
+    /// Clear the `State` of all inserted extensions.
     ///
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// cfg.insert(5i32);
     /// cfg.clear();
     ///
@@ -130,8 +140,8 @@ impl Configs {
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// assert!(cfg.is_empty());
     /// cfg.insert(5i32);
     /// assert!(!cfg.is_empty());
@@ -146,8 +156,8 @@ impl Configs {
     /// # Example
     ///
     /// ```
-    /// # use silent::Configs;
-    /// let mut cfg = Configs::new();
+    /// # use silent::State;
+    /// let mut cfg = State::new();
     /// assert_eq!(cfg.len(), 0);
     /// cfg.insert(5i32);
     /// assert_eq!(cfg.len(), 1);
@@ -157,9 +167,9 @@ impl Configs {
         self.map.as_ref().map_or(0, |map| map.len())
     }
 
-    /// 将另一个 Configs 的内容合并进来（浅拷贝 Arc 值）
+    /// 将另一个 State 的内容合并进来（浅拷贝 Arc 值）
     #[inline]
-    pub fn extend_from(&mut self, other: &Configs) {
+    pub fn extend_from(&mut self, other: &State) {
         if let Some(other_map) = other.map.as_ref() {
             let dst = self.map.get_or_insert_with(Box::default);
             for (k, v) in other_map.iter() {
@@ -169,9 +179,9 @@ impl Configs {
     }
 }
 
-impl fmt::Debug for Configs {
+impl fmt::Debug for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Configs").finish()
+        f.debug_struct("State").finish()
     }
 }
 
@@ -182,11 +192,11 @@ mod tests {
     use tracing::{error, info};
 
     #[test]
-    fn test_configs() {
+    fn test_type_map() {
         #[derive(Debug, PartialEq, Clone)]
         struct MyType(i32);
 
-        let mut configs = Configs::new();
+        let mut configs = State::new();
 
         configs.insert(5i32);
         configs.insert(MyType(10));
@@ -241,8 +251,8 @@ mod tests {
     }
 
     #[test]
-    fn test_configs_mut_ref() {
-        let mut configs = Configs::default();
+    fn test_type_map_mut_ref() {
+        let mut configs = State::default();
         #[derive(Debug, PartialEq, Clone)]
         struct MyStringType(String);
 

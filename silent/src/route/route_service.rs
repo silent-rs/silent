@@ -31,7 +31,7 @@ impl Route {
             handler,
             children,
             middlewares,
-            configs,
+            state,
             ..
         } = self;
 
@@ -71,7 +71,7 @@ impl Route {
             static_children,
             dynamic_children,
             middleware_start: parent_len,
-            configs,
+            state,
             segment,
             has_handler,
             self_arc: None,

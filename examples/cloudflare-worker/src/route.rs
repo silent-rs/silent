@@ -75,7 +75,7 @@ async fn hello_handler(_req: Request) -> silent::Result<&'static str> {
 
 /// GET /kv/:key — 从 KV 读取值
 async fn kv_get(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
 
     let kv = env.kv("MY_KV").map_err(worker_err)?;
@@ -95,7 +95,7 @@ async fn kv_get(req: Request) -> silent::Result<Response> {
 
 /// PUT /kv/:key — 写入 KV（请求体为值）
 async fn kv_put(mut req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?.clone();
+    let env = req.get_state::<Env>()?.clone();
     let key: String = req.get_path_params("key")?;
     let value = read_body_text(&mut req).await?;
 
@@ -115,7 +115,7 @@ async fn kv_put(mut req: Request) -> silent::Result<Response> {
 
 /// DELETE /kv/:key — 删除 KV 键
 async fn kv_delete(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
 
     let kv = env.kv("MY_KV").map_err(worker_err)?;
@@ -131,7 +131,7 @@ async fn kv_delete(req: Request) -> silent::Result<Response> {
 
 /// GET /d1/users — 查询 D1 用户表
 async fn d1_list_users(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
 
     let d1 = env.d1("MY_DB").map_err(worker_err)?;
     let stmt = d1.prepare("SELECT id, name, email FROM users LIMIT 100");
@@ -143,7 +143,7 @@ async fn d1_list_users(req: Request) -> silent::Result<Response> {
 
 /// POST /d1/users — 创建用户（JSON 请求体: { "name": "...", "email": "..." }）
 async fn d1_create_user(mut req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?.clone();
+    let env = req.get_state::<Env>()?.clone();
     let body: serde_json::Value = req.json_parse().await?;
 
     let name = body["name"].as_str().ok_or_else(|| {
@@ -180,7 +180,7 @@ async fn d1_create_user(mut req: Request) -> silent::Result<Response> {
 
 /// GET /r2/:key — 从 R2 读取对象
 async fn r2_get(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
 
     let bucket = env.bucket("MY_BUCKET").map_err(worker_err)?;
@@ -208,7 +208,7 @@ async fn r2_get(req: Request) -> silent::Result<Response> {
 
 /// PUT /r2/:key — 上传对象到 R2（请求体为文件内容）
 async fn r2_put(mut req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?.clone();
+    let env = req.get_state::<Env>()?.clone();
     let key: String = req.get_path_params("key")?;
     let body = read_body_bytes(&mut req).await?;
 
@@ -223,7 +223,7 @@ async fn r2_put(mut req: Request) -> silent::Result<Response> {
 
 /// DELETE /r2/:key — 删除 R2 对象
 async fn r2_delete(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
 
     let bucket = env.bucket("MY_BUCKET").map_err(worker_err)?;

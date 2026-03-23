@@ -77,6 +77,26 @@
   - 区分 4xx(WARN)/5xx(ERROR) 日志级别
   - RequestTimeLogger 标记 deprecated，将在 v2.17.0 移除
 
-## 下一阶段规划（v2.16+）
+## 下一阶段规划
 
-### 待规划
+### v2.16 — 框架基础设施增强
+
+目标：补齐框架核心基础设施，提升开发体验和生态互通能力。
+
+- **State 提取器（替代 Configs）**
+  - 引入语义明确的 `State<T>` 提取器，用于应用级共享状态
+  - Configs 标记 deprecated，提供平滑迁移路径
+  - 计划在 v2.18.0 移除 Configs
+
+- **Tower 兼容层**
+  - 提供 Tower Service trait 适配器
+  - 允许复用 Tower 生态中间件（tower-http 等）
+
+- **OpenAPI 完善**
+  - 完善 silent-openapi 宏系统
+  - Swagger UI 集成
+  - 自动文档生成闭环
+
+- **错误处理增强**
+  - 支持自定义错误类型到 HTTP 响应的映射
+  - anyhow/thiserror 集成支持

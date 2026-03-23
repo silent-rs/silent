@@ -18,7 +18,7 @@ impl Handler for HashMap<Method, Arc<dyn Handler>> {
         // 直接命中匹配的方法
         if let Some(handler) = self.clone().get(&method) {
             let mut pre_res = Response::empty();
-            pre_res.configs = req.configs();
+            pre_res.state = req.state();
             pre_res.copy_from_response(handler.call(req).await?);
             return Ok(pre_res);
         }
@@ -28,7 +28,7 @@ impl Handler for HashMap<Method, Arc<dyn Handler>> {
             && let Some(get_handler) = self.clone().get(&http::Method::GET)
         {
             let mut pre_res = Response::empty();
-            pre_res.configs = req.configs();
+            pre_res.state = req.state();
             pre_res.copy_from_response(get_handler.call(req).await?);
             pre_res.set_body(ResBody::None);
             return Ok(pre_res);

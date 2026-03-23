@@ -32,8 +32,8 @@ pub struct Route {
     pub middlewares: Vec<Arc<dyn MiddleWareHandler>>,
     special_match: bool,
     create_path: String,
-    // 配置管理字段（有此字段表示是服务入口点）
-    configs: Option<crate::Configs>,
+    // 状态管理字段（有此字段表示是服务入口点）
+    state: Option<crate::State>,
     #[cfg(feature = "session")]
     session_set: bool,
 }
@@ -77,7 +77,7 @@ impl fmt::Debug for Route {
 
 impl Route {
     /// 创建服务入口路由（原根路由功能）
-    /// 通过设置 configs 字段来标识这是一个服务入口点
+    /// 通过设置 state 字段来标识这是一个服务入口点
     pub fn new_root() -> Self {
         Route {
             path: String::new(),
@@ -86,7 +86,7 @@ impl Route {
             middlewares: Vec::new(),
             special_match: false,
             create_path: String::new(),
-            configs: Some(crate::Configs::new()), // 服务入口点需要配置管理
+            state: Some(crate::State::new()), // 服务入口点需要状态管理
             #[cfg(feature = "session")]
             session_set: false,
         }
@@ -104,7 +104,7 @@ impl Route {
             middlewares: Vec::new(),
             special_match: first_path.starts_with('<') && first_path.ends_with('>'),
             create_path: path.to_string(),
-            configs: None,
+            state: None,
             #[cfg(feature = "session")]
             session_set: false,
         };
@@ -205,14 +205,44 @@ impl Route {
         self.middlewares.insert(0, handler);
     }
 
+    /// 注入状态值（链式调用）
+    ///
+    /// 支持任意实现了 `Send + Sync + Clone + 'static` 的类型，
+    /// 可链式调用多次注入不同类型的状态。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// let route = Route::new("")
+    ///     .with_state(db_pool)
+    ///     .with_state(app_config)
+    ///     .get(handler);
+    /// ```
+    pub fn with_state<T: Send + Sync + Clone + 'static>(mut self, val: T) -> Self {
+        self.state.get_or_insert_with(crate::State::new).insert(val);
+        self
+    }
+
+    /// 设置完整的状态容器
+    pub fn set_state(&mut self, state: Option<crate::State>) {
+        self.state = state;
+    }
+
+    /// 获取状态
+    pub(crate) fn get_state(&self) -> Option<&crate::State> {
+        self.state.as_ref()
+    }
+
     /// 设置配置（任何路由都可以使用）
-    pub fn set_configs(&mut self, configs: Option<crate::Configs>) {
-        self.configs = configs;
+    #[deprecated(since = "2.16.0", note = "请使用 with_state 或 set_state 代替")]
+    pub fn set_configs(&mut self, configs: Option<crate::State>) {
+        self.set_state(configs);
     }
 
     /// 获取配置
-    pub(crate) fn get_configs(&self) -> Option<&crate::Configs> {
-        self.configs.as_ref()
+    #[deprecated(since = "2.16.0", note = "请使用 get_state 代替")]
+    pub fn get_configs(&self) -> Option<&crate::State> {
+        self.get_state()
     }
 
     #[cfg(feature = "session")]
@@ -269,11 +299,11 @@ impl Route {
             Self::merge_child(&mut self.children, child);
         }
 
-        if let Some(other_configs) = other.configs {
-            if let Some(configs) = self.configs.as_mut() {
-                configs.extend_from(&other_configs);
+        if let Some(other_state) = other.state {
+            if let Some(state) = self.state.as_mut() {
+                state.extend_from(&other_state);
             } else {
-                self.configs = Some(other_configs);
+                self.state = Some(other_state);
             }
         }
 
@@ -295,8 +325,8 @@ impl Route {
 #[async_trait]
 impl Handler for Route {
     async fn call(&self, mut req: Request) -> crate::error::SilentResult<Response> {
-        if let Some(cfg) = self.get_configs() {
-            req.configs_mut().extend_from(cfg);
+        if let Some(state) = self.get_state() {
+            req.state_mut().extend_from(state);
         }
         // Route 结构已不再在服务路径上使用，保持向后兼容：
         // 直接把自身转换为 RouteTree，并让 RouteTree 自行完成首段匹配与后续执行
@@ -543,7 +573,7 @@ mod tests {
     fn test_route_new_root() {
         let route = Route::new_root();
         assert_eq!(route.path, "");
-        assert!(route.configs.is_some());
+        assert!(route.state.is_some());
     }
 
     #[test]

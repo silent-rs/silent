@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::{Configs, Handler, MiddleWareHandler, Next, Request, Response, Result};
+use crate::{Handler, MiddleWareHandler, Next, Request, Response, Result, State};
 
 /// ExceptionHandler 中间件
 /// ```rust
@@ -19,7 +19,7 @@ pub struct ExceptionHandler<F> {
 impl<F, Fut, T> ExceptionHandler<F>
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
-    F: Fn(Result<Response>, Configs) -> Fut + Send + Sync + 'static,
+    F: Fn(Result<Response>, State) -> Fut + Send + Sync + 'static,
     T: Into<Response>,
 {
     pub fn new(handler: F) -> Self {
@@ -33,12 +33,12 @@ where
 impl<F, Fut, T> MiddleWareHandler for ExceptionHandler<F>
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
-    F: Fn(Result<Response>, Configs) -> Fut + Send + Sync + 'static,
+    F: Fn(Result<Response>, State) -> Fut + Send + Sync + 'static,
     T: Into<Response>,
 {
     async fn handle(&self, req: Request, next: &Next) -> Result<Response> {
-        let configs = req.configs();
-        self.handler.clone()(next.call(req).await, configs)
+        let state = req.state();
+        self.handler.clone()(next.call(req).await, state)
             .await
             .map(|r| r.into())
     }
