@@ -1,8 +1,9 @@
 use super::Route;
-use crate::error::SilentResult;
+use crate::core::into_response::IntoResponse;
 use crate::extractor::{FromRequest, handler_from_extractor, handler_from_extractor_with_request};
 use crate::handler::HandlerFn;
 use crate::{Handler, HandlerWrapper, Method, Request, Response, Result};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
@@ -17,7 +18,7 @@ pub trait HandlerAppend<F, T, Fut>: HandlerGetter
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
     F: Fn(Request) -> Fut + Send + Sync + 'static,
-    T: Into<Response>,
+    T: IntoResponse,
 {
     fn get(self, handler: F) -> Self;
     fn post(self, handler: F) -> Self;
@@ -63,7 +64,7 @@ impl<F, T, Fut> HandlerAppend<F, T, Fut> for Route
 where
     Fut: Future<Output = Result<T>> + Send + 'static,
     F: Fn(Request) -> Fut + Send + Sync + 'static,
-    T: Into<Response>,
+    T: IntoResponse,
 {
     fn get(mut self, handler: F) -> Self {
         self.handler_append(Method::GET, handler);
@@ -118,9 +119,9 @@ impl RouteDispatch for Response {
     }
 }
 
-impl<T> RouteDispatch for SilentResult<T>
+impl<T> RouteDispatch for crate::error::SilentResult<T>
 where
-    T: Into<Response> + Send + 'static,
+    T: IntoResponse + Send + 'static,
 {
     fn into_arc_handler<F, Fut>(handler: F) -> std::sync::Arc<dyn Handler>
     where
@@ -128,6 +129,29 @@ where
         Fut: Future<Output = Self> + Send + 'static,
     {
         std::sync::Arc::new(HandlerWrapper::new(handler))
+    }
+}
+
+/// 将返回 `Result<T, E>` 的 handler 包装为 Handler trait 实现。
+/// Ok(T) 和 Err(E) 都通过 `IntoResponse` 转为 Response。
+#[allow(dead_code)]
+pub(crate) struct IntoResponseResultHandler<F> {
+    pub(crate) handler: F,
+}
+
+#[async_trait]
+impl<F, T, E, Fut> Handler for IntoResponseResultHandler<F>
+where
+    T: IntoResponse + Send + 'static,
+    E: IntoResponse + Send + 'static,
+    Fut: Future<Output = std::result::Result<T, E>> + Send + 'static,
+    F: Fn(Request) -> Fut + Send + Sync + 'static,
+{
+    async fn call(&self, req: Request) -> Result<Response> {
+        match (self.handler)(req).await {
+            Ok(v) => Ok(v.into_response()),
+            Err(e) => Ok(e.into_response()),
+        }
     }
 }
 
@@ -148,7 +172,7 @@ where
     <Args as FromRequest>::Rejection: Into<Response> + Send + 'static,
     F: Fn(Args) -> Fut + Send + Sync + 'static,
     Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-    T: Into<Response> + Send + 'static,
+    T: IntoResponse + Send + 'static,
 {
     fn into_handler(self) -> std::sync::Arc<dyn Handler> {
         let adapted = handler_from_extractor::<Args, F, Fut, T>(self);
@@ -162,7 +186,7 @@ where
     <Args as FromRequest>::Rejection: Into<Response> + Send + 'static,
     F: Fn(Request, Args) -> Fut + Send + Sync + 'static,
     Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-    T: Into<Response> + Send + 'static,
+    T: IntoResponse + Send + 'static,
 {
     fn into_handler(self) -> std::sync::Arc<dyn Handler> {
         let adapted = handler_from_extractor_with_request::<Args, F, Fut, T>(self);
@@ -228,7 +252,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, F, Fut, T>(f);
         self.handler_append(Method::GET, adapted);
@@ -241,7 +265,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, F, Fut, T>(f);
         self.handler_append(Method::POST, adapted);
@@ -254,7 +278,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, _, _, T>(f);
         self.handler_append(Method::PUT, adapted);
@@ -267,7 +291,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, _, _, T>(f);
         self.handler_append(Method::DELETE, adapted);
@@ -280,7 +304,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, _, _, T>(f);
         self.handler_append(Method::PATCH, adapted);
@@ -293,7 +317,7 @@ impl Route {
         <Args as crate::extractor::FromRequest>::Rejection: Into<Response> + Send + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
         Fut: core::future::Future<Output = Result<T>> + Send + 'static,
-        T: Into<Response> + Send + 'static,
+        T: IntoResponse + Send + 'static,
     {
         let adapted = handler_from_extractor::<Args, _, _, T>(f);
         self.handler_append(Method::OPTIONS, adapted);
@@ -305,6 +329,7 @@ impl Route {
 mod tests {
     use super::*;
     use crate::Response;
+    use crate::error::SilentResult;
     use std::sync::Arc;
 
     // ==================== HandlerGetter trait 测试 ====================
