@@ -39,9 +39,19 @@
   - v2.16: Configs 标记 deprecated，State 作为新 API
   - v2.18: 移除 Configs（与 RequestTimeLogger 淘汰节奏一致）
 
-### P1：Tower 兼容层
+### P1：Tower 兼容层 ✅
 
-- [ ] 待细化
+- [x] 1. 添加 tower 依赖到 silent 包（可选 feature `tower-compat`）
+- [x] 2. 实现 `TowerLayerAdapter`（`middleware/tower_compat.rs`）
+  - 将 `tower::Layer` 适配为 `MiddleWareHandler`
+  - 内部实现 `NextServicePublic`（将 Silent Next 包装为 tower::Service）
+  - Silent Request ↔ http::Request 类型转换（通过 Extensions 保存/恢复 Silent 特有数据）
+  - Silent Response ↔ http::Response 类型转换（利用 ResBody::Boxed + BodyExt::map_err）
+- [x] 3. Route 添加 `hook_layer()` 方法
+  - 接受任意 `tower::Layer`，内部自动包装为 `TowerLayerAdapter`
+  - 用户无需手动创建适配器（隐式处理）
+- [x] 4. 验证与测试
+  - 3 个集成测试：header 注入、状态保留、Layer 链式调用
 
 ### P2：OpenAPI 完善
 

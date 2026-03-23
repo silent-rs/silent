@@ -1,0 +1,10 @@
+[package]
+name = "example-tower-compat"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+silent = { path = "../../silent", features = ["tower-compat"] }
+tower-http = { workspace = true, features = ["set-header", "add-extension"] }
+http = "1"

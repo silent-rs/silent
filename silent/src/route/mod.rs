@@ -205,6 +205,40 @@ impl Route {
         self.middlewares.insert(0, handler);
     }
 
+    /// 添加 Tower Layer 作为中间件（链式调用）
+    ///
+    /// 自动将 `tower::Layer` 适配为 Silent 中间件，无需手动创建适配器。
+    ///
+    /// # 示例
+    ///
+    /// ```rust,ignore
+    /// use tower::layer::layer_fn;
+    ///
+    /// let route = Route::new("api")
+    ///     .hook_layer(some_tower_layer)
+    ///     .get(handler);
+    /// ```
+    #[cfg(feature = "tower-compat")]
+    pub fn hook_layer<L>(self, layer: L) -> Self
+    where
+        L: tower::Layer<crate::middleware::tower_compat::NextServicePublic>
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+        L::Service:
+            tower::Service<http::Request<crate::core::req_body::ReqBody>> + Clone + Send + 'static,
+        <L::Service as tower::Service<http::Request<crate::core::req_body::ReqBody>>>::Response:
+            crate::middleware::tower_compat::IntoSilentResponse + Send,
+        <L::Service as tower::Service<http::Request<crate::core::req_body::ReqBody>>>::Error:
+            Into<crate::error::BoxedError> + Send,
+        <L::Service as tower::Service<http::Request<crate::core::req_body::ReqBody>>>::Future: Send,
+    {
+        self.hook(crate::middleware::tower_compat::TowerLayerAdapter::new(
+            layer,
+        ))
+    }
+
     /// 注入状态值（链式调用）
     ///
     /// 支持任意实现了 `Send + Sync + Clone + 'static` 的类型，
