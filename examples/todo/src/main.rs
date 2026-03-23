@@ -4,7 +4,7 @@
 //! - 路由组织与嵌套
 //! - Logger / ExceptionHandler 中间件
 //! - 提取器（Path / Json / Query）
-//! - Configs 注入共享状态
+//! - State 注入共享状态
 //! - 结构化 JSON 错误响应
 //! - 完整 CRUD 操作
 //!
@@ -51,16 +51,14 @@ use silent::prelude::*;
 fn main() {
     logger::fmt().with_max_level(Level::INFO).init();
 
-    // 初始化内存数据库并注入到 Configs
+    // 初始化内存数据库并通过 with_state 注入
     let db = model::Db::default();
-    let mut configs = Configs::default();
-    configs.insert(db);
 
     // 构建路由
-    let mut route = Route::new_root()
+    let route = Route::new_root()
         .hook(Logger::new())
         .hook(ExceptionHandler::new(
-            |result: Result<Response>, _configs| async move {
+            |result: Result<Response>, _state| async move {
                 match result {
                     Ok(res) => Ok(res),
                     Err(e) => {
@@ -74,9 +72,8 @@ fn main() {
                 }
             },
         ))
-        .append(route::api_routes());
-
-    route.set_configs(Some(configs));
+        .append(route::api_routes())
+        .with_state(db);
 
     Server::new().run(route);
 }

@@ -42,6 +42,7 @@ full = [
     "quic",
     "metrics",
     "compression",
+    "tower-compat",
 ]
 multipart = [
     "server",
@@ -102,6 +103,7 @@ quic = [
     "dep:tokio-stream",
 ]
 metrics = ["dep:metrics"]
+tower-compat = ["dep:tower"]
 
 [dependencies]
 # Basic dependencies
@@ -197,6 +199,9 @@ rustls-pki-types = { version = "1", optional = true }
 quinn = { version = "0.11", optional = true }
 h3 = { version = "0.0.8", optional = true }
 h3-quinn = { version = "0.0.10", optional = true }
+# Tower
+tower = { workspace = true, optional = true, features = ["util"] }
+
 scru128 = "3"
 rand = { version = "0.10", optional = true }
 
