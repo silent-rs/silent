@@ -1,93 +1,65 @@
-# TODO（v2.16 开发计划）
+# TODO（v2.17 极限性能优化）
 
-> 目标版本: v2.16
+> 目标版本: v2.17
 > 状态: 开发中
 
-## 上一阶段成果（v2.15 已完成 ✅）
+## 上一阶段成果（v2.16 已完成 ✅）
 
-- TestClient 集成测试工具（TestClient/TestRequest/TestResponse）
-- 路由性能优化（freeze 模式消除请求级深拷贝，180x 提升）
-- Cloudflare Worker 生态增强（with_configs、Context 注入、KV/D1/R2 示例）
-- Logger 中间件（结构化 tracing 字段，替代 RequestTimeLogger）
+- State 提取器（替代 Configs）
+- Tower 兼容层（hook_layer）
+- OpenAPI 完善（Swagger UI 嵌入、宏增强、ReDoc）
+- 错误处理增强（IntoResponse trait）
 
 ## 待开发任务
 
-### P0：State 提取器（替代 Configs）✅
+### P0：热路径关键瓶颈消除
 
-- [x] 1. 新增 `State` 容器类型（替代 `Configs` 结构体）
-  - `configs/mod.rs` 中 `Configs` 重命名为 `State`
-  - `Configs` 作为 deprecated 类型别名保留
-- [x] 2. 新增 `State<T>` 提取器（`extractor/types.rs`）
-  - 实现 FromRequest trait，从 Request 内部状态容器中提取
-  - `Configs<T>` 提取器标记 deprecated
-- [x] 3. Request 内部 `configs` 字段重命名为 `state`
-  - 新增 `get_state<T>()` / `state()` / `state_mut()` 方法
-  - 旧方法 `get_config` / `configs()` / `configs_mut()` 标记 deprecated
-- [x] 4. Response 同步更新
-  - 新增 `get_state<T>()` / `state()` / `state_mut()` 方法
-  - 旧方法标记 deprecated
-- [x] 5. Route / RouteTree 支持 State 注入
-  - `with_state<T>(val: T)` 泛型链式方法，支持任意类型直接注入
-  - 支持链式调用 `.with_state(a).with_state(b)`
-  - 内部 `configs` 字段重命名为 `state`
-- [x] 6. Cloudflare Worker 适配
-  - WorkRoute `with_state<T>(val: T)` 泛型方法
-  - 保留 `with_configs()` 但标记 deprecated
-- [x] 7. 示例更新
-  - configs / extractors / cloudflare-worker / openapi 示例全部迁移到新 API
-- [x] 8. 淘汰时间线
-  - v2.16: Configs 标记 deprecated，State 作为新 API
-  - v2.18: 移除 Configs（与 RequestTimeLogger 淘汰节奏一致）
+- [x] 1. Handler HashMap clone 消除 ✅
+  - `handler_trait.rs` 中 `self.clone().get(&method)` → `self.get(&method)` 直接引用
+  - 消除每请求的 HashMap 深拷贝开销
+  - **效果：简单路由约 2x 提升**
 
-### P1：Tower 兼容层 ✅
+- [x] 2. RouteTree 连接级共享 ✅
+  - `route_connection.rs` 中每连接调用 `convert_to_route_tree()` → 启动时一次性构建 `Arc<RouteTree>`
+  - 所有连接共享同一份冻结的路由树（HTTP 和 QUIC 均适用）
 
-- [x] 1. 添加 tower 依赖到 silent 包（可选 feature `tower-compat`）
-- [x] 2. 实现 `TowerLayerAdapter`（`middleware/tower_compat.rs`）
-  - 将 `tower::Layer` 适配为 `MiddleWareHandler`
-  - 内部实现 `NextServicePublic`（将 Silent Next 包装为 tower::Service）
-  - Silent Request ↔ http::Request 类型转换（通过 Extensions 保存/恢复 Silent 特有数据）
-  - Silent Response ↔ http::Response 类型转换（利用 ResBody::Boxed + BodyExt::map_err）
-- [x] 3. Route 添加 `hook_layer()` 方法
-  - 接受任意 `tower::Layer`，内部自动包装为 `TowerLayerAdapter`
-  - 用户无需手动创建适配器（隐式处理）
-- [x] 4. 验证与测试
-  - 3 个集成测试：header 注入、状态保留、Layer 链式调用
+- [ ] 3. 移除 async_trait，使用原生 RPITIT
+  - 因 `dyn Handler` trait object 需求，boxing 是必需的，收益有限
+  - 暂缓，待后续评估
 
-### P2：OpenAPI 完善 ✅
+- [ ] 4. HyperService Box::pin 消除
+  - hyper Service trait 要求 `type Future = Pin<Box<...>>`，无法直接消除
+  - 暂缓
 
-- [x] 1. Swagger UI 本地资源嵌入
-  - 新增 `swagger-ui-embedded` feature（默认关闭，启用后不依赖 CDN）
-  - build.rs 编译时通过 ureq 下载 swagger-ui-dist 资源，include_bytes 嵌入二进制
-  - 新增 `ui_html.rs` 统一 HTML 模板，消除 handler/middleware 代码重复
-  - 根据 feature 自动切换 CDN / 本地相对路径
-- [x] 2. `#[endpoint]` 宏增强
-  - 支持 `#[endpoint(deprecated)]` 标记接口废弃
-  - 支持 `#[endpoint(tags = "users,admin")]` 自定义标签
-  - 支持 `#[endpoint(response(status = 400, description = "..."))]` 多状态码响应描述
-  - 新增 `register_doc_by_ptr_ext` / `ExtraResponse` 注册机制
-- [x] 3. 路由文档收集增强（`route.rs`）
-  - 新增 `rust_type_to_schema()` 路径参数类型映射（i8-i128/u8-u128/f32/f64/bool/String）
-  - 路由组级别 tags 继承（非参数路径段自动作为 tag 向下传递）
-  - 中间件通用响应推断（RateLimiter→429, Auth→401, Timeout→408）
-- [x] 4. ReDoc 替代 UI 支持
-  - 新增 `ReDocHandler` / `ReDocMiddleware`，提供 ReDoc 风格文档页
-  - 与 Swagger UI 共用同一 OpenAPI JSON 端点
-  - 支持 Handler / Middleware 两种集成方式
-- [x] 5. 示例更新与文档闭环
-  - 更新 `openapi-test` 示例展示 deprecated、tags、response、ReDoc 新功能
-  - Swagger UI + ReDoc 双 UI 并存示例
+### P1：中间件与数据结构优化
 
-### P3：错误处理增强 ✅
+- [x] 5. 中间件链优化 ✅
+  - 无中间件时快速路径直接调用 call_children，跳过 Next 链构建
+  - Next::call 中 Arc clone 改为直接引用
+  - **效果：带中间件路由约 2.2x 提升**
 
-- [x] 1. 定义 `IntoResponse` trait
-  - 桥接 `impl<T: Into<Response>> IntoResponse for T`，完全向后兼容
-- [x] 2. Handler 系统迁移到 `IntoResponse`
-  - HandlerWrapper: `T: Into<Response>` → `T: IntoResponse`
-  - RouteDispatch / IntoRouteHandler: 同步更新
-  - Extractor 辅助函数: 同步更新
-- [x] 3. 自定义错误支持基础设施
-  - IntoResponseResultHandler 支持 `Result<T, E>` 其中 `T: IntoResponse, E: IntoResponse`
-  - 用户只需 `impl From<MyError> for Response` 即可通过桥接获得 IntoResponse
-- [x] 4. 测试验证
-  - 5 个 IntoResponse 测试（String、&str、Response、SilentError、自定义错误）
-  - 1696 测试全部通过，零破坏性
+- [x] 6. not_found_error 零分配 ✅
+  - 使用 `SilentError::NotFound` 替代 `BusinessError` + String 分配
+  - **效果：所有未匹配路径零字符串分配**
+
+- [ ] 7. Request 参数容器优化
+  - HashMap → SmallVec 涉及公开 API 变化，暂缓
+
+### P2：编译与运行时调优
+
+- [x] 8. Release profile 优化 ✅
+  - `opt-level = 3`, `lto = "fat"`, `codegen-units = 1`, `strip = "symbols"`
+
+- [x] 9. tracing 编译时级别控制 ✅
+  - 添加 `no-tracing` feature（`tracing/max_level_off`），benchmark 时关闭 tracing
+
+## Benchmark 结果
+
+| 测试项 | main 基线 | 优化后 | 提升 |
+|--------|-----------|--------|------|
+| simple route match | 107.57 ns | 54.35 ns | ~2x |
+| route with middleware | 107.50 ns | 49.29 ns | ~2.2x |
+| nested route match | 133.00 ns | 91.63 ns | 31% |
+| 1000 sequential requests | 184.98 µs | 132.97 µs | 28% |
+| deep nested 10 levels | 206.12 ns | 166.30 ns | 19% |
+| deep nested with params | 299.80 ns | 253.78 ns | 15% |

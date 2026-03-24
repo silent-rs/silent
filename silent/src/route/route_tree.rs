@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use http::StatusCode;
 use memchr::memchr;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -12,12 +11,10 @@ use crate::middleware::MiddleWareHandler;
 use crate::route::handler_match::SpecialPath;
 use crate::{Method, Next, Request, Response, SilentError};
 
-/// 静态 "not found" 错误字符串，避免每次请求都分配新字符串
-const NOT_FOUND_MSG: &str = "not found";
-
+/// 零分配的 not found 错误
 #[inline]
 fn not_found_error() -> SilentError {
-    SilentError::business_error(StatusCode::NOT_FOUND, NOT_FOUND_MSG.to_string())
+    SilentError::NotFound
 }
 
 #[derive(Clone)]
@@ -322,6 +319,14 @@ impl RouteTree {
             req.state_mut().extend_from(state);
         }
 
+        let middleware_slice = &self.middlewares[self.middleware_start..];
+
+        // 快速路径：无中间件时直接调用子路由，跳过 Next 链构建
+        if middleware_slice.is_empty() {
+            // 使用 Box::pin 打破递归 async 无限大小 Future
+            return Box::pin(self.call_children(req, offset, path)).await;
+        }
+
         // 使用预构建的 Arc 引用（freeze 后），避免每次请求深拷贝整棵子树
         let node_arc = match &self.self_arc {
             Some(arc) => Arc::clone(arc),
@@ -333,7 +338,6 @@ impl RouteTree {
             offset,
             Arc::clone(&path),
         ));
-        let middleware_slice = &self.middlewares[self.middleware_start..];
         let next = Next::build(endpoint, middleware_slice);
         next.call(req).await
     }
@@ -529,6 +533,7 @@ mod tests {
     use super::*;
     use crate::route::Route;
     use bytes::Bytes;
+    use http::StatusCode;
     use http_body_util::BodyExt;
     use std::sync::Arc;
 

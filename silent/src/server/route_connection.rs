@@ -5,7 +5,7 @@
 //! 而网络连接处理通过适配器模式实现。
 
 use crate::core::socket_addr::SocketAddr as CoreSocketAddr;
-use crate::route::Route;
+use crate::route::{Route, RouteTree};
 #[cfg(feature = "scheduler")]
 use crate::scheduler::middleware::SchedulerMiddleware;
 use crate::server::config::{ConnectionLimits, global_server_config};
@@ -14,7 +14,6 @@ use crate::server::connection_service::{ConnectionFuture, ConnectionService};
 use crate::server::protocol::hyper_http::HyperServiceHandler;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder;
-#[cfg(feature = "quic")]
 use std::sync::Arc;
 
 /// RouteConnectionService 适配器
@@ -37,7 +36,10 @@ use std::sync::Arc;
 /// ```
 #[derive(Clone)]
 pub struct RouteConnectionService {
+    #[allow(dead_code)] // 保留用于测试和调试
     route: Route,
+    /// 预构建的冻结路由树，所有连接共享同一份，避免每连接重建
+    frozen_tree: Arc<RouteTree>,
     limits: ConnectionLimits,
     #[cfg(feature = "quic")]
     webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler>,
@@ -48,15 +50,31 @@ impl RouteConnectionService {
     #[inline]
     pub fn new(route: Route) -> Self {
         let limits = global_server_config().connection_limits.clone();
+        // 启动时一次性构建冻结路由树，后续所有连接共享
+        let frozen_tree = Arc::new(Self::build_route_tree(&route));
         #[cfg(feature = "quic")]
         let webtransport_handler: Arc<dyn crate::server::quic::WebTransportHandler> =
             Arc::new(crate::server::quic::EchoHandler);
         Self {
             route,
+            frozen_tree,
             limits,
             #[cfg(feature = "quic")]
             webtransport_handler,
         }
+    }
+
+    /// 构建冻结路由树（包含 session/cookie/scheduler 检查）
+    fn build_route_tree(route: &Route) -> RouteTree {
+        #[allow(unused_mut)]
+        let mut route = route.clone();
+        #[cfg(feature = "session")]
+        route.check_session();
+        #[cfg(feature = "cookie")]
+        route.check_cookie();
+        #[cfg(feature = "scheduler")]
+        route.hook_first(SchedulerMiddleware::new());
+        route.convert_to_route_tree()
     }
 
     /// 为 WebTransport 提供自定义处理器，替代默认的 EchoHandler。
@@ -72,22 +90,13 @@ impl RouteConnectionService {
     /// 处理 HTTP 连接（HTTP/1.1 或 HTTP/2）
     ///
     /// 直接使用 hyper 的 auto builder 处理连接，无需额外的 Serve 中间层。
+    /// 使用预构建的冻结路由树，避免每连接重建。
     fn handle_http_connection(
-        root_route: Route,
+        frozen_tree: Arc<RouteTree>,
         stream: BoxedConnection,
         peer: CoreSocketAddr,
         limits: ConnectionLimits,
     ) -> ConnectionFuture {
-        #[allow(unused_mut)]
-        let mut root_route = root_route;
-        #[cfg(feature = "session")]
-        root_route.check_session();
-        #[cfg(feature = "cookie")]
-        root_route.check_cookie();
-        #[cfg(feature = "scheduler")]
-        root_route.hook_first(SchedulerMiddleware::new());
-
-        let routes = root_route.convert_to_route_tree();
         let max_body_size = limits.max_body_size;
         Box::pin(async move {
             let io = TokioIo::new(stream);
@@ -95,7 +104,8 @@ impl RouteConnectionService {
             builder
                 .serve_connection_with_upgrades(
                     io,
-                    HyperServiceHandler::with_limits(peer.into(), routes, max_body_size),
+                    // 直接传 Arc<RouteTree>，clone 仅增加引用计数
+                    HyperServiceHandler::with_limits(peer.into(), frozen_tree, max_body_size),
                 )
                 .await
         })
@@ -110,8 +120,8 @@ impl ConnectionService for RouteConnectionService {
             use crate::quic::connection::QuicConnection;
             match stream.downcast::<QuicConnection>() {
                 Ok(quic) => {
-                    // QUIC 连接处理
-                    let routes = Arc::new(self.route.clone());
+                    // QUIC 连接处理：共享冻结路由树
+                    let routes = Arc::clone(&self.frozen_tree);
                     let read_timeout = self.limits.h3_read_timeout;
                     let max_body_size = self.limits.max_body_size;
                     let max_wt_frame = self.limits.max_webtransport_frame_size;
@@ -149,7 +159,7 @@ impl ConnectionService for RouteConnectionService {
                 Err(stream) => {
                     // 不是 QUIC 连接，继续处理为 HTTP/1.1 或 HTTP/2
                     Self::handle_http_connection(
-                        self.route.clone(),
+                        Arc::clone(&self.frozen_tree),
                         stream,
                         peer,
                         self.limits.clone(),
@@ -160,7 +170,12 @@ impl ConnectionService for RouteConnectionService {
 
         // 没有 QUIC feature 时的 HTTP/1.1 或 HTTP/2 连接处理
         #[cfg(not(feature = "quic"))]
-        Self::handle_http_connection(self.route.clone(), stream, peer, self.limits.clone())
+        Self::handle_http_connection(
+            Arc::clone(&self.frozen_tree),
+            stream,
+            peer,
+            self.limits.clone(),
+        )
     }
 }
 

@@ -15,8 +15,9 @@ pub trait Handler: Send + Sync + 'static {
 impl Handler for HashMap<Method, Arc<dyn Handler>> {
     async fn call(&self, req: Request) -> Result<Response> {
         let method = req.method().clone();
-        // 直接命中匹配的方法
-        if let Some(handler) = self.clone().get(&method) {
+        // 直接命中匹配的方法（直接引用，不克隆 HashMap）
+        if let Some(handler) = self.get(&method) {
+            let handler = Arc::clone(handler);
             let mut pre_res = Response::empty();
             pre_res.state = req.state();
             pre_res.copy_from_response(handler.call(req).await?);
@@ -25,8 +26,9 @@ impl Handler for HashMap<Method, Arc<dyn Handler>> {
 
         // 特殊处理：HEAD 无显式处理器时回退到 GET，并清空响应体
         if method == http::Method::HEAD
-            && let Some(get_handler) = self.clone().get(&http::Method::GET)
+            && let Some(get_handler) = self.get(&http::Method::GET)
         {
+            let get_handler = Arc::clone(get_handler);
             let mut pre_res = Response::empty();
             pre_res.state = req.state();
             pre_res.copy_from_response(get_handler.call(req).await?);
