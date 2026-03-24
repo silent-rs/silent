@@ -149,110 +149,14 @@ impl SwaggerUiMiddleware {
         if relative_path.is_empty() || relative_path == "index.html" {
             self.serve_swagger_ui_index().await
         } else {
-            // 对于其他资源，返回404（基础版本使用CDN）
-            let mut response = Response::empty();
-            response.set_status(StatusCode::NOT_FOUND);
-            response.set_body("Resource not found".into());
-            Ok(response)
+            crate::ui_html::serve_asset(relative_path)
         }
     }
 
     /// 生成Swagger UI主页HTML
     async fn serve_swagger_ui_index(&self) -> Result<Response> {
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Documentation - Swagger UI</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
-    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.17.14/favicon-32x32.png" sizes="32x32" />
-    <style>
-        html {{
-            box-sizing: border-box;
-            overflow: -moz-scrollbars-vertical;
-            overflow-y: scroll;
-        }}
-        *, *:before, *:after {{
-            box-sizing: inherit;
-        }}
-        body {{
-            margin: 0;
-            background: #fafafa;
-        }}
-        .swagger-ui .topbar {{
-            display: none;
-        }}
-        .swagger-ui .info {{
-            margin: 50px 0;
-        }}
-        .custom-header {{
-            background: #89CFF0;
-            padding: 20px;
-            text-align: center;
-            color: #1976d2;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }}
-        .custom-header h1 {{
-            margin: 0;
-            font-size: 24px;
-            font-weight: 600;
-        }}
-        .custom-header p {{
-            margin: 8px 0 0 0;
-            opacity: 0.8;
-        }}
-    </style>
-</head>
-<body>
-    <div class="custom-header">
-        <h1>🚀 Silent Framework API Documentation</h1>
-        <p>基于 OpenAPI 3.0 规范的交互式 API 文档</p>
-    </div>
-    <div id="swagger-ui"></div>
-
-    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"></script>
-    <script>
-        window.onload = function() {{
-            // 配置Swagger UI
-            const ui = SwaggerUIBundle({{
-                url: '{}',
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIStandalonePreset
-                ],
-                plugins: [
-                    SwaggerUIBundle.plugins.DownloadUrl
-                ],
-                layout: "StandaloneLayout",
-                validatorUrl: null,
-                docExpansion: "list",
-                defaultModelsExpandDepth: 1,
-                defaultModelExpandDepth: 1,
-                displayRequestDuration: true,
-                filter: true,
-                showExtensions: true,
-                showCommonExtensions: true,
-                tryItOutEnabled: {}
-            }});
-
-            // 添加自定义样式
-            window.ui = ui;
-        }}
-    </script>
-</body>
-</html>"#,
-            self.api_doc_path,
-            if self.options.try_it_out_enabled {
-                "true"
-            } else {
-                "false"
-            }
-        );
+        let html =
+            crate::ui_html::generate_index_html(&self.ui_path, &self.api_doc_path, &self.options);
 
         let mut response = Response::empty();
         response.set_status(StatusCode::OK);

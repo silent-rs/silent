@@ -3,7 +3,8 @@ use silent::extractor::Path;
 use silent::header;
 use silent::prelude::*;
 use silent_openapi::{
-    endpoint, OpenApiDoc, RouteOpenApiExt, SwaggerUiHandler, SwaggerUiOptions, ToSchema,
+    endpoint, OpenApiDoc, ReDocHandler, RouteOpenApiExt, SwaggerUiHandler, SwaggerUiOptions,
+    ToSchema,
 };
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -18,13 +19,19 @@ struct ErrorResponse {
     message: String,
 }
 
-// 本示例将使用路由自动生成 OpenAPI，再补充安全定义
-#[endpoint(summary = "获取问候", description = "返回 \"Hello, OpenAPI!\"")]
+// 使用 tags 将端点分组
+#[endpoint(summary = "获取问候", description = "返回问候语", tags = "general")]
 async fn get_hello(_req: Request) -> Result<String> {
     Ok("Hello, OpenAPI!".into())
 }
 
-#[endpoint(summary = "获取用户", description = "根据路径参数 id 返回用户信息")]
+// 使用 response 声明多状态码响应
+#[endpoint(
+    summary = "获取用户",
+    description = "根据路径参数 id 返回用户信息",
+    tags = "users",
+    response(status = 404, description = "用户不存在")
+)]
 async fn get_user(Path(id): Path<u64>) -> Result<User> {
     Ok(User {
         id,
@@ -32,8 +39,28 @@ async fn get_user(Path(id): Path<u64>) -> Result<User> {
     })
 }
 
-// 受保护端点：无 Authorization 返回 401，带特殊 token 返回 403，其它通过
-#[endpoint(summary = "受保护示例", description = "演示 401/403 与成功的不同响应")]
+// 使用 deprecated 标记废弃接口
+#[endpoint(
+    deprecated,
+    summary = "旧版获取用户（已废弃）",
+    description = "请使用 GET /users/{id} 替代",
+    tags = "users"
+)]
+async fn get_user_legacy(Path(id): Path<u64>) -> Result<User> {
+    Ok(User {
+        id,
+        name: format!("User {}", id),
+    })
+}
+
+// 多状态码响应声明
+#[endpoint(
+    summary = "受保护示例",
+    description = "演示 401/403 与成功的不同响应",
+    tags = "auth",
+    response(status = 401, description = "未提供认证信息"),
+    response(status = 403, description = "权限不足")
+)]
 async fn get_protected(req: Request) -> Result<Response> {
     let auth = req
         .headers()
@@ -63,36 +90,47 @@ async fn get_protected(req: Request) -> Result<Response> {
 async fn main() -> Result<()> {
     logger::fmt().init();
 
-    // 先构建业务路由
+    // 构建业务路由
     let routes = Route::new("")
         .get(get_hello)
-        .append(Route::new("users").append(Route::new("<id:u64>").get(get_user)))
+        .append(
+            Route::new("users")
+                .append(Route::new("<id:u64>").get(get_user))
+                .append(Route::new("legacy/<id:u64>").get(get_user_legacy)),
+        )
         .append(Route::new("protected").get(get_protected));
 
-    // 基于路由生成 OpenAPI，并补充 Bearer 安全定义与全局 security
+    // 基于路由生成 OpenAPI，并补充安全定义
     let openapi = routes.to_openapi("Test API", "1.0.0");
     let openapi = OpenApiDoc::from_openapi(openapi)
         .add_bearer_auth("bearerAuth", Some("JWT Bearer token"))
         .set_global_security("bearerAuth", &[])
         .into_openapi();
 
-    // 可选：关闭 Try it out（生产环境常用）
+    // Swagger UI（/docs）
     let options = SwaggerUiOptions {
         try_it_out_enabled: true,
     };
-    let swagger = SwaggerUiHandler::with_options("/docs", openapi, options)
+    let swagger = SwaggerUiHandler::with_options("/docs", openapi.clone(), options)
         .expect("Failed to create Swagger UI");
 
-    // 直接将 SwaggerUiHandler 转为可挂载的路由树并追加
-    let routes = Route::new("").append(swagger.into_route()).append(routes);
+    // ReDoc（/redoc）— 共用同一 OpenAPI 规范，两种 UI 并存
+    let redoc = ReDocHandler::new("/redoc", openapi).expect("Failed to create ReDoc");
 
-    println!("🚀 Server starting!");
-    println!("📖 API docs: http://localhost:8080/docs");
-    println!("🔗 Endpoints:");
-    println!("   GET /hello");
-    println!("   GET /users/{{id}}");
-    println!("   GET /protected    - 401/403 示例: Authorization: Bearer <token>");
-    println!("      - 无头: 401; token 含 'forbidden': 403; 其他: 200");
+    let routes = Route::new("")
+        .append(swagger.into_route())
+        .append(redoc.into_route())
+        .append(routes);
+
+    println!("Server starting!");
+    println!("API docs:");
+    println!("   Swagger UI: http://localhost:8080/docs");
+    println!("   ReDoc:      http://localhost:8080/redoc");
+    println!("Endpoints:");
+    println!("   GET /                       - general");
+    println!("   GET /users/{{id}}             - users");
+    println!("   GET /users/legacy/{{id}}      - users (deprecated)");
+    println!("   GET /protected              - auth (401/403)");
 
     let addr = "127.0.0.1:8080".parse().expect("Invalid address");
     Server::new().bind(addr).serve(routes).await;

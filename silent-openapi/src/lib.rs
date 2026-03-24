@@ -38,17 +38,22 @@
 //! ```
 
 pub mod doc;
+#[cfg(feature = "swagger-ui-embedded")]
+pub mod embedded;
 pub use silent_openapi_macros::endpoint;
 pub mod error;
 pub mod handler;
 pub mod middleware;
+pub mod redoc;
 pub mod route;
 pub mod schema;
+pub mod ui_html;
 
 // 重新导出核心类型
 pub use error::{OpenApiError, Result};
 pub use handler::SwaggerUiHandler;
 pub use middleware::SwaggerUiMiddleware;
+pub use redoc::{ReDocHandler, ReDocMiddleware};
 pub use route::{DocumentedRoute, RouteDocumentation, RouteOpenApiExt};
 pub use schema::OpenApiDoc;
 

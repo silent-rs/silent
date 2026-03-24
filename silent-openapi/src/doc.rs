@@ -16,6 +16,8 @@ use utoipa::openapi::{Components, ComponentsBuilder, OpenApi};
 pub struct DocMeta {
     pub summary: Option<String>,
     pub description: Option<String>,
+    pub deprecated: bool,
+    pub tags: Vec<String>,
 }
 
 static DOC_REGISTRY: Lazy<Mutex<HashMap<usize, DocMeta>>> =
@@ -28,6 +30,28 @@ pub fn register_doc_by_ptr(ptr: usize, summary: Option<&str>, description: Optio
         DocMeta {
             summary: summary.map(|s| s.to_string()),
             description: description.map(|s| s.to_string()),
+            deprecated: false,
+            tags: Vec::new(),
+        },
+    );
+}
+
+/// 注册文档元信息（带 deprecated 和 tags 支持）
+pub fn register_doc_by_ptr_ext(
+    ptr: usize,
+    summary: Option<&str>,
+    description: Option<&str>,
+    deprecated: bool,
+    tags: &[&str],
+) {
+    let mut map = DOC_REGISTRY.lock().expect("doc registry poisoned");
+    map.insert(
+        ptr,
+        DocMeta {
+            summary: summary.map(|s| s.to_string()),
+            description: description.map(|s| s.to_string()),
+            deprecated,
+            tags: tags.iter().map(|s| s.to_string()).collect(),
         },
     );
 }
@@ -73,6 +97,35 @@ pub fn list_registered_json_types() -> Vec<&'static str> {
         }
     }
     out
+}
+
+// ====== 额外响应（非 200）注册 ======
+
+/// 额外的 HTTP 响应描述（如 400、401、404 等）
+#[derive(Clone, Debug)]
+pub struct ExtraResponse {
+    pub status: u16,
+    pub description: String,
+}
+
+static EXTRA_RESPONSE_REGISTRY: Lazy<Mutex<HashMap<usize, Vec<ExtraResponse>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub fn register_extra_response_by_ptr(ptr: usize, status: u16, description: &str) {
+    let mut map = EXTRA_RESPONSE_REGISTRY
+        .lock()
+        .expect("extra response registry poisoned");
+    map.entry(ptr).or_default().push(ExtraResponse {
+        status,
+        description: description.to_string(),
+    });
+}
+
+pub(crate) fn lookup_extra_responses_by_handler_ptr(ptr: usize) -> Option<Vec<ExtraResponse>> {
+    EXTRA_RESPONSE_REGISTRY
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&ptr).cloned())
 }
 
 // ====== 请求元信息注册 ======

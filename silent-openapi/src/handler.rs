@@ -151,63 +151,8 @@ impl SwaggerUiHandler {
 
     /// 服务Swagger UI主页
     async fn serve_swagger_ui_index(&self) -> Result<Response> {
-        // 生成Swagger UI的HTML页面
-        let html = format!(
-            r#"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Swagger UI</title>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
-    <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5.17.14/favicon-32x32.png" sizes="32x32" />
-    <style>
-        html {{
-            box-sizing: border-box;
-            overflow: -moz-scrollbars-vertical;
-            overflow-y: scroll;
-        }}
-        *, *:before, *:after {{
-            box-sizing: inherit;
-        }}
-        body {{
-            margin:0;
-            background: #fafafa;
-        }}
-    </style>
-</head>
-<body>
-    <div id="swagger-ui"></div>
-
-    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js"></script>
-    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js"></script>
-    <script>
-        window.onload = function() {{
-            const ui = SwaggerUIBundle({{
-                url: '{}',
-                dom_id: '#swagger-ui',
-                deepLinking: true,
-                presets: [
-                    SwaggerUIBundle.presets.apis,
-                    SwaggerUIStandalonePreset
-                ],
-                plugins: [
-                    SwaggerUIBundle.plugins.DownloadUrl
-                ],
-                layout: "StandaloneLayout",
-                tryItOutEnabled: {}
-            }})
-        }}
-    </script>
-</body>
-</html>"#,
-            self.api_doc_path,
-            if self.options.try_it_out_enabled {
-                "true"
-            } else {
-                "false"
-            }
-        );
+        let html =
+            crate::ui_html::generate_index_html(&self.ui_path, &self.api_doc_path, &self.options);
 
         let mut response = Response::empty();
         response.set_status(StatusCode::OK);
@@ -220,13 +165,8 @@ impl SwaggerUiHandler {
     }
 
     /// 服务Swagger UI静态资源
-    async fn serve_swagger_ui_asset(&self, _asset_path: &str) -> Result<Response> {
-        // 对于基础版本，我们使用CDN资源，所以这里返回404
-        // 在后续版本中可以考虑嵌入静态资源
-        let mut response = Response::empty();
-        response.set_status(StatusCode::NOT_FOUND);
-        response.set_body("Asset not found".into());
-        Ok(response)
+    async fn serve_swagger_ui_asset(&self, asset_path: &str) -> Result<Response> {
+        crate::ui_html::serve_asset(asset_path)
     }
 
     /// 将处理器转换为可直接挂载的 Route 树

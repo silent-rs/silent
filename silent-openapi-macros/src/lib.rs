@@ -20,21 +20,64 @@ fn endpoint_impl(
     let MetaArgs(args) = syn::parse2::<MetaArgs>(attr).expect("parse attr");
     let mut summary_arg: Option<String> = None;
     let mut description_arg: Option<String> = None;
+    let mut deprecated_flag = false;
+    let mut tags_arg: Vec<String> = Vec::new();
+    let mut extra_responses: Vec<(u16, String)> = Vec::new();
+
     for meta in args {
-        if let Meta::NameValue(nv) = meta {
-            if nv.path.is_ident("summary")
-                && let Expr::Lit(ExprLit {
-                    lit: Lit::Str(s), ..
-                }) = &nv.value
-            {
-                summary_arg = Some(s.value());
-            } else if nv.path.is_ident("description")
-                && let Expr::Lit(ExprLit {
-                    lit: Lit::Str(s), ..
-                }) = &nv.value
-            {
-                description_arg = Some(s.value());
+        match &meta {
+            // deprecated（无值标志）
+            Meta::Path(path) if path.is_ident("deprecated") => {
+                deprecated_flag = true;
             }
+            // summary = "...", description = "...", tags = "..."
+            Meta::NameValue(nv) => {
+                if nv.path.is_ident("summary")
+                    && let Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = &nv.value
+                {
+                    summary_arg = Some(s.value());
+                } else if nv.path.is_ident("description")
+                    && let Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = &nv.value
+                {
+                    description_arg = Some(s.value());
+                } else if nv.path.is_ident("tags")
+                    && let Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }) = &nv.value
+                {
+                    for tag in s.value().split(',') {
+                        let t = tag.trim().to_string();
+                        if !t.is_empty() {
+                            tags_arg.push(t);
+                        }
+                    }
+                }
+            }
+            // response(status = 400, description = "...")
+            Meta::List(list) if list.path.is_ident("response") => {
+                let mut status: Option<u16> = None;
+                let mut desc: Option<String> = None;
+                let _ = list.parse_nested_meta(|nested| {
+                    if nested.path.is_ident("status") {
+                        let value = nested.value()?;
+                        let lit: syn::LitInt = value.parse()?;
+                        status = Some(lit.base10_parse()?);
+                    } else if nested.path.is_ident("description") {
+                        let value = nested.value()?;
+                        let lit: syn::LitStr = value.parse()?;
+                        desc = Some(lit.value());
+                    }
+                    Ok(())
+                });
+                if let (Some(st), Some(d)) = (status, desc) {
+                    extra_responses.push((st, d));
+                }
+            }
+            _ => {}
         }
     }
 
@@ -94,6 +137,29 @@ fn endpoint_impl(
         quote!(Some(#lit))
     } else {
         quote!(None)
+    };
+
+    // deprecated / tags / extra responses 的 token
+    let deprecated_tokens = deprecated_flag;
+    let tags_tokens = {
+        let tag_lits: Vec<_> = tags_arg
+            .iter()
+            .map(|t| syn::LitStr::new(t, proc_macro2::Span::call_site()))
+            .collect();
+        quote!(&[#(#tag_lits),*])
+    };
+    let extra_response_tokens = {
+        let stmts: Vec<_> = extra_responses
+            .iter()
+            .map(|(status, desc)| {
+                let st = *status;
+                let d = syn::LitStr::new(desc, proc_macro2::Span::call_site());
+                quote! {
+                    ::silent_openapi::doc::register_extra_response_by_ptr(ptr, #st, #d);
+                }
+            })
+            .collect();
+        quote!(#(#stmts)*)
     };
 
     // 解析返回类型 Ok(T) -> ResponseMeta
@@ -296,13 +362,16 @@ fn endpoint_impl(
                             fn into_handler(self) -> std::sync::Arc<dyn ::silent::Handler> {
                                 let handler = std::sync::Arc::new(::silent::HandlerWrapper::new(#impl_name));
                                 let ptr = std::sync::Arc::as_ptr(&handler) as *const () as usize;
-                                ::silent_openapi::doc::register_doc_by_ptr(
+                                ::silent_openapi::doc::register_doc_by_ptr_ext(
                                     ptr,
                                     #sum_tokens,
                                     #desc_tokens,
+                                    #deprecated_tokens,
+                                    #tags_tokens,
                                 );
                                 #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
+                                #extra_response_tokens
                                 handler
                             }
                         }
@@ -316,13 +385,16 @@ fn endpoint_impl(
                                 let adapted = ::silent::extractor::handler_from_extractor::<#ty, _, _, _>(#impl_name);
                                 let handler = std::sync::Arc::new(::silent::HandlerWrapper::new(adapted));
                                 let ptr = std::sync::Arc::as_ptr(&handler) as *const () as usize;
-                                ::silent_openapi::doc::register_doc_by_ptr(
+                                ::silent_openapi::doc::register_doc_by_ptr_ext(
                                     ptr,
                                     #sum_tokens,
                                     #desc_tokens,
+                                    #deprecated_tokens,
+                                    #tags_tokens,
                                 );
                                 #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
+                                #extra_response_tokens
                                 #req_meta_register
                                 handler
                             }
@@ -350,13 +422,16 @@ fn endpoint_impl(
                                 let adapted = ::silent::extractor::handler_from_extractor_with_request::<#ty2, _, _, _>(#impl_name);
                                 let handler = std::sync::Arc::new(::silent::HandlerWrapper::new(adapted));
                                 let ptr = std::sync::Arc::as_ptr(&handler) as *const () as usize;
-                                ::silent_openapi::doc::register_doc_by_ptr(
+                                ::silent_openapi::doc::register_doc_by_ptr_ext(
                                     ptr,
                                     #sum_tokens,
                                     #desc_tokens,
+                                    #deprecated_tokens,
+                                    #tags_tokens,
                                 );
                                 #ret_schema_register
                                 if let Some(meta) = #ret_meta { ::silent_openapi::doc::register_response_by_ptr(ptr, meta); }
+                                #extra_response_tokens
                                 #req_meta_register
                                 handler
                             }
@@ -566,5 +641,54 @@ mod tests {
         let s = render(out);
         // 生成文本响应的注册调用
         assert!(s.contains("ResponseMeta :: TextPlain"));
+    }
+
+    #[test]
+    fn deprecated_flag_generates_ext_call() {
+        let attr = quote!(deprecated);
+        let item = quote!(
+            async fn old_api(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("register_doc_by_ptr_ext"));
+        assert!(s.contains("true")); // deprecated = true
+    }
+
+    #[test]
+    fn tags_generates_ext_call_with_tags() {
+        let attr = quote!(tags = "users,admin");
+        let item = quote!(
+            async fn list_users(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("register_doc_by_ptr_ext"));
+        assert!(s.contains("\"users\""));
+        assert!(s.contains("\"admin\""));
+    }
+
+    #[test]
+    fn response_generates_extra_response_registration() {
+        let attr = quote!(
+            response(status = 400, description = "Bad request"),
+            response(status = 401, description = "Unauthorized")
+        );
+        let item = quote!(
+            async fn create(_req: ::silent::Request) -> ::silent::Result<::silent::Response> {
+                unimplemented!()
+            }
+        );
+        let out = super::endpoint_impl(attr, item);
+        let s = render(out);
+        assert!(s.contains("register_extra_response_by_ptr"));
+        assert!(s.contains("400"));
+        assert!(s.contains("401"));
+        assert!(s.contains("Bad request"));
+        assert!(s.contains("Unauthorized"));
     }
 }
