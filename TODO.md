@@ -57,6 +57,17 @@
 
 - [ ] 待细化
 
-### P3：错误处理增强
+### P3：错误处理增强 ✅
 
-- [ ] 待细化
+- [x] 1. 定义 `IntoResponse` trait
+  - 桥接 `impl<T: Into<Response>> IntoResponse for T`，完全向后兼容
+- [x] 2. Handler 系统迁移到 `IntoResponse`
+  - HandlerWrapper: `T: Into<Response>` → `T: IntoResponse`
+  - RouteDispatch / IntoRouteHandler: 同步更新
+  - Extractor 辅助函数: 同步更新
+- [x] 3. 自定义错误支持基础设施
+  - IntoResponseResultHandler 支持 `Result<T, E>` 其中 `T: IntoResponse, E: IntoResponse`
+  - 用户只需 `impl From<MyError> for Response` 即可通过桥接获得 IntoResponse
+- [x] 4. 测试验证
+  - 5 个 IntoResponse 测试（String、&str、Response、SilentError、自定义错误）
+  - 1696 测试全部通过，零破坏性
