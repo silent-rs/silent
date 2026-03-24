@@ -121,6 +121,7 @@ exceptions = [
     # list
     #{ allow = ["Zlib"], crate = "adler32" },
     { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
 ]
 
 # Some crates don't have (easily) machine readable licensing information,

@@ -53,9 +53,29 @@
 - [x] 4. 验证与测试
   - 3 个集成测试：header 注入、状态保留、Layer 链式调用
 
-### P2：OpenAPI 完善
+### P2：OpenAPI 完善 ✅
 
-- [ ] 待细化
+- [x] 1. Swagger UI 本地资源嵌入
+  - 新增 `swagger-ui-embedded` feature（默认关闭，启用后不依赖 CDN）
+  - build.rs 编译时通过 ureq 下载 swagger-ui-dist 资源，include_bytes 嵌入二进制
+  - 新增 `ui_html.rs` 统一 HTML 模板，消除 handler/middleware 代码重复
+  - 根据 feature 自动切换 CDN / 本地相对路径
+- [x] 2. `#[endpoint]` 宏增强
+  - 支持 `#[endpoint(deprecated)]` 标记接口废弃
+  - 支持 `#[endpoint(tags = "users,admin")]` 自定义标签
+  - 支持 `#[endpoint(response(status = 400, description = "..."))]` 多状态码响应描述
+  - 新增 `register_doc_by_ptr_ext` / `ExtraResponse` 注册机制
+- [x] 3. 路由文档收集增强（`route.rs`）
+  - 新增 `rust_type_to_schema()` 路径参数类型映射（i8-i128/u8-u128/f32/f64/bool/String）
+  - 路由组级别 tags 继承（非参数路径段自动作为 tag 向下传递）
+  - 中间件通用响应推断（RateLimiter→429, Auth→401, Timeout→408）
+- [x] 4. ReDoc 替代 UI 支持
+  - 新增 `ReDocHandler` / `ReDocMiddleware`，提供 ReDoc 风格文档页
+  - 与 Swagger UI 共用同一 OpenAPI JSON 端点
+  - 支持 Handler / Middleware 两种集成方式
+- [x] 5. 示例更新与文档闭环
+  - 更新 `openapi-test` 示例展示 deprecated、tags、response、ReDoc 新功能
+  - Swagger UI + ReDoc 双 UI 并存示例
 
 ### P3：错误处理增强 ✅
 
