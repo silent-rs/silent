@@ -5,7 +5,7 @@ use bytes::{Buf, Bytes};
 use h3::server::RequestStream;
 use quinn::Connection as QuinnConnection;
 use quinn::ConnectionError;
-use scru128::Scru128Id;
+use scru128::Id as Scru128Id;
 use tokio::time::timeout;
 
 #[derive(Clone)]
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     fn test_string_id_generation() {
         // 测试 ID 生成的唯一性
-        use scru128::Scru128Id;
+        use scru128::Id as Scru128Id;
         let id1 = Scru128Id::from_u128(rand::random()).to_string();
         let id2 = Scru128Id::from_u128(rand::random()).to_string();
 

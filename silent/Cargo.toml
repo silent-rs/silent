@@ -202,7 +202,7 @@ h3-quinn = { version = "0.0.10", optional = true }
 # Tower
 tower = { workspace = true, optional = true, features = ["util"] }
 
-scru128 = "3"
+scru128 = "4"
 rand = { version = "0.10", optional = true }
 
 # Cloudflare Workers
