@@ -20,6 +20,12 @@ repository = "https://github.com/silent-rs/silent"
 rust-version = "1.85"
 version = "2.16.0"
 
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 [workspace.dependencies]
 async-trait = "0.1.88"
 chrono = "0.4"

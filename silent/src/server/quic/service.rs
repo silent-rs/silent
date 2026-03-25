@@ -1,7 +1,7 @@
 use tracing::{Instrument, debug, error, info, info_span, warn};
 
 use super::core::{QuicSession, WebTransportHandler, WebTransportStream};
-use crate::route::Route;
+use crate::route::RouteTree;
 #[cfg(feature = "metrics")]
 use crate::server::metrics::{
     record_handler_duration, record_http3_body_oversize, record_http3_read_timeout,
@@ -26,7 +26,7 @@ use tokio_stream::wrappers::ReceiverStream;
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_quic_connection(
     incoming: quinn::Incoming,
-    routes: Arc<Route>,
+    routes: Arc<RouteTree>,
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
     max_wt_frame: Option<usize>,
@@ -189,7 +189,7 @@ impl H3RequestIo for RealH3Stream {
 async fn handle_request(
     resolver: RequestResolver<H3QuinnConnection, Bytes>,
     remote: SocketAddr,
-    routes: Arc<Route>,
+    routes: Arc<RouteTree>,
     handler: Arc<dyn WebTransportHandler>,
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
@@ -240,7 +240,7 @@ async fn handle_http3_request(
     request: HttpRequest<()>,
     stream: RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
     remote: SocketAddr,
-    routes: Arc<Route>,
+    routes: Arc<RouteTree>,
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
 ) -> Result<()> {
@@ -256,7 +256,7 @@ async fn handle_http3_request_impl<T: H3RequestIo + Send + 'static>(
     request: HttpRequest<()>,
     stream: T,
     remote: SocketAddr,
-    routes: Arc<Route>,
+    routes: Arc<RouteTree>,
     max_body_size: Option<usize>,
     read_timeout: Option<std::time::Duration>,
 ) -> Result<T> {
@@ -506,7 +506,7 @@ mod tests {
     use crate::middleware::MiddleWareHandler;
     use crate::prelude::Next;
     use crate::prelude::{ReqBody, Request as SilentRequest, ResBody};
-    use crate::route::Route;
+    use crate::route::RouteTree;
     use crate::{Handler, Method, Response as SilentResponse};
     use anyhow::anyhow;
     use bytes::Bytes;
@@ -608,7 +608,8 @@ mod tests {
         }
     }
 
-    fn make_routes_echo_body() -> Arc<Route> {
+    fn make_routes_echo_body() -> Arc<RouteTree> {
+        use crate::route::Route;
         let route = Route::new_root().post(|mut req: SilentRequest| async move {
             // 直接把 silent 聚合的 body 原样返回
             match req.take_body() {
@@ -627,7 +628,7 @@ mod tests {
                 }
             }
         });
-        Arc::new(route)
+        Arc::new(route.convert_to_route_tree())
     }
 
     fn make_request(path: &str) -> HttpRequest<()> {
@@ -897,6 +898,7 @@ mod tests {
     #[tokio::test]
     async fn test_http3_middlewares_are_applied() {
         let stream = FakeH3Stream::new(vec![Bytes::from_static(b"body")]);
+        use crate::route::Route;
         let mut root = Route::new_root().hook(HeaderMiddleware);
         root.push(Route::new("").post(|mut req: SilentRequest| async move {
             let body = http_body_util::BodyExt::collect(req.take_body())
@@ -909,9 +911,16 @@ mod tests {
         let req = make_request("/");
         let remote: SocketAddr = "127.0.0.1:34579".parse().unwrap();
 
-        let stream = handle_http3_request_impl(req, stream, remote, Arc::new(root), None, None)
-            .await
-            .expect("middleware should be applied");
+        let stream = handle_http3_request_impl(
+            req,
+            stream,
+            remote,
+            Arc::new(root.convert_to_route_tree()),
+            None,
+            None,
+        )
+        .await
+        .expect("middleware should be applied");
 
         let head = stream.sent_head.unwrap();
         assert_eq!(

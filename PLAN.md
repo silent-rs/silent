@@ -77,26 +77,29 @@
   - 区分 4xx(WARN)/5xx(ERROR) 日志级别
   - RequestTimeLogger 标记 deprecated，将在 v2.17.0 移除
 
+### v2.16 — 框架基础设施增强（已完成 ✅）
+
+- **State 提取器（替代 Configs）** ✅
+- **Tower 兼容层** ✅
+- **OpenAPI 完善** ✅
+- **错误处理增强** ✅
+
 ## 下一阶段规划
 
-### v2.16 — 框架基础设施增强
+### v2.17 — 极限性能优化
 
-目标：补齐框架核心基础设施，提升开发体验和生态互通能力。
+目标：优化框架热路径性能，消除不必要的内存分配和动态分发，冲击 Web 框架性能榜单。
 
-- **State 提取器（替代 Configs）**
-  - 引入语义明确的 `State<T>` 提取器，用于应用级共享状态
-  - Configs 标记 deprecated，提供平滑迁移路径
-  - 计划在 v2.18.0 移除 Configs
+- **P0：热路径关键瓶颈消除**
+  - Handler HashMap clone 消除：`self.clone().get()` → 直接引用
+  - RouteTree 连接级共享：启动时一次性构建 `Arc<RouteTree>`，所有连接共享
+  - 移除 `async_trait`：利用 Rust 1.85+ RPITIT 原生 async fn in trait
+  - HyperService Box::pin 消除：使用具名 Future 替代 Box
 
-- **Tower 兼容层**
-  - 提供 Tower Service trait 适配器
-  - 允许复用 Tower 生态中间件（tower-http 等）
+- **P1：中间件与数据结构优化**
+  - 中间件链预构建：freeze 阶段预构建，消除每请求重建开销
+  - Request 参数容器优化：HashMap → SmallVec 栈分配
 
-- **OpenAPI 完善**
-  - 完善 silent-openapi 宏系统
-  - Swagger UI 集成
-  - 自动文档生成闭环
-
-- **错误处理增强**
-  - 支持自定义错误类型到 HTTP 响应的映射
-  - anyhow/thiserror 集成支持
+- **P2：编译与运行时调优**
+  - Release profile 极致优化（LTO、codegen-units=1、panic=abort）
+  - tracing 编译时级别控制

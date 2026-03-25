@@ -104,6 +104,8 @@ quic = [
 ]
 metrics = ["dep:metrics"]
 tower-compat = ["dep:tower"]
+# 编译时关闭 tracing，仅用于 benchmark 场景，不适合生产环境
+no-tracing = ["tracing/max_level_off"]
 
 [dependencies]
 # Basic dependencies
