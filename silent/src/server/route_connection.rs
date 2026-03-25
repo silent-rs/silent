@@ -100,7 +100,16 @@ impl RouteConnectionService {
         let max_body_size = limits.max_body_size;
         Box::pin(async move {
             let io = TokioIo::new(stream);
-            let builder = Builder::new(TokioExecutor::new());
+            let mut builder = Builder::new(TokioExecutor::new());
+            // HTTP/1.1 调优：开启 pipeline flush，减少响应延迟
+            builder.http1().pipeline_flush(true);
+            // HTTP/2 调优：增大窗口和并发流以提升吞吐
+            builder
+                .http2()
+                .initial_stream_window_size(1024 * 1024) // 1MB 流窗口
+                .initial_connection_window_size(2 * 1024 * 1024) // 2MB 连接窗口
+                .adaptive_window(true)
+                .max_concurrent_streams(256);
             builder
                 .serve_connection_with_upgrades(
                     io,
