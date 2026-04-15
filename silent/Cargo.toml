@@ -179,7 +179,7 @@ tonic = { version = "0.14", optional = true, default-features = false, features 
 ] }
 
 # Security
-aes = { version = "0.8", optional = true }
+aes = { version = "0.9", optional = true }
 aes-gcm = { version = "0.10", optional = true }
 argon2 = { version = "0.5", optional = true }
 mime_guess = "2"
