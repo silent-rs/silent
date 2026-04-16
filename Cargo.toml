@@ -18,7 +18,7 @@ license = "Apache-2.0"
 readme = "./readme.md"
 repository = "https://github.com/silent-rs/silent"
 rust-version = "1.85"
-version = "2.16.0"
+version = "2.16.1"
 
 [profile.release]
 opt-level = 3
