@@ -16,12 +16,16 @@ use std::path::Path;
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::OnceLock;
+#[cfg(feature = "scheduler")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::signal;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 #[cfg(test)]
 static SHUTDOWN_NOTIFY: OnceLock<tokio::sync::Notify> = OnceLock::new();
+#[cfg(feature = "scheduler")]
+static SCHEDULER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(test)]
 fn trigger_test_shutdown() {
@@ -40,6 +44,21 @@ fn test_shutdown_future() -> impl std::future::Future<Output = ()> {
     #[cfg(not(test))]
     {
         futures_util::future::pending::<()>()
+    }
+}
+
+#[cfg(feature = "scheduler")]
+fn ensure_scheduler_running() {
+    if SCHEDULER_RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        tokio::spawn(async {
+            use crate::scheduler::{SCHEDULER, Scheduler};
+
+            Scheduler::schedule(SCHEDULER.clone()).await;
+            SCHEDULER_RUNNING.store(false, Ordering::Release);
+        });
     }
 }
 
@@ -464,6 +483,9 @@ impl NetServer {
                 tracing::info!("listening on:\n{}", lines);
             }
         }
+
+        #[cfg(feature = "scheduler")]
+        ensure_scheduler_running();
 
         let mut join_set: JoinSet<()> = JoinSet::new();
         let mut shutdown = ShutdownHandle::new(self.shutdown_callback.take(), self.shutdown_cfg);
