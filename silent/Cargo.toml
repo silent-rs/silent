@@ -104,6 +104,8 @@ quic = [
 ]
 metrics = ["dep:metrics"]
 tower-compat = ["dep:tower"]
+# 编译时关闭 tracing，仅用于 benchmark 场景，不适合生产环境
+no-tracing = ["tracing/max_level_off"]
 
 [dependencies]
 # Basic dependencies
@@ -153,7 +155,7 @@ async-compression = { version = "0.4", optional = true, features = [
 ] }
 
 # Scheduler
-cron = { version = "0.15", optional = true }
+cron = { version = "0.16", optional = true }
 
 # Multipart
 multer = { version = "3", optional = true }
@@ -177,11 +179,11 @@ tonic = { version = "0.14", optional = true, default-features = false, features 
 ] }
 
 # Security
-aes = { version = "0.8", optional = true }
+aes = { version = "0.9", optional = true }
 aes-gcm = { version = "0.10", optional = true }
 argon2 = { version = "0.5", optional = true }
 mime_guess = "2"
-pbkdf2 = { version = "0.12", features = ["simple"], optional = true }
+pbkdf2 = { version = "0.13", features = ["phc", "getrandom"], optional = true }
 rsa = { version = "0.9", optional = true }
 
 # tls
@@ -206,7 +208,7 @@ scru128 = "4"
 rand = { version = "0.10", optional = true }
 
 # Cloudflare Workers
-worker = { version = "0.7", optional = true }
+worker = { version = "0.8", optional = true }
 
 # Benchmarks
 [dev-dependencies]

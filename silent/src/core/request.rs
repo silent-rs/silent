@@ -128,12 +128,21 @@ impl Request {
     }
 
     /// 从请求体创建请求
+    ///
+    /// 直接构造所有字段，避免通过 `Self::default()` 产生多余的 `Parts` 再丢弃。
     #[inline]
     pub fn from_parts(parts: Parts, body: ReqBody) -> Self {
         Self {
             parts,
             body,
-            ..Self::default()
+            path_params: HashMap::new(),
+            params: HashMap::new(),
+            path_source: None,
+            #[cfg(feature = "multipart")]
+            form_data: OnceCell::new(),
+            json_data: OnceCell::new(),
+            form_body_cache: OnceCell::new(),
+            state: State::default(),
         }
     }
 

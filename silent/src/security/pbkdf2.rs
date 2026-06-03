@@ -1,12 +1,11 @@
 use crate::{Result, SilentError, StatusCode};
 use pbkdf2::Pbkdf2;
-use pbkdf2::password_hash::rand_core::OsRng;
-use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+use pbkdf2::password_hash::{PasswordHasher, PasswordVerifier};
+use pbkdf2::phc::PasswordHash;
 
 pub fn make_password(password: String) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    Ok(Pbkdf2
-        .hash_password(password.as_bytes(), &salt)
+    Ok(Pbkdf2::default()
+        .hash_password(password.as_bytes())
         .map_err(|e| {
             SilentError::business_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -23,7 +22,7 @@ pub fn verify_password(password_hash: String, password: String) -> Result<bool> 
             format!("read password hash failed: {e}"),
         )
     })?;
-    Ok(Pbkdf2
+    Ok(Pbkdf2::default()
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
 }

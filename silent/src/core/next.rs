@@ -42,7 +42,8 @@ impl Handler for Next {
     async fn call(&self, req: Request) -> crate::Result<Response> {
         match &self.inner {
             NextInstance::Middleware(mw) => {
-                mw.handle(req, self.next.clone().unwrap().as_ref()).await
+                // 直接引用 next，避免不必要的 Arc clone
+                mw.handle(req, self.next.as_ref().unwrap().as_ref()).await
             }
             NextInstance::EndPoint(ep) => ep.call(req).await,
         }

@@ -75,6 +75,8 @@ impl Listen for Listener {
             Listener::TcpListener(listener) => {
                 let accept_future = async move {
                     let (stream, addr) = listener.accept().await?;
+                    // 禁用 Nagle 算法，减少小包延迟
+                    stream.set_nodelay(true)?;
                     Ok((
                         Box::new(Stream::TcpStream(stream)) as Box<dyn Connection + Send + Sync>,
                         SocketAddr::Tcp(addr),
