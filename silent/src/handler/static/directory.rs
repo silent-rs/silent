@@ -38,7 +38,7 @@ pub(super) async fn render_directory_listing(
         entries.push((escaped, encoded.into_owned(), suffix.to_string()));
     }
 
-    entries.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    entries.sort_by_key(|a| a.0.to_lowercase());
 
     let display_path = if relative_path.is_empty() {
         "/".to_string()

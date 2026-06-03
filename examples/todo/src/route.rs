@@ -21,7 +21,7 @@ async fn list_todos(mut req: Request) -> Result<Response> {
     let todos = db.read().unwrap();
 
     let mut list: Vec<&Todo> = todos.values().collect();
-    list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    list.sort_by_key(|b| std::cmp::Reverse(b.created_at));
 
     let list: Vec<&Todo> = list
         .into_iter()
