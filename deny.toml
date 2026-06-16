@@ -79,7 +79,7 @@ ignore = [
     "RUSTSEC-2026-0047",
     "RUSTSEC-2026-0048",
     "RUSTSEC-2026-0049",
-    "RUSTSEC-2026-0097",  # rand 在上游依赖链中触发，待依赖升级后移除
+    "RUSTSEC-2026-0097",  # rand is unsound with custom logger, pre-existing
     "RUSTSEC-2026-0104",  # rustls-webpki CRL parsing panic, pre-existing
     #"RUSTSEC-0000-0000",
     #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },

@@ -6,7 +6,6 @@ fn main() {
 #[cfg(feature = "swagger-ui-embedded")]
 fn download_swagger_ui() {
     use std::fs;
-    use std::io::Read;
     use std::path::PathBuf;
 
     const SWAGGER_UI_VERSION: &str = "5.17.14";
@@ -44,14 +43,14 @@ fn download_swagger_ui() {
 
         println!("cargo:warning=下载 Swagger UI 资源: {file}");
 
-        let resp = agent
+        let mut resp = agent
             .get(&url)
             .call()
             .unwrap_or_else(|e| panic!("下载 {url} 失败: {e}"));
 
-        let mut bytes = Vec::new();
-        resp.into_reader()
-            .read_to_end(&mut bytes)
+        let bytes = resp
+            .body_mut()
+            .read_to_vec()
             .unwrap_or_else(|e| panic!("读取 {url} 响应体失败: {e}"));
 
         fs::write(&dest, &bytes).unwrap_or_else(|e| panic!("写入 {} 失败: {e}", dest.display()));
