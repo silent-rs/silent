@@ -164,7 +164,7 @@ tempfile = { version = "3", optional = true }
 textnonce = { version = "1", optional = true }
 
 # Template
-tera = { version = "1", optional = true }
+tera = { version = "2", optional = true }
 
 # Session
 async-session = { version = "3", optional = true }
