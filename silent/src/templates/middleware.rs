@@ -33,12 +33,14 @@ pub struct TemplateMiddleware {
 
 impl TemplateMiddleware {
     pub fn try_new(template_path: &str) -> Result<Self> {
-        let template = Arc::new(Tera::new(template_path).map_err(|e| {
+        let mut template = Tera::new();
+        template.load_from_glob(template_path).map_err(|e| {
             SilentError::business_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to load templates: {e}"),
             )
-        })?);
+        })?;
+        let template = Arc::new(template);
         Ok(TemplateMiddleware { template })
     }
 
@@ -134,6 +136,39 @@ mod tests {
     #[should_panic(expected = "Failed to load templates")]
     fn test_new_invalid_glob_panics() {
         let _ = TemplateMiddleware::new("[invalid glob");
+    }
+
+    #[tokio::test]
+    async fn test_try_new_loads_templates_from_glob() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<h1>{{ name }}</h1>").unwrap();
+        let glob = dir.path().join("**/*").to_string_lossy().to_string();
+
+        let temp_middleware = TemplateMiddleware::try_new(&glob).unwrap();
+        let route = Route::default()
+            .get(|_req: Request| async {
+                let temp = Temp {
+                    name: "templates".to_string(),
+                };
+                Ok(TemplateResponse::from(("index.html".to_string(), temp)))
+            })
+            .hook(temp_middleware);
+        let mut req = Request::empty();
+        req.set_remote("127.0.0.1:8080".parse().unwrap());
+        assert_eq!(
+            route
+                .call(req)
+                .await
+                .unwrap()
+                .body
+                .frame()
+                .await
+                .unwrap()
+                .unwrap()
+                .data_ref()
+                .unwrap(),
+            &Bytes::from("<h1>templates</h1>")
+        );
     }
 
     // ==================== MiddleWareHandler 错误路径测试 ====================
