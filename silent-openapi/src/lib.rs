@@ -1,6 +1,6 @@
 //! # Silent OpenAPI
 //!
-//! 为Silent Web框架提供OpenAPI 3.0支持，包括自动文档生成和Swagger UI集成。
+//! 为 Silent Web 框架提供 OpenAPI 3.1 支持，包括自动文档生成和 Swagger UI 集成。
 //!
 //! ## 主要特性
 //!

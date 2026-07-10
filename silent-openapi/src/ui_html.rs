@@ -94,7 +94,7 @@ pub fn generate_index_html(
 <body>
     <div class="custom-header">
         <h1>Silent Framework API Documentation</h1>
-        <p>OpenAPI 3.0</p>
+        <p>OpenAPI 3.1</p>
     </div>
     <div id="swagger-ui"></div>
 

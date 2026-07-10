@@ -31,11 +31,9 @@ tracing = "0.1"
 按需添加 features：
 - 需要 WebSocket：`silent = { version = "2", features = ["upgrade"] }`
 - 需要静态文件：`silent = { version = "2", features = ["static"] }`
-- 需要所有功能：`silent = { version = "2", features = ["full"] }`
-- 需要 gRPC：`silent = { version = "2", features = ["grpc"] }`
 - 需要 SSE：`silent = { version = "2", features = ["sse"] }`
-- 需要模板：`silent = { version = "2", features = ["template"] }`
-- 需要会话：`silent = { version = "2", features = ["session"] }`
+
+`full`、`grpc`、`template`、`session`、`scheduler`、`security` 和 `admin` 在 2.x 中仍可按需启用。`session`、`scheduler` 和 `admin` 属于兼容保留入口；`security`、`template`、`grpc` 的长期归属由 3.0 RFC 决定。新项目只启用实际需要的 feature，不把 `full` 当作默认项目骨架。
 
 ## main.rs 模板
 

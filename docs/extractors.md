@@ -70,7 +70,9 @@ let route = Route::new("api")
 
 - **Extension<T>**：从 `Request.extensions()` 提取扩展（需 `T: Clone` 且已注入）
 
-- **Configs<T>**：从 `Request.configs()` 提取全局配置（需 `T: Clone` 且已注入）
+- **State<T>**：从应用级共享状态提取 `T`（需 `T: Clone` 且已通过 `Route::with_state` 注入）
+
+- **Configs<T>**：`State<T>` 的弃用兼容入口；在 2.x 中保留，最早于 3.0 移除
 
 - **Option<E>**：当 `E: FromRequest` 失败时返回 `None`
 
@@ -244,7 +246,8 @@ fn main() {
 - Extension<T>：从 `Request::extensions()` 克隆提取 `T`
 - TypedHeader<H>：从请求头以类型化头提取 `H: headers::Header`
 - Method / Uri / Version / RemoteAddr：轻量信息提取
-- Configs<T>：从全局 `Configs` 提取并克隆 `T`（等价 axum 的 State<T>；在 `prelude` 以别名 `Cfg` 导出）
+- State<T>：从应用级 State 提取并克隆 `T`
+- Configs<T>：State<T> 的弃用兼容入口，2.x 保留，最早于 3.0 移除
 
 路由注册（统一接口）
 - 直接使用 `get/post/...` 注册；必要时可以显式使用 `handler_from_extractor(...)` 进行适配。
