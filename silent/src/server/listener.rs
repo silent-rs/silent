@@ -357,11 +357,10 @@ impl Listeners {
                         return Some(Err(e));
                     }
                 }
-            } else if let Some(next_ready) = earliest_ready {
+            } else {
+                let next_ready = earliest_ready?;
                 sleep_until(next_ready).await;
                 continue;
-            } else {
-                return None;
             }
         }
     }

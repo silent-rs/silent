@@ -54,7 +54,7 @@ impl DocumentedRoute {
             let full_path = if base_path.is_empty() {
                 path_doc.path.clone()
             } else {
-                format!("{}{}", base_path.trim_end_matches('/'), &path_doc.path)
+                format!("{}{}", base_path.trim_end_matches('/'), path_doc.path)
             };
 
             // 转换Silent路径参数格式到OpenAPI格式
