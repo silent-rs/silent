@@ -41,11 +41,10 @@ pub struct State {
 
 /// `Configs` 是 `State` 的类型别名，保持向后兼容。
 ///
-/// **已弃用**：请使用 `State<T>` 提取器代替 `Configs<T>` 提取器。
-/// `Configs` 将在 v2.18.0 中移除。
+/// **已弃用**：请使用 `State` 代替。`Configs` 在 2.x 中继续保留，最早于 3.0 移除。
 #[deprecated(
     since = "2.16.0",
-    note = "请使用 State<T> 提取器代替，Configs 将在 v2.18.0 移除"
+    note = "请使用 State 代替；Configs 在 2.x 中继续保留，最早于 3.0 移除"
 )]
 pub type Configs = State;
 

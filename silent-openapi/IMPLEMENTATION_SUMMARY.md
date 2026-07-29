@@ -2,7 +2,7 @@
 
 ## 🎯 项目概述
 
-成功为Silent Web框架实现了完整的OpenAPI 3.0支持库，包括自动文档生成和Swagger UI集成。
+成功为 Silent Web 框架实现了基于 utoipa 5 的 OpenAPI 3.1 支持库，包括自动文档生成和 Swagger UI 集成。
 
 ## ✅ 已完成的功能
 
@@ -24,7 +24,7 @@
 #### 📖 自动文档生成
 - 基于 `utoipa` 的编译时文档生成
 - 支持路径参数自动转换 (`<id:i64>` → `{id}`)
-- 完整的OpenAPI 3.0规范支持
+- OpenAPI 3.1 规范支持
 
 #### 🎨 Swagger UI集成
 - 内置美观的交互式文档界面

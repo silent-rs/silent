@@ -6,9 +6,9 @@
 
 ```toml
 [dependencies]
-silent = "2.15"
-silent-openapi = "2.15"
-silent-openapi-macros = "2.15"
+silent = "2.16"
+silent-openapi = "2.16"
+silent-openapi-macros = "2.16"
 utoipa = { version = "5", features = ["preserve_order"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -158,7 +158,7 @@ async fn handler(req: Request, Json(body): Json<CreateUser>) -> Result<Response>
 ## Swagger UI 配置选项
 
 ```rust
-use silent_openapi::handler::{SwaggerUiHandler, SwaggerUiOptions};
+use silent_openapi::{SwaggerUiHandler, SwaggerUiOptions};
 
 let options = SwaggerUiOptions {
     try_it_out_enabled: true,  // 启用 "Try it out" 交互式调试

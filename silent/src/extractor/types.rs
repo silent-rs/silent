@@ -23,7 +23,7 @@ pub struct State<T>(pub T);
 
 #[deprecated(
     since = "2.16.0",
-    note = "请使用 State<T> 代替，Configs<T> 将在 v2.18.0 移除"
+    note = "请使用 State<T> 代替；Configs<T> 在 2.x 中继续保留，最早于 3.0 移除"
 )]
 pub struct Configs<T>(pub T);
 

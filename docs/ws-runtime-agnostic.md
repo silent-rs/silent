@@ -121,4 +121,4 @@ wrangler publish
   - 不建议；TokioAdapter 依赖 tokio IO，在浏览器/通用 wasm 环境不可用。
 - 如果禁用 `server`，是否还能使用路由/Server？
   - 不能；Server 相关 API 由 `server` 特性提供。此时应由宿主提供请求/响应上下文，
-    仅复用框架的 WS、SSE、模板等纯逻辑模块。
+    仅复用框架的 WS、SSE 等核心纯逻辑模块；模板属于 2.x 兼容能力。

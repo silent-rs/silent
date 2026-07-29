@@ -25,8 +25,8 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-silent = { version = "2.15", features = ["worker"] }
-worker = "0.7"
+silent = { version = "2.16", default-features = false, features = ["worker"] }
+worker = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 console_error_panic_hook = "0.1"
@@ -77,20 +77,13 @@ use worker::{Context, Env, Request, Response, Result};
 #[cfg(target_arch = "wasm32")]
 use crate::route::get_route;
 #[cfg(target_arch = "wasm32")]
-use silent::Configs;
-
-#[cfg(target_arch = "wasm32")]
 #[worker::event(fetch)]
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
-    // 将 Env 和 Context 注入到 Configs
-    // 处理器通过 req.get_config::<Env>() 和 req.get_config::<Context>() 获取
-    let mut cfg = Configs::default();
-    cfg.insert(env);
-    cfg.insert(ctx);
-
-    let wr = get_route().with_configs(cfg);
+    // 将 Env 和 Context 注入到 State
+    // 处理器通过 req.get_state::<Env>() 和 req.get_state::<Context>() 获取
+    let wr = get_route().with_state(env).with_state(ctx);
     Ok(wr.call(req).await)
 }
 ```
@@ -122,7 +115,7 @@ async fn hello(_req: Request) -> silent::Result<&'static str> {
 
 ```rust
 async fn kv_get(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
     let kv = env.kv("MY_KV").map_err(worker_err)?;
 
@@ -137,7 +130,7 @@ async fn kv_get(req: Request) -> silent::Result<Response> {
 }
 
 async fn kv_put(mut req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?.clone();
+    let env = req.get_state::<Env>()?.clone();
     let key: String = req.get_path_params("key")?;
     let value = read_body_text(&mut req).await?;
     let kv = env.kv("MY_KV").map_err(worker_err)?;
@@ -150,7 +143,7 @@ async fn kv_put(mut req: Request) -> silent::Result<Response> {
 
 ```rust
 async fn d1_query(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let d1 = env.d1("MY_DB").map_err(worker_err)?;
     let stmt = d1.prepare("SELECT id, name FROM users LIMIT 100");
     let result = stmt.all().await.map_err(worker_err)?;
@@ -163,7 +156,7 @@ async fn d1_query(req: Request) -> silent::Result<Response> {
 
 ```rust
 async fn r2_get(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
     let bucket = env.bucket("MY_BUCKET").map_err(worker_err)?;
 
@@ -236,8 +229,8 @@ wrangler deploy
 
 ## 关键注意事项
 
-- Worker 环境下 `Configs` 是只读的，跨请求不保持状态
+- Worker 环境下 `State` 只适合保存只读依赖，跨请求不保持可变状态
 - 需要持久化请使用 KV / D1 / R2 / Durable Objects
 - JSON 请求体可直接使用 `req.json_parse::<T>().await`
 - 获取路径参数使用 `req.get_path_params("key")?`
-- 获取 Env 时如需可变操作需要 `.clone()`：`req.get_config::<Env>()?.clone()`
+- 获取 Env 时如需可变操作需要 `.clone()`：`req.get_state::<Env>()?.clone()`

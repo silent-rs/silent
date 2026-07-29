@@ -1,10 +1,7 @@
 <div align="center">
 <h1>Silent</h1>
 <p>
-<a href="https://github.com/silent-rs/silent/actions">
-    <img alt="build status" src="https://github.com/silent-rs/silent/actions/workflows/build.yml/badge.svg" />
-</a>
-<br/>
+<a href="https://github.com/silent-rs/silent/actions"><img alt="build status" src="https://github.com/silent-rs/silent/actions/workflows/build.yml/badge.svg" /></a>
 <a href="https://crates.io/crates/silent"><img alt="crates.io" src="https://img.shields.io/crates/v/silent" /></a>
 <a href="https://docs.rs/silent"><img alt="Documentation" src="https://docs.rs/silent/badge.svg" /></a>
 <a href="https://deepwiki.com/silent-rs/silent"><img alt="GitWiki" src="https://img.shields.io/badge/GitWiki-Documentation-blue" /></a>
@@ -17,118 +14,137 @@
 </p>
 </div>
 
-### 概要
+## 概要
 
-Silent 是一个简单的基于Hyper的Web框架，它的目标是提供一个简单的、高效的、易于使用的Web框架。
-
-### 文档
+Silent 是基于 Hyper 的纯 Web 框架，专注于 Web 协议、路由、请求响应、服务端传输、实时协议基础、测试工具和稳定扩展入口。
 
 - [Crates.io](https://crates.io/crates/silent)
 - [API 文档](https://docs.rs/silent)
-- [GitWiki 文档](https://deepwiki.com/silent-rs/silent)
-- [ZRead 文档](https://zread.ai/silent-rs/silent)
-- [Cloudflare Worker 使用指南](docs/cloudflare-worker.md)
+- [项目规划](PLAN.md)
+- [需求整理](docs/requirements.md)
+- [Cloudflare Worker 指南](docs/cloudflare-worker.md)
 
-### 目标
+## 核心能力
 
-- [x] 路由
-- [x] 中间件
-- [x] 静态文件
-- [x] WebSocket
-- [x] 模板
-- [x] 日志 (使用了tracing)
-- [x] 配置
-- [x] 会话
-- [x] 安全
-- [x] GRPC
-- [x] 通用网络层 (NetServer)
-- [x] Cloudflare Worker
+- HTTP/1.1、HTTP/2、HTTP/3、TLS、QUIC 和通用 `NetServer`；
+- 高性能路由、中间件、请求、响应和通用提取器；
+- WebSocket、SSE、流式响应和静态资源；
+- Cookie、State、请求扩展和 TestClient；
+- Tower、Cloudflare Worker 与独立组件所需的公共扩展入口。
 
-## NetServer
+## 项目边界
 
-提供与协议无关的通用网络服务器，支持 TCP、Unix Socket 等多种监听方式，并内置连接限流和优雅关停功能。
+认证与权限、生产会话存储、监控导出器、可靠任务调度、数据库接入、管理界面、MQTT 实现和项目脚手架不进入 Silent 核心，由独立仓库自行维护。
 
-### 基本用法
+规划中的独立生态包括：`silent-auth`、`silent-session`、`silent-observability`、`silent-scheduler`、`silent-admin`、`silent-seaorm` 和 `silent-cli`。MQTT 已由 [silent-mqtt](https://github.com/silent-rs/silent-mqtt) 独立维护。尚未创建的仓库不提供占位链接。
+
+`silent-openapi` 位于当前工作区，但作为独立 crate 发布并维护自己的兼容关系。
+
+## 2.x 兼容能力
+
+现有 `session`、`scheduler`、`security`、`template` 和 `grpc` feature 在整个 2.x 保持可用：
+
+- `session` 和 `scheduler` 是兼容保留入口，只做必要修复，不继续扩展生产存储或可靠调度能力；
+- `security` 是通用密码与加密工具，不是认证、用户或权限系统；
+- `security`、`template` 和 `grpc` 的长期归属由 3.0 RFC 决定，本路线不预先承诺迁出或移除；
+- `admin` 只是 `server + sse + template + session` 的兼容聚合 feature，不包含管理后台或管理界面；
+- `Configs`、`RequestTimeLogger` 等已弃用入口在 2.x 继续保留，最早于 3.0 移除。
+
+破坏性调整只会在替代能力、迁移指南、兼容验证和公开 RFC 完成后进入 3.0。
+
+## 快速开始
 
 ```rust
-use silent::NetServer;
-use std::time::Duration;
+use silent::prelude::*;
+
+async fn hello(_req: Request) -> Result<&'static str> {
+    Ok("Hello, Silent!")
+}
 
 #[tokio::main]
 async fn main() {
-    NetServer::new()
+    let app = Route::new_root().append(Route::new("hello").get(hello));
+
+    Server::new()
         .bind("127.0.0.1:8080".parse().unwrap())
-        .with_rate_limiter(10, Duration::from_millis(10), Duration::from_secs(2))
-        .with_shutdown(Duration::from_secs(5))
-        .serve(|mut stream, peer| async move {
-            println!("Connection from: {}", peer);
-            // 处理连接...
-            Ok(())
-        })
+        .serve(app)
         .await;
 }
 ```
 
-### 功能特性
+## State
 
-- **多监听器支持**: 同时监听多个 TCP 或 Unix Socket 地址
-- **连接限流**: 基于令牌桶算法的 QPS 限制
-- **优雅关停**: 支持 Ctrl-C 和 SIGTERM 信号，可配置等待时间
-- **协议无关**: 通过 `ConnectionService` trait 支持任意应用层协议
-
-### 示例
-
-- [基本 TCP Echo 服务器](./examples/net_server_basic/)
-- [自定义命令协议](./examples/net_server_custom_protocol/)
-
-## Extractors（萃取器）
-
-### 文档
-
-- [萃取器完整指南](./docs/extractors-guide.md) - 详细的使用文档和最佳实践
-- [API 文档](https://docs.rs/silent) - 完整的 API 参考
-
-## security
-
-### argon2
-
-add make_password and verify_password function
-
-### pbkdf2
-
-add make_password and verify_password function
-
-### aes
-
-re-export aes/aes_gcm
-
-### rsa
-
-re-export rsa
-
-## configs
-
-### setting
+应用级共享数据使用 `Route::with_state` 注入，通过 `Request::get_state` 或 `State<T>` 提取器读取：
 
 ```rust
-use silent::Configs;
-let mut configs = Configs::default ();
-configs.insert(1i32);
+use silent::prelude::*;
+
+#[derive(Clone)]
+struct AppConfig {
+    name: &'static str,
+}
+
+async fn handler(req: Request) -> Result<String> {
+    let config = req.get_state::<AppConfig>()?;
+    Ok(format!("hello {}", config.name))
+}
+
+let app = Route::new_root()
+    .with_state(AppConfig { name: "Silent" })
+    .get(handler);
 ```
 
-### usage
+`Configs`、`get_config` 和 `configs` 仅为 2.x 兼容保留，新代码应使用 State API。
 
-```rust
-async fn call(req: Request) -> Result<i32> {
-    let num = req.configs().get::<i32>().unwrap();
-    Ok(*num)
+## NetServer
+
+`NetServer` 提供与具体应用层协议无关的 TCP/Unix Socket 监听、连接限流和优雅关停。具体协议实现由独立项目负责。
+
+```rust,no_run
+use silent::{BoxedConnection, NetServer, RateLimiterConfig, SocketAddr};
+use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[tokio::main]
+async fn main() {
+    let handler = |mut stream: BoxedConnection, _peer: SocketAddr| async move {
+        let mut buf = [0_u8; 1024];
+        let n = stream.read(&mut buf).await?;
+        stream.write_all(&buf[..n]).await?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    };
+
+    let rate_limit = RateLimiterConfig {
+        capacity: 100,
+        refill_every: Duration::from_millis(10),
+        max_wait: Duration::from_secs(1),
+    };
+
+    NetServer::new()
+        .bind("127.0.0.1:8080".parse().unwrap())
+        .unwrap()
+        .with_rate_limiter(rate_limit)
+        .with_shutdown(Duration::from_secs(30))
+        .serve(handler)
+        .await;
 }
 ```
 
-## examples for llm
+示例：
 
-* [whisper with candle](./examples/candle_whisper/readme.md)
+- [基本 TCP Echo 服务器](examples/net_server_basic/)
+- [自定义命令协议](examples/net_server_custom_protocol/)
+- [萃取器指南](docs/extractors-guide.md)
+- [OpenAPI 组件](silent-openapi/README.md)
 
-## complex projects for llm
+## 开发检查
 
-* [llm_server](https://github.com/silent-rs/llm_server)
+```bash
+cargo fmt -- --check
+cargo check --all
+cargo clippy --all-targets --all-features --tests --benches -- -D warnings
+cargo nextest run --all-features
+cargo deny check
+```
+
+项目采用 Apache-2.0 许可证。

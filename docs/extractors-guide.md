@@ -139,7 +139,7 @@ struct LoginForm {
     password: String,
 }
 
-async fn handler(Json(form): Json<LoginForm>) -> Result<String> {
+async fn handler(Form(form): Form<LoginForm>) -> Result<String> {
     Ok(format!("用户登录: {}", form.username))
 }
 ```
@@ -193,9 +193,9 @@ impl MiddleWareHandler for InjectUserId {
 }
 ```
 
-### 8. Configs - 配置萃取器
+### 8. State - 应用状态萃取器
 
-从请求配置中提取数据，通常用于全局配置。
+从应用级共享状态中提取数据。
 
 ```rust
 #[derive(Clone)]
@@ -204,141 +204,52 @@ struct AppConfig {
     version: String,
 }
 
-async fn handler(Configs(config): Configs<AppConfig>) -> Result<String> {
+async fn handler(State(config): State<AppConfig>) -> Result<String> {
     Ok(format!("应用: {} v{}", config.name, config.version))
 }
 ```
 
-在路由中注入配置：
+在路由中注入状态：
 ```rust
 let route = Route::new("api")
-    .with_config(AppConfig {
+    .with_state(AppConfig {
         name: "MyApp".to_string(),
         version: "1.0.0".to_string(),
     })
     .append(Route::new("info").get(handler));
 ```
 
-## 单个字段萃取器
+`Configs<T>` 是弃用的兼容入口，在 2.x 中继续保留，最早于 3.0 移除；新代码应使用 `State<T>`。
 
-单个字段萃取器允许您直接提取单个字段，而无需创建结构体。这对于只需要一两个参数的情况非常有用。
+## 直接从 Request 读取
 
-### QueryParam - 按名称提取查询参数
-
-```rust
-async fn handler(mut req: Request) -> Result<String> {
-    let name = query_param::<String>(&mut req, "name").await.unwrap_or_default();
-    let age = query_param::<u32>(&mut req, "age").await.unwrap_or(0);
-
-    Ok(format!("姓名: {}, 年龄: {}", name, age))
-}
-```
-
-### PathParam - 按名称提取路径参数
-
-```rust
-async fn handler(mut req: Request) -> Result<String> {
-    let id = path_param::<i64>(&mut req, "id").await.unwrap_or_default();
-    Ok(format!("ID: {}", id))
-}
-```
-
-### HeaderParam - 按名称提取请求头
-
-```rust
-async fn handler(mut req: Request) -> Result<String> {
-    let auth = header_param::<String>(&mut req, "authorization")
-        .await
-        .unwrap_or_default();
-
-    Ok(format!("认证: {}", auth))
-}
-```
-
-### CookieParam - 按名称提取 Cookie
-
-```rust
-async fn handler(mut req: Request) -> Result<String> {
-    let session = cookie_param::<String>(&mut req, "session")
-        .await
-        .unwrap_or_default();
-
-    Ok(format!("会话: {}", session))
-}
-```
-
-### ConfigParam - 按类型提取配置
-
-```rust
-#[derive(Clone)]
-struct DatabaseConfig {
-    url: String,
-}
-
-async fn handler(mut req: Request) -> Result<String> {
-    let config = config_param::<DatabaseConfig>(&mut req).await.unwrap();
-    Ok(format!("数据库: {}", config.url))
-}
-```
-
-## 类型转换
-
-所有萃取器都支持丰富的类型转换：
-
-### 基本类型
-
-```rust
-// 整数类型
-let id = query_param::<i32>(&mut req, "id").await.unwrap();
-let count = query_param::<u64>(&mut req, "count").await.unwrap();
-
-// 浮点类型
-let price = query_param::<f64>(&mut req, "price").await.unwrap();
-
-// 布尔类型
-let active = query_param::<bool>(&mut req, "active").await.unwrap();
-
-// 字符串
-let name = query_param::<String>(&mut req, "name").await.unwrap();
-```
-
-### 枚举类型
+不使用处理器参数萃取器时，可以通过当前公开的 `Request` 方法读取单个值：
 
 ```rust
 #[derive(Deserialize)]
-enum Role {
-    Admin,
-    User,
-    Guest,
+struct Search {
+    name: Option<String>,
+    age: Option<u32>,
 }
 
-let role = query_param::<Role>(&mut req, "role").await.unwrap();
-```
+async fn handler(mut req: Request) -> Result<String> {
+    let id: i64 = req.get_path_params("id")?;
+    let search: Search = req.params_parse()?;
+    let authorization = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
 
-### DateTime 类型
-
-```rust
-use chrono::{DateTime, Utc};
-
-let created_at = query_param::<DateTime<Utc>>(&mut req, "created_at")
-    .await
-    .unwrap();
-```
-
-### 自定义类型
-
-只要实现了 `serde::Deserialize`，就可以用于萃取器：
-
-```rust
-#[derive(Deserialize)]
-struct Address {
-    street: String,
-    city: String,
-    zip_code: String,
+    Ok(format!(
+        "ID: {id}, 姓名: {}, 年龄: {}, 认证: {authorization}",
+        search.name.as_deref().unwrap_or(""),
+        search.age.unwrap_or_default(),
+    ))
 }
-
-let address = query_param::<Address>(&mut req, "address").await.unwrap();
 ```
+
+JSON 和表单中的单个字段可使用 `json_field`、`form_field`；应用状态使用 `get_state`。Cookie 需要启用 `cookie` feature，并通过 Cookie 接口读取。
 
 ## 多萃取器组合
 
@@ -447,8 +358,13 @@ async fn handler(AuthToken(token): AuthToken) -> Result<String> {
 
 ```rust
 async fn handler(mut req: Request) -> Result<String> {
-    match query_param::<String>(&mut req, "required").await {
-        Ok(value) => Ok(format!("获取成功: {}", value)),
+    #[derive(Deserialize)]
+    struct RequiredQuery {
+        required: String,
+    }
+
+    match req.params_parse::<RequiredQuery>() {
+        Ok(query) => Ok(format!("获取成功: {}", query.required)),
         Err(_) => Ok("缺少必需参数".to_string()),
     }
 }
@@ -458,7 +374,8 @@ async fn handler(mut req: Request) -> Result<String> {
 
 ### 1. 选择合适的萃取器类型
 
-- **单个简单参数**：使用单个字段萃取器（QueryParam、PathParam 等）
+- **单个路径参数**：使用 `Path<T>` 或 `Request::get_path_params`
+- **查询参数**：使用 `Query<T>` 或 `Request::params_parse`
 - **相关参数组合**：使用结构体萃取器（Query<T>、Path<T> 等）
 - **复杂请求体**：使用 Json<T> 或 Form<T>
 - **可选参数**：使用 `Option<T>`
@@ -520,7 +437,7 @@ async fn handler(Path(id): Path<i64>) -> Result<String> {
 |------|--------|------|
 | 类型安全 | ✅ 完整支持 | ✅ 完整支持 |
 | 零成本抽象 | ✅ | ✅ |
-| 单个字段萃取 | ✅ | ✅ |
+| 路径与查询萃取 | ✅ | ✅ |
 | 元组组合 | ✅ 支持最多4个 | ✅ 无限制 |
 | Option/Result 支持 | ✅ | ✅ |
 | 自定义萃取器 | ✅ | ✅ |

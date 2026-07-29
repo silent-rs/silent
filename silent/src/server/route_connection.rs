@@ -64,7 +64,7 @@ impl RouteConnectionService {
         }
     }
 
-    /// 构建冻结路由树（包含 session/cookie/scheduler 检查）
+    /// 构建冻结路由树（包含 2.x 兼容的 session/cookie/scheduler 检查）
     fn build_route_tree(route: &Route) -> RouteTree {
         #[allow(unused_mut)]
         let mut route = route.clone();

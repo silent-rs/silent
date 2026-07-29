@@ -144,7 +144,7 @@ pub struct AddHeaders;
 impl MiddleWareHandler for AddHeaders {
     async fn handle(&self, req: Request, next: &Next) -> Result<Response> {
         let mut res = next.call(req).await?;
-        res.headers_mut().insert("X-Powered-By", "Silent".parse().unwrap());
+        res.headers_mut().insert("x-powered-by", "Silent".parse().unwrap());
         Ok(res)
     }
 }

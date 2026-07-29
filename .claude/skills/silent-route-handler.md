@@ -38,7 +38,7 @@ let route = Route::new_root()
 ```rust
 Route::new("<id>")           // 字符串参数
 Route::new("<id:i64>")       // 整数参数（i64）
-Route::new("<id:int>")       // 整数参数（同上）
+Route::new("<id:int>")       // 整数参数（i32）
 Route::new("<path:**>")      // 通配符（匹配剩余所有路径段）
 ```
 
@@ -70,7 +70,7 @@ async fn json_handler(_req: Request) -> Result<Response> {
 ### 3. 使用提取器
 
 ```rust
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // Path 提取器 — 从路径参数中提取
 async fn get_user(Path(id): Path<i64>) -> Result<String> {
@@ -101,7 +101,7 @@ async fn list(Query(p): Query<Pagination>) -> Result<String> {
 // 请求: GET /list?page=1&size=10
 
 // Json 提取器 — 从请求体 JSON 中提取
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct CreateUser {
     name: String,
     email: String,
@@ -173,7 +173,7 @@ let mut res = Response::json(&data);
 res.set_status(StatusCode::CREATED);
 
 // 设置响应头
-res.headers_mut().insert("X-Custom", "value".parse().unwrap());
+res.headers_mut().insert("x-custom", "value".parse().unwrap());
 
 // 字符串和 &str 自动转为 Response
 async fn handler(_req: Request) -> Result<&'static str> {
@@ -196,23 +196,23 @@ let route = Route::new("")
     .get(handler);
 ```
 
-## Configs 配置注入
+## State 注入
 
 ```rust
-// 在路由上设置配置
-let mut configs = Configs::default();
-configs.insert(DatabasePool::new());
+// 在路由上注入应用级共享状态
+let route = Route::new_root()
+    .with_state(DatabasePool::new())
+    .get(handler);
 
-let mut route = Route::new("").get(handler);
-route.set_configs(Some(configs));
-
-// 在处理器中获取配置
+// 在处理器中获取状态
 async fn handler(req: Request) -> Result<Response> {
-    let pool = req.get_config::<DatabasePool>()?;
+    let pool = req.get_state::<DatabasePool>()?;
     // 使用 pool...
     Ok(Response::empty())
 }
 ```
+
+`Configs`、`set_configs` 和 `get_config` 是 2.x 兼容入口，新代码不要使用；它们最早于 3.0 移除。
 
 ## 静态文件服务
 

@@ -34,60 +34,58 @@ Cloudflare Worker 集成与使用指南（Silent 路由）
 - 响应体通过 `http-body-util::BodyExt::collect` 聚合，兼容 Once/Chunks/Stream/Incoming/Boxed。
 - 错误响应保留原始状态码（如 404、400），不再统一返回 500。
 
-WorkRoute 增强功能
+WorkRoute 状态注入
 
-`with_configs()` 方法
-- 用于将 Cloudflare Worker 的绑定（Env 或其子资源）注入到路由中
-- 处理器通过 `req.get_config::<T>()` 获取注入的配置
+`with_state()` 方法
+- 用于将 Cloudflare Worker 的绑定（Env、Context 或其他只读句柄）注入到路由中
+- 处理器通过 `req.get_state::<T>()` 获取注入的状态
 - 推荐直接注入 `Env`，在处理器中按需获取 KV/D1/R2 等绑定
 
 ```rust
 use silent::prelude::*;
-use worker::Env;
 
-let mut cfg = Configs::default();
-cfg.insert(env);  // 注入整个 Env
-let wr = WorkRoute::new(route).with_configs(cfg);
+let wr = WorkRoute::new(route)
+    .with_state(env)
+    .with_state(ctx);
 ```
 
 处理器中获取绑定：
 ```rust
 async fn my_handler(req: Request) -> silent::Result<Response> {
-    let env = req.get_config::<Env>()?;
-    let kv = env.kv(“MY_KV”).map_err(worker_err)?;
-    let d1 = env.d1(“MY_DB”).map_err(worker_err)?;
-    let bucket = env.bucket(“MY_BUCKET”).map_err(worker_err)?;
+    let env = req.get_state::<Env>()?;
+    let kv = env.kv("MY_KV").map_err(worker_err)?;
+    let d1 = env.d1("MY_DB").map_err(worker_err)?;
+    let bucket = env.bucket("MY_BUCKET").map_err(worker_err)?;
     // ...
 }
 ```
 
 Context 注入
-- 将 `worker::Context` 与 `Env` 一样注入到 `Configs` 中
-- 处理器通过 `req.get_config::<worker::Context>()` 获取
+- 将 `worker::Context` 与 `Env` 一样注入到 `State` 中
+- 处理器通过 `req.get_state::<worker::Context>()` 获取
 - 适用于需要调度后台任务（`ctx.wait_until(fut)`）的场景
 
 ```rust
-let mut cfg = Configs::default();
-cfg.insert(env);
-cfg.insert(ctx);  // Context 也注入 Configs
-let wr = WorkRoute::new(route).with_configs(cfg);
+let wr = WorkRoute::new(route)
+    .with_state(env)
+    .with_state(ctx);
 
 // 处理器中使用 Context
 async fn my_handler(req: Request) -> silent::Result<Response> {
-    let ctx = req.get_config::<worker::Context>()?;
+    let ctx = req.get_state::<worker::Context>()?;
     ctx.wait_until(async { /* 后台任务 */ });
     Ok(Response::empty())
 }
 ```
 
-只读 Configs（重要）
-- 由于 Wasm/Workers 的执行模型，实例的跨请求复用不可保证，且可能冷启动。处理器内对 `Configs` 的修改不会在后续请求中保持。
-- 将 `Configs` 视为只读配置的载体，仅在初始化阶段注入不可变参数（常量、开关、外部服务句柄等）。
+只读 State（重要）
+- 由于 Wasm/Workers 的执行模型，实例的跨请求复用不可保证，且可能冷启动。处理器内对 `State` 的修改不会在后续请求中保持。
+- 将 `State` 视为只读依赖的载体，仅在初始化阶段注入不可变参数（常量、开关、外部服务句柄等）。
 - 如需跨请求可变状态，请使用 Cloudflare 的持久化能力：KV、Durable Objects、D1、R2、Queues 等。
 
 Env 与 Context 的使用
-- `Env`：用于获取绑定（KV/DO/D1/R2/Queues 等）。建议将只读句柄注入到 `Configs`，供路由/处理器读取。
-- `Context`：与 `Env` 一样通过 `Configs` 注入，处理器通过 `req.get_config::<Context>()` 获取。用于调度后台任务（`ctx.wait_until(fut)`），任务可在响应返回后继续执行。
+- `Env`：用于获取绑定（KV/DO/D1/R2/Queues 等）。建议通过 `with_state` 注入，供路由/处理器读取。
+- `Context`：与 `Env` 一样通过 `with_state` 注入，处理器通过 `req.get_state::<Context>()` 获取。用于调度后台任务（`ctx.wait_until(fut)`），任务可在响应返回后继续执行。
 
 示例：注入 Env + Context 并访问 KV 绑定
 ```rust
@@ -98,12 +96,10 @@ use silent::prelude::*;
 pub async fn main(req: Request, env: Env, ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
 
-    // 将 Env 和 Context 注入到 Configs
-    let mut cfg = Configs::default();
-    cfg.insert(env);
-    cfg.insert(ctx);
-
-    let wr = WorkRoute::new(get_route()).with_configs(cfg);
+    // 将 Env 和 Context 注入到 State
+    let wr = WorkRoute::new(get_route())
+        .with_state(env)
+        .with_state(ctx);
 
     Ok(wr.call(req).await)
 }
@@ -122,7 +118,7 @@ async fn hello(_req: silent::Request) -> silent::Result<&'static str> {
 
 /// KV 读取示例
 async fn kv_get(req: silent::Request) -> silent::Result<silent::Response> {
-    let env = req.get_config::<Env>()?;
+    let env = req.get_state::<Env>()?;
     let key: String = req.get_path_params("key")?;
     let kv = env.kv("MY_KV").map_err(|e| {
         silent::SilentError::business_error(
@@ -142,7 +138,7 @@ async fn kv_get(req: silent::Request) -> silent::Result<silent::Response> {
 
 /// KV 写入示例
 async fn kv_put(mut req: silent::Request) -> silent::Result<silent::Response> {
-    let env = req.get_config::<Env>()?.clone();
+    let env = req.get_state::<Env>()?.clone();
     let key: String = req.get_path_params("key")?;
     let value = read_body_text(&mut req).await?;
     let kv = env.kv("MY_KV").map_err(|e| {
@@ -240,7 +236,7 @@ wrangler 将使用 `worker-build` 将 Rust 工程编译为 Wasm，并生成可�
 环境变量与机密
 - 普通变量：在 `wrangler.toml` 的 `[vars]` 中定义
 - 机密：`wrangler secret put MY_SECRET`
-- 处理器中可通过 `Env` 获取，或在 `with_configs` 时注入只读配置（推荐仅注入只读句柄）。
+- 处理器中可通过 `Env` 获取，或使用 `with_state` 注入只读句柄。
 
 常见问题
 - Wasm/Workers 下请求生命周期短且实例不可预测：不要依赖进程内“全局可变状态”。

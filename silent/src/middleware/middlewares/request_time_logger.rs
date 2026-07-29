@@ -6,7 +6,8 @@ use chrono::Utc;
 ///
 /// # 已弃用
 ///
-/// 此中间件将在 v2.17.0 版本移除，请使用 [`Logger`](super::Logger) 替代。
+/// 请使用 [`Logger`](super::Logger) 替代。`RequestTimeLogger` 在 2.x 中继续保留，
+/// 最早于 3.0 移除。
 ///
 /// `Logger` 相比 `RequestTimeLogger` 的改进：
 /// - 使用 `Instant` 单调时钟替代 `Utc::now().time()`，避免跨午夜负值问题
@@ -20,7 +21,10 @@ use chrono::Utc;
 ///
 /// let _ = RequestTimeLogger::new();
 /// ```
-#[deprecated(since = "2.15.0", note = "将在 v2.17.0 移除，请使用 Logger 替代")]
+#[deprecated(
+    since = "2.15.0",
+    note = "请使用 Logger 替代；RequestTimeLogger 在 2.x 中继续保留，最早于 3.0 移除"
+)]
 #[derive(Default, Clone)]
 pub struct RequestTimeLogger;
 
