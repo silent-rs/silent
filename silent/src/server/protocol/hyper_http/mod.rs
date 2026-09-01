@@ -97,10 +97,12 @@ pub use hyper_service::HyperServiceHandler;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "cookie")]
     use cookie::Cookie;
     use http::Request as HttpRequest;
 
     // 辅助函数：创建用于测试的安全 Cookie（带 Secure 属性）
+    #[cfg(feature = "cookie")]
     fn test_cookie(name: &str, value: impl AsRef<str>) -> Cookie<'static> {
         Cookie::build((name.to_owned(), value.as_ref().to_owned()))
             .secure(true)

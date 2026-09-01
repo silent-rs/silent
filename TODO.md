@@ -59,6 +59,9 @@
   - 适配 password-hash 0.6 接口
   - 验证密码哈希、正确密码与错误密码行为
 
+- [x] 11. 修复 security 特性单独启用时测试编译失败
+  - hyper_http 测试模块补充 cookie 特性开关
+
 ## Benchmark 结果
 
 | 测试项 | main 基线 | 优化后 | 提升 |
