@@ -53,6 +53,12 @@
 - [x] 9. tracing 编译时级别控制 ✅
   - 添加 `no-tracing` feature（`tracing/max_level_off`），benchmark 时关闭 tracing
 
+### 依赖与安全维护
+
+- [x] 10. Argon2 0.6 兼容修复（#229）✅
+  - 适配 password-hash 0.6 接口
+  - 验证密码哈希、错误密码与旧摘要兼容性
+
 ## Benchmark 结果
 
 | 测试项 | main 基线 | 优化后 | 提升 |
