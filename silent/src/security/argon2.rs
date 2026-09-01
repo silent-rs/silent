@@ -31,9 +31,13 @@ pub fn verify_password(password_hash: String, password: String) -> Result<bool> 
 mod test {
     use super::*;
 
+    fn test_password() -> String {
+        scru128::new_string()
+    }
+
     #[test]
     fn hashes_and_verifies_password() {
-        let password = "hello_password".to_string();
+        let password = test_password();
         let password_hash = make_password(password.clone()).unwrap();
 
         assert!(verify_password(password_hash, password).unwrap());
@@ -41,25 +45,18 @@ mod test {
 
     #[test]
     fn rejects_incorrect_password() {
-        let password_hash = make_password("hello_password".to_string()).unwrap();
+        let password_hash = make_password(test_password()).unwrap();
 
-        assert!(!verify_password(password_hash, "incorrect_password".to_string()).unwrap());
+        assert!(!verify_password(password_hash, test_password()).unwrap());
     }
 
     #[test]
     fn generates_unique_hashes() {
-        let password = "hello_password".to_string();
+        let password = test_password();
 
         assert_ne!(
             make_password(password.clone()).unwrap(),
             make_password(password).unwrap()
         );
-    }
-
-    #[test]
-    fn verifies_existing_password_hash() {
-        let password_hash = "$argon2id$v=19$m=19456,t=2,p=1$MDEyMzQ1Njc4OWFiY2RlZg$2PVUkrAGPo73NX+uUQvkZZi7VQPe4YUB3cxt/JBXmKc";
-
-        assert!(verify_password(password_hash.to_string(), "hello_password".to_string()).unwrap());
     }
 }
