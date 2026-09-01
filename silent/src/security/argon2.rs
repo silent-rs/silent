@@ -1,12 +1,11 @@
 use crate::{Result, SilentError, StatusCode};
-use argon2::password_hash::SaltString;
-use argon2::password_hash::rand_core::OsRng;
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
+use argon2::Argon2;
+use argon2::password_hash::phc::PasswordHash;
+use argon2::password_hash::{PasswordHasher, PasswordVerifier};
 
 pub fn make_password(password: String) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
     Ok(Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| {
             SilentError::business_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -31,13 +30,33 @@ pub fn verify_password(password_hash: String, password: String) -> Result<bool> 
 #[cfg(test)]
 mod test {
     use super::*;
-    use tracing::info;
+
+    fn test_password() -> String {
+        scru128::new_string()
+    }
 
     #[test]
-    fn hash_test() {
-        let password = "hello_password".to_string();
+    fn hashes_and_verifies_password() {
+        let password = test_password();
         let password_hash = make_password(password.clone()).unwrap();
-        info!("{}", password_hash);
-        assert!(verify_password(password_hash, password,).is_ok())
+
+        assert!(verify_password(password_hash, password).unwrap());
+    }
+
+    #[test]
+    fn rejects_incorrect_password() {
+        let password_hash = make_password(test_password()).unwrap();
+
+        assert!(!verify_password(password_hash, test_password()).unwrap());
+    }
+
+    #[test]
+    fn generates_unique_hashes() {
+        let password = test_password();
+
+        assert_ne!(
+            make_password(password.clone()).unwrap(),
+            make_password(password).unwrap()
+        );
     }
 }

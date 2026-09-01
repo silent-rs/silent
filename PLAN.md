@@ -103,3 +103,7 @@
 - **P2：编译与运行时调优**
   - Release profile 极致优化（LTO、codegen-units=1、panic=abort）
   - tracing 编译时级别控制
+
+- **持续维护**
+  - 处理依赖主版本升级的接口兼容
+  - 对安全功能执行编译、测试与依赖审计
