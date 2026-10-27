@@ -153,7 +153,7 @@ impl OpenApiDoc {
             .unwrap_or_else(|| ComponentsBuilder::new().build());
         components
             .security_schemes
-            .insert(scheme_name.to_string(), scheme);
+            .insert(scheme_name.to_string(), utoipa::openapi::RefOr::T(scheme));
         self.openapi.components = Some(components);
         self
     }

@@ -17,7 +17,7 @@ version.workspace = true
 silent = { path = "../silent", version = "2" }
 
 # OpenAPI相关依赖
-utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa = { version = "6", features = ["chrono", "uuid"] }
 
 # 基础依赖
 async-trait = "0.1"
