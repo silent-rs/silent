@@ -746,6 +746,10 @@ mod tests {
         };
         let content = &resp.content;
         let mt = content.get("application/json").expect("app/json");
+        let mt = match mt {
+            utoipa::openapi::RefOr::T(c) => c,
+            _ => panic!("expected T"),
+        };
         let schema = mt.schema.as_ref().expect("schema");
         match schema {
             utoipa::openapi::RefOr::Ref(r) => assert!(r.ref_location.ends_with("/User")),
@@ -767,7 +771,15 @@ mod tests {
             &[],
         );
         let body = op.request_body.as_ref().expect("request body");
+        let body = match body {
+            utoipa::openapi::RefOr::T(b) => b,
+            _ => panic!("expected T"),
+        };
         let content = body.content.get("application/json").expect("app/json");
+        let content = match content {
+            utoipa::openapi::RefOr::T(c) => c,
+            _ => panic!("expected T"),
+        };
         let schema = content.schema.as_ref().expect("schema");
         match schema {
             utoipa::openapi::RefOr::Ref(r) => {
@@ -791,6 +803,10 @@ mod tests {
             &[],
         );
         let body = op.request_body.as_ref().expect("request body");
+        let body = match body {
+            utoipa::openapi::RefOr::T(b) => b,
+            _ => panic!("expected T"),
+        };
         assert!(
             body.content
                 .contains_key("application/x-www-form-urlencoded")
@@ -934,9 +950,15 @@ mod tests {
         let params = op.parameters.as_ref().expect("should have parameters");
         assert_eq!(params.len(), 2);
         // 验证第一个参数有 schema（不再是 None）
-        let id_param = &params[0];
+        let id_param = match &params[0] {
+            utoipa::openapi::RefOr::T(p) => p,
+            _ => panic!("expected T"),
+        };
         assert!(id_param.schema.is_some());
-        let slug_param = &params[1];
+        let slug_param = match &params[1] {
+            utoipa::openapi::RefOr::T(p) => p,
+            _ => panic!("expected T"),
+        };
         assert!(slug_param.schema.is_some());
     }
 
