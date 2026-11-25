@@ -27,7 +27,7 @@ codegen-units = 1
 strip = "symbols"
 
 [workspace.dependencies]
-async-trait = "0.1.88"
+async-trait = "0.1"
 chrono = "0.4"
 dlopen2 = { version = "0.9", features = ["derive"] }
 futures-util = "0.3"
