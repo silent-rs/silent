@@ -7,4 +7,4 @@ license = "Apache-2.0"
 [dependencies]
 async-trait = "0.1"
 silent = {path = "../../silent"}
-tokio = {version = "1.0", features = ["full"]}
+tokio = {version = "1", features = ["full"]}
