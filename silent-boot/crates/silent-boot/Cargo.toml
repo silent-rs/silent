@@ -1,0 +1,36 @@
+[package]
+name = "silent-boot"
+description = "基于 Silent 的全栈快速开发框架"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = ["sqlite"]
+sqlite = ["sea-orm/sqlx-sqlite", "sea-orm-migration/sqlx-sqlite"]
+cli = ["dep:clap"]
+
+[dependencies]
+silent.workspace = true
+sea-orm.workspace = true
+sea-orm-migration.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+scru128.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+clap = { workspace = true, optional = true }
+
+[dev-dependencies]
+silent = { workspace = true, features = ["static", "test"] }
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
