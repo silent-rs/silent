@@ -55,8 +55,12 @@ impl MigratorTrait for NoMigrations {
 /// 不知道应用迁移器类型的地方执行迁移，所以统一走这里。任何实现了 [`MigratorTrait`] 的类型都自动实现它。
 #[async_trait]
 pub trait Migrator: Send + Sync {
+    /// 跟踪表的名字：应用的默认是 `seaql_migrations`，框架的是 `sb_migrations`。
+    fn table_name(&self) -> String;
     /// 执行待执行的迁移，`steps` 限制最多执行几条。会建跟踪表。
     async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr>;
+    /// 建跟踪表，已经存在时什么都不做。
+    async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr>;
     /// 待执行的迁移名，会建跟踪表。
     async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
     /// 已执行的迁移名，不建表、不加锁。
@@ -67,8 +71,16 @@ pub trait Migrator: Send + Sync {
 
 #[async_trait]
 impl<T: MigratorTrait + Sync + 'static> Migrator for T {
+    fn table_name(&self) -> String {
+        T::migration_table_name().to_string()
+    }
+
     async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         T::up(db, steps).await
+    }
+
+    async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
+        T::install(db).await
     }
 
     async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
@@ -90,8 +102,16 @@ impl<T: MigratorTrait + Sync + 'static> Migrator for T {
 
 #[async_trait]
 impl Migrator for AnyMigrator {
+    fn table_name(&self) -> String {
+        self.0.table_name()
+    }
+
     async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         self.0.up(db, steps).await
+    }
+
+    async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
+        self.0.install(db).await
     }
 
     async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
@@ -128,9 +148,19 @@ impl AnyMigrator {
         Self::new(FrameworkMigrator)
     }
 
+    /// 见 [`Migrator::table_name`]。
+    pub fn table_name(&self) -> String {
+        self.0.table_name()
+    }
+
     /// 见 [`Migrator::up`]。
     pub async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
         self.0.up(db, steps).await
+    }
+
+    /// 见 [`Migrator::install`]。
+    pub async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
+        self.0.install(db).await
     }
 
     /// 见 [`Migrator::pending`]。
@@ -146,6 +176,11 @@ impl AnyMigrator {
     /// 见 [`Migrator::pending_read_only`]。
     pub async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
         self.0.pending_read_only(db).await
+    }
+
+    /// 当成 trait 对象用。
+    pub fn as_dyn(&self) -> &dyn Migrator {
+        &*self.0
     }
 }
 
@@ -164,6 +199,9 @@ pub enum MigrateError {
     /// 数据库错误。
     #[error(transparent)]
     Db(#[from] DbErr),
+    /// 结果写不出来。
+    #[error("写入输出失败：{0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// 一组迁移（框架或应用）的执行结果。

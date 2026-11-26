@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use units::{ByteSize, Duration};
+pub use units::{ByteSize, Duration};
 
 pub use units::ParseUnitError;
 

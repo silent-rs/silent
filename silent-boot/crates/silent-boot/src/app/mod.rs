@@ -68,6 +68,9 @@ pub enum BootError {
     Logging(#[from] crate::logging::LogError),
 }
 
+/// [`App::run`] 和应用的入口函数的返回类型。
+pub type BootResult = std::result::Result<(), BootError>;
+
 /// 应用：配置、共享状态和装配好的路由。
 pub struct App {
     config: Arc<AppConfig>,

@@ -53,6 +53,8 @@ sqlx = { workspace = true, optional = true }
 
 [dev-dependencies]
 silent = { workspace = true, features = ["static", "test"] }
+# 集成测试要启动真实的二进制并读它的输出。
+tokio = { workspace = true, features = ["io-util", "process"] }
 tempfile = "3"
 rust-embed = "8"
 tera = { version = "2.4", features = ["glob_fs"] }

@@ -9,7 +9,7 @@ pub use silent::Server;
 pub use silent::extractor::{Json, Path, Query, State};
 pub use {sea_orm, silent};
 
-pub use crate::app::{App, AppBuilder, AppState, BootError};
+pub use crate::app::{App, AppBuilder, AppState, BootError, BootResult};
 pub use crate::config::AppConfig;
 pub use crate::db::DbRegistry;
 pub use crate::web::pagination::paginate;

@@ -155,17 +155,18 @@ fn line_index(lines: &[String], marker: &str) -> Option<usize> {
     lines.iter().position(|line| line.trim() == marker)
 }
 
-/// `migrate up`：加锁后先执行框架迁移，再执行应用迁移。
-pub async fn up(
+/// `migrate up`：加锁后先执行框架迁移，再执行应用迁移。结果写到 `out`。
+pub async fn up<W: io::Write>(
     db: &DatabaseConnection,
     framework: &dyn Migrator,
     app: &dyn Migrator,
     steps: Option<u32>,
     dry_run: bool,
+    out: &mut W,
 ) -> Result<(), MigrateError> {
     if dry_run {
         let groups = MigrationRunner::status(db, framework, app).await?;
-        print_groups(&groups, false);
+        print_groups(&groups, false, out)?;
         return Ok(());
     }
     let report = MigrationRunner::default()
@@ -175,47 +176,54 @@ pub async fn up(
         ("framework", &report.framework.applied),
         ("app", &report.app.applied),
     ] {
-        println!("{scope}: {} applied", applied.len());
+        writeln!(out, "{scope}: {} applied", applied.len())?;
         for name in applied {
-            println!("  {name}");
+            writeln!(out, "  {name}")?;
         }
     }
     Ok(())
 }
 
-/// `migrate status`：只读查询，不建表、不加锁。
-pub async fn status(
+/// `migrate status`：只读查询，不建表、不加锁。结果写到 `out`。
+pub async fn status<W: io::Write>(
     db: &DatabaseConnection,
     framework: &dyn Migrator,
     app: &dyn Migrator,
     json: bool,
+    out: &mut W,
 ) -> Result<(), MigrateError> {
     let groups = MigrationRunner::status(db, framework, app).await?;
     if json {
         // `GroupStatus` 只有字符串和字符串数组，序列化不会失败。
-        println!(
+        writeln!(
+            out,
             "{}",
             serde_json::to_string_pretty(&groups).expect("status is serializable")
-        );
+        )?;
         return Ok(());
     }
-    print_groups(&groups, true);
+    print_groups(&groups, true, out)?;
     Ok(())
 }
 
-fn print_groups(groups: &[GroupStatus], show_applied: bool) {
+fn print_groups<W: io::Write>(
+    groups: &[GroupStatus],
+    show_applied: bool,
+    out: &mut W,
+) -> Result<(), MigrateError> {
     for group in groups {
-        println!("{}", group.scope);
+        writeln!(out, "{}", group.scope)?;
         if show_applied {
             for name in &group.applied {
-                println!("  applied  {name}");
+                writeln!(out, "  applied  {name}")?;
             }
         }
         for name in &group.pending {
-            println!("  pending  {name}");
+            writeln!(out, "  pending  {name}")?;
         }
         if group.pending.is_empty() && (!show_applied || group.applied.is_empty()) {
-            println!("  up to date");
+            writeln!(out, "  up to date")?;
         }
     }
+    Ok(())
 }
