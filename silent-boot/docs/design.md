@@ -1,6 +1,6 @@
 # silent-boot · 技术方案
 
-> 状态：v0.7 ｜ 对应 [PLAN.md](../PLAN.md) ｜ 验证记录：[m0-verification.md](./m0-verification.md) ｜ 编写日期：2026-11-25
+> 状态：v0.8 ｜ 对应 [PLAN.md](../PLAN.md) ｜ 验证记录：[m0-verification.md](./m0-verification.md)、[m1-verification.md](./m1-verification.md) ｜ 编写日期：2026-11-25
 >
 > v0.2 变更：§6 由"SeaORM 对接"重写为"数据库与迁移"，迁移成为数据库部分的核心。
 > v0.3 变更：sea-orm-cli 的能力包入框架的命令行（§6.4、§13）；迁移与实体生成改为显式命令，`dev` 只做运行循环。
@@ -8,6 +8,9 @@
 > v0.5 变更：`generate entity` 以一直在用的 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 为基准命令，默认行为与它一致；唯一的差别是每个实体文件末尾的 `ActiveModelBehavior` 实现。
 > v0.6 变更：澄清 SeaORM 不会自动填充审计时间，这两列仍由迁移定义、值由 service 层写入；实体文件不再追加任何内容，`generate entity` 的输出与基准命令一致（D13 的建议随之调整）。
 > v0.7 变更：立项开发。补上实测发现 F1：提取器拒绝的响应不经过 `ExceptionHandler`，统一包络要另外覆盖（§5、§15 的 U7）。
+> v0.8 变更：M1 落地。按实现修正了 §3（入口 `run`、`App` 的装配方式）、§5（`AppResult` 的定义、`TraceId` 与 `ErrorHandler` 两个中间件）、
+> §6.7（对账方式和执行锁的释放）、§6.8（`migrate lint` 的规则）、§12（`dev --migrate` 与脚本注入）、§13（命令一览）；
+> §15 增加 U8、U9；新增 §17 记录 M1 的落地情况和与设计不一致的地方。
 >
 > 标注"已核对"的内容来自本机源码、CLI 输出或 crates.io 检索；标注"待验证"的内容在 M0 spike 中确认（§16）。代码片段用于说明分层与接口形态，不是最终 API。
 
@@ -777,6 +780,8 @@ silent-boot check                                          # 分层规范、权�
 | U5 | 调度存储 | `Storage` trait 模块私有，只有 MySQL 实现 | 无法复用做分布式互斥 | 框架层实现 |
 | U6 | 默认 feature 与文档不一致 | `Cargo.toml` 中 `default = ["server"]`，`test` 需显式启用；`AGENTS.md` 写的是默认启用 `server`、`test` | 文档误导 | 可顺带修正文档 |
 | U7 | 提取器拒绝不经过 `ExceptionHandler` | 提取器失败时直接返回纯文本的拒绝响应，`ExceptionHandler` 看到的是 `Ok`（M0 实测，见 `m0-verification.md` 的 F1） | 统一错误包络覆盖不到参数错误 | 框架先自行兜底（§5）；向上游提议让拒绝以 `Err` 进入异常处理 |
+| U8 | sea-orm-migration 的迁移器容不下"库比这个版本新" | `up` 和 `status` 发现跟踪表里有当前版本不认识的迁移就报错；执行循环 `exec_up_with` 没有公开（M1 实测，见 `m1-verification.md` 的 F16） | 滚动发布时旧副本执行不了迁移、就绪检查失败 | 框架自己算待执行的清单、自己写执行循环；向上游提议把"不认识的已执行迁移"当成信息而不是错误，并公开 `exec_up_with` |
+| U9 | `Server` 没有可以编程触发的关停 | `serve` 只认 Ctrl-C 和 SIGTERM；测试用的关停通知是私有的（M1 读源码确认） | 嵌入、测试和 `dev` 工具没法让服务优雅地停下 | 启动器用 `select!` 丢掉 serve 的 future，不等在途请求；向上游提议公开一个关停句柄 |
 
 ## 16. 待验证事项（M0）
 
@@ -799,3 +804,62 @@ silent-boot check                                          # 分层规范、权�
 | V15 | 两套迁移器共用一个库 | 框架迁移表与应用迁移表并存，`migrate up` 顺序正确 | 首次建库建齐系统表；框架升级能带入新迁移 |
 | V16 | MySQL 部分失败恢复 | 不做（D14） | — |
 | V17 | `cli` feature 的代价 | 对比开关 `cli` feature 时 release 二进制的体积与编译时间；验证子命令命中后不启动服务 | 体积与时间差异记录在案，并据此决定是否改用独立的开发用 bin target |
+
+## 17. M1 的落地情况和与设计不一致的地方
+
+M1 的完成标准逐条对照见 `m1-verification.md`。这一节只记"实现和前文写的不一样"的地方，以前文的章节为准读的时候要看这里。
+
+### 17.1 入口与装配（§3）
+
+- 应用的 `main.rs` 只有一句 `silent_boot::run(migration::Migrator, app::serve).await`：`run` 先看第一个参数是不是框架的子命令，是就执行并退出，否则加载配置、初始化日志，再调用 `serve(config)`。
+- `App` 不是 `App::new()`，而是 `App::with_config(config)`（或者 `App::builder()` 读当前目录的配置）拿到 `AppBuilder`，链上 `.migrator(..)`、`.route(..)`、`.openapi(doc)`、`.assets(assets)`，`build().await` 连库、装配路由并注入 `AppState`。测试用 `app.router()` 配合 `TestClient`，不监听端口。
+- `AppState` 现在只有 `env`、`config`、`db`、`started_at` 和两组迁移器。`AuthManager`、`ConfigCenter` 随 M2、M4 加。
+- 端口被占用时 `bind` 返回错误，不 panic（Silent 的 `Server::bind` 会 `expect`）。监听地址为 `0.0.0.0` 或 `[::]` 时日志里报的仍是配置里的写法。
+- 配置文件是 `config/app.toml` 加 `config/app.<env>.toml`（环境取 `APP_ENV`，再取文件里的 `app.env`，默认 `development`），环境变量前缀 `APP__`。前文写的"远端配置中心"留到 M4。
+
+### 17.2 响应与错误（§5）
+
+- service 层的返回类型是 `AppResult<T>`，也就是 `Result<T, AppError>`；handler 的返回类型是 Silent 的 `Result<T>`，对 service 的结果直接用 `?`，`AppError` 会自动转成 `SilentError`。前文把 `AppResult` 定义成 `Result<T, SilentError>`，那样 service 里对 SeaORM 的错误没法用 `?`。
+- 失败响应由框架自己的 `ErrorHandler` 中间件生成，不用 Silent 的 `ExceptionHandler`（它拿不到请求，补不了追踪号）。`TraceId` 中间件给每个请求发追踪号，写进响应头 `x-request-id` 和 tracing 的 span。
+- 业务码按"HTTP 状态码 × 100 + 序号"：40100、40301、40400、40000、42200、40900、42900、50000；自定义业务码的前三位是 HTTP 状态码，不是 4xx、5xx 时按 400 返回。
+- 字段错误在 `data` 里：`{"字段": [{"code": "规则", "message": "说明", "params": {..}}]}`，说明是一句中文，按规则生成。
+- `handler` 里的 panic 不会断开连接：记日志，返回 500 的包络。
+
+### 17.3 分页（§4、§6.11）
+
+分页参数不放进入参 DTO，用单独的 `Page` 提取器取（见 F18）。`PageQuery` 仍然是那两个字段，`Page(pub PageQuery)`。
+
+### 17.4 迁移（§6.7、§6.8）
+
+- 待执行的迁移按"这个版本里有、跟踪表里还没有"来算；跟踪表里有、这个版本不认识的迁移不算问题（见 F16）。
+  滚动发布时旧副本照常就绪、照常启动。一个和线上分叉的版本被拒绝执行。
+- 执行循环由框架写：拿锁 → 对账 → 按清单执行（默认在事务里）→ 写跟踪表 → 写执行记录 → 显式释放锁（见 F17）。
+- `/readyz` 只在有待执行的迁移、或者数据库连不上时才报未就绪。
+- `migrate status` 多一类 `newer`：数据库里有、这个版本不认识的迁移。
+- `migrate lint` 检查的是迁移文件的源码文本（去掉注释之后）：出现删表、删列、删索引、改名、清空、改列的写法要带
+  `// silent-boot: destructive` 标记；另外检查 `migration/src/` 下的迁移文件和迁移器受管区块里的登记对得上。
+  `--since <Git 引用>` 只看新增的文件（包括还没提交的）。
+- `migrate baseline` 只处理应用的迁移：把待执行的迁移标记成已执行，不建表；框架的迁移照常由 `migrate up` 执行。
+- `migrate repair --applied|--pending <版本> [--scope app|framework]` 把一条迁移标记成已执行或未执行。
+
+### 17.5 命令行（§13）
+
+已经有的：`migrate generate / up / status / lint / baseline / repair`、`generate entity`、`generate module --table`、`healthcheck`、
+全局工具的 `new` 和 `dev`。还没有的：`migrate down / fresh / refresh / reset`、`generate module` 之外的平台选项、`generate openapi-types`、`check`。
+子命令的输出可以写到调用方给的缓冲区，`--json` 目前只有 `migrate status` 有。
+
+数据库地址的优先级：`--database-url`、环境变量 `SB_DATABASE_URL`、配置文件里的 `[database].url`。
+在子目录里执行命令时向上找 `silent-boot.toml`，把它所在的目录当作应用根目录。
+
+### 17.6 dev（§12）
+
+- `dev --migrate`：第一次构建成功之后先执行一次 `migrate up`，失败就不启动应用并告诉页面；默认只提示有几条迁移没执行。
+  这两件事只对 silent-boot 应用做（目录里有 `silent-boot.toml`）。
+- 应用进程带着 `SB_DEV_RELOAD_URL` 启动，开发构建的应用自动把页面脚本注入 HTML，不用手改页面。
+- L1 的编译错误可视化、前端热更新（Vite）、配置和模板热更新还没做。
+
+### 17.7 代码生成（§10）
+
+`generate module` 的第一步只做一件事：按一张表生成 dto、service、api 三个文件并登记，写法和示例模块一致。
+不支持的情况会说明原因：主键不是"不自增的字符串"或"自增的 32 位整数"、有生成列、表名不是合法标识符。
+生成的模块不处理多表关联、菜单、权限声明和前端页面，这些在 M3。接口路径是表名的复数（`article` 对应 `/api/articles`）。

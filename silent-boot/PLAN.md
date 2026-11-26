@@ -1,6 +1,6 @@
 # silent-boot · 总体规划
 
-> 状态：**已确认，M0 验证完成，M1 进行中** ｜ 编写日期：2026-11-25
+> 状态：**已确认，M0 验证完成，M1 本地完成（待 CI）** ｜ 编写日期：2026-11-25
 > 技术方案：[design.md](docs/design.md) ｜ 验证记录：[m0-verification.md](docs/m0-verification.md) ｜ 任务清单：[TODO.md](TODO.md)
 >
 > silent-boot 是基于 Silent 的全栈快速开发框架。它先放在 Silent 仓库里，以嵌套 workspace 的形式开发：目录 `silent-boot/`，有自己的 `Cargo.toml` 和锁文件，不进外层 workspace。是否拆成独立仓库，M1 之后再决定。
@@ -12,6 +12,7 @@
 > v0.6 变更：澄清 SeaORM 不会自动填充审计时间，这两列仍由迁移定义、值由 service 层写入；`generate entity` 的输出与基准命令一致。
 > v0.7 变更：立项开发。按"先在 Silent 仓库内以嵌套 workspace 开发"调整 D1 与 §6 第 1 条；任务清单移到 `TODO.md`，验证结论记在 `docs/m0-verification.md`。
 > v0.8 变更：数据库能力全部交给 SeaORM（D14），框架只用 SQLite 做自动化测试；M0 的验证项全部有结论，转入 M1。
+> v0.9 变更：M1 完成。启动器、配置、统一响应与错误、迁移子命令、`new`、`dev`、`generate module` 的第一步都落地，逐条对照在 `docs/m1-verification.md`；D15 记下滚动发布时对待执行迁移的定义。
 
 ## 1. 背景与定位
 
@@ -168,9 +169,10 @@
 | D12 | 命令的入口形态 | 应用内子命令（`cargo run -- migrate up`）加全局工具转发；`dev` 默认不执行迁移 | 只做全局工具（需要另行编译迁移 crate）；`dev --migrate` 设为默认 |
 | D13 | 审计时间的填充方式 | 由 service 层写入：生成的模板已经写好，实体文件与基准命令一致，和 silent-oss 现在的做法相同 | 由生成器把填充逻辑写进实体末尾的 `ActiveModelBehavior`，自动填充，但覆盖不到批量更新 |
 | D14 | 多数据库的验证范围 | 数据库能力全部交给 SeaORM：框架只用 SQLite 做自动化测试；MySQL、PostgreSQL 通过 feature 提供，只保证 `cargo check` 通过，不在 CI 里跑真实数据库（2026-11-26 确认） | 为三种数据库各起一个服务做迁移矩阵 |
+| D15 | 待执行迁移的定义（2026-11-26 开发中定下，待你确认） | 按这个版本的迁移列表和跟踪表对账：列表里有、表里没有的才是待执行；表里有、列表里没有的说明数据库比这个版本新，不算问题，旧副本照常就绪、照常启动。一个和线上分叉的版本（两边都有对方没有的迁移）拒绝执行 | 沿用 SeaORM 的对账：见到不认识的已执行迁移就报错（M1 实测到它让滚动发布走不通，见 `m1-verification.md` 的 F16） |
 
 ## 9. 任务清单与验证记录
 
-日常任务在 [TODO.md](TODO.md)，按里程碑分节，当前是 M1。每一项验证的结论和实测发现记在 [docs/m0-verification.md](docs/m0-verification.md)。
+日常任务在 [TODO.md](TODO.md)，按里程碑分节，当前是 M1 收尾与 M2。验证的结论和实测发现记在 [docs/m0-verification.md](docs/m0-verification.md) 和 [docs/m1-verification.md](docs/m1-verification.md)。
 
 环境现状（2026-11-25 本机核对）：Rust 1.100.0、sea-orm-cli 2.0.4、watchexec 2.8.0、cargo generate 0.26.0、Node 22.16.0、yarn 1.22.22、pnpm 9.15.0、Docker 29.8.2；cargo-watch 仓库已归档，不再沿用 silent-template 的 `.cargo-watch.toml` 方案。
