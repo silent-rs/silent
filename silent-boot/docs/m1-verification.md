@@ -24,6 +24,7 @@
 | `generate module` 的第一步 | 通过 | `tests/generate_module.rs::v36_generate_module_rebuilds_the_sample_module_from_its_table`：把示例应用拷一份、删掉手写的模块，用生成器按 `article` 表补回来，这份拷贝 clippy 干净、示例自带的 4 个接口测试照常通过 |
 | `migrate lint`、`baseline`、`repair` | 通过 | `tests/cli_dispatch.rs` 的 V28–V31 和 `cli::lint` 的单元测试 |
 | `dev` 和启动器打通 | 通过 | `tests/dev_startup.rs` 的 4 个测试；在示例应用上实测，见 F13 的补充 |
+| 全局工具转发数据库相关的子命令 | 通过 | `crates/silent-boot-cli/tests/forwarding.rs` 的 4 个测试：从子目录里执行 `silent-boot migrate up`、`migrate status --json`、`migrate lint`、`generate entity --dry-run`（自动带 `codegen`）、`healthcheck` 的退出码原样返回；不在应用里时说明原因 |
 
 ## 实测发现
 

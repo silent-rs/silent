@@ -19,6 +19,10 @@ cargo install silent-boot-cli    # 全局工具，只需要装一次
 silent-boot dev --migrate
 ```
 
+装了全局工具之后，下面的命令都可以把 `cargo run --features codegen --` 换成 `silent-boot`：
+`silent-boot migrate up`、`silent-boot migrate generate "create order"`、`silent-boot generate entity`。
+它们在应用里执行的是同一份代码，参数原样交过去。
+
 ## 目录
 
 | 路径 | 放什么 |

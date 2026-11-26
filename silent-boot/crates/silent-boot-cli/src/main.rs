@@ -1,20 +1,30 @@
-//! `silent-boot` 全局工具：`new` 生成应用，`dev` 构建并运行应用、监听变更、重启、刷新页面。
+//! `silent-boot` 全局工具。
 //!
-//! 其余子命令（`migrate`、`generate`、`healthcheck`）属于应用自己，在应用目录里用
-//! `cargo run -- <子命令>` 执行，这样它们和应用用的是同一份依赖。
+//! - `new`：生成应用的骨架。
+//! - `dev`：构建并运行应用，监听源码变更，自动重新构建、重启，并通知页面刷新。
+//! - `migrate`、`generate`、`healthcheck`：在应用目录里转发给应用自己的子命令（`cargo run -- <子命令>`），
+//!   这样它们和应用用的是同一份依赖，迁移列表也是应用自己的。参数原样交过去，`--help` 也能用。
+//!
+//! 以上三种之外的命令都属于应用自己的二进制，在应用目录里用 `cargo run -- <子命令>` 执行。
 
+use std::ffi::OsString;
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
 use silent_boot_cli::dev::{CargoBuild, DevLoop, Startup};
 use silent_boot_cli::events::Events;
+use silent_boot_cli::forward::{self, Forward};
 use silent_boot_cli::new::{self, Database, DependencySource};
 use silent_boot_cli::watch::SourceWatcher;
 
 #[derive(Debug, Parser)]
 #[command(name = "silent-boot", version, about = "silent-boot 的全局工具")]
 struct Cli {
+    /// 应用有多个可执行目标时，转发给哪一个。要写在子命令前面。
+    #[arg(long, global = false, value_name = "NAME")]
+    bin: Option<String>,
     #[command(subcommand)]
     command: Command,
 }
@@ -57,11 +67,33 @@ enum Command {
         #[arg(long)]
         migrate: bool,
     },
+    /// 在应用里执行 `migrate …`：generate、up、status、lint、baseline、repair。参数原样交给应用。
+    #[command(disable_help_flag = true)]
+    Migrate {
+        /// 交给应用的参数，例如 `up --steps 1`、`generate "create order"`。
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+        args: Vec<OsString>,
+    },
+    /// 在应用里执行 `generate …`：entity、module。会自动打开应用的 `codegen` feature。
+    #[command(disable_help_flag = true)]
+    Generate {
+        /// 交给应用的参数，例如 `entity`、`module --table article`。
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+        args: Vec<OsString>,
+    },
+    /// 在应用里执行 `healthcheck …`：探测正在运行的服务。
+    #[command(disable_help_flag = true)]
+    Healthcheck {
+        /// 交给应用的参数，例如 `--url http://127.0.0.1:8080/healthz`。
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+        args: Vec<OsString>,
+    },
 }
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    match Cli::parse().command {
+async fn main() -> ExitCode {
+    let cli = Cli::parse();
+    let result = match cli.command {
         Command::New {
             name,
             db,
@@ -76,7 +108,32 @@ async fn main() -> anyhow::Result<()> {
             watch,
             migrate,
         } => dev(bin, port, watch, migrate).await,
+        Command::Migrate { args } => forward_to_app(cli.bin, "migrate", args).await,
+        Command::Generate { args } => forward_to_app(cli.bin, "generate", args).await,
+        Command::Healthcheck { args } => forward_to_app(cli.bin, "healthcheck", args).await,
+    };
+    match result {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("error: {e:#}");
+            ExitCode::from(1)
+        }
     }
+}
+
+/// 把子命令交给应用：在当前目录往上找应用根目录，执行 `cargo run --quiet -- <子命令> <参数>`。
+async fn forward_to_app(
+    bin: Option<String>,
+    subcommand: &'static str,
+    args: Vec<OsString>,
+) -> anyhow::Result<ExitCode> {
+    let cwd = std::env::current_dir()?;
+    let forward = Forward {
+        subcommand,
+        args: &args,
+        bin: bin.as_deref(),
+    };
+    Ok(forward::forward(&cwd, &forward).await?)
 }
 
 fn new_app(
@@ -86,7 +143,7 @@ fn new_app(
     force: bool,
     path_framework: Option<PathBuf>,
     path_silent: Option<PathBuf>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ExitCode> {
     let target = PathBuf::from(&name);
     let deps = match (path_framework, path_silent) {
         (Some(silent_boot), Some(silent)) => DependencySource::Local {
@@ -118,10 +175,12 @@ fn new_app(
     println!();
     println!("接下来：");
     println!("  cd {}", name);
-    println!("  cargo run -- migrate up          # 建库、建表");
+    println!(
+        "  silent-boot migrate up            # 建库、建表（没有全局工具时用 cargo run -- migrate up）"
+    );
     println!("  cargo run                        # 启动，http://127.0.0.1:8080");
-    println!("  silent-boot dev --migrate        # 改代码自动重启（需要安装 silent-boot-cli）");
-    Ok(())
+    println!("  silent-boot dev --migrate        # 改代码自动重启");
+    Ok(ExitCode::SUCCESS)
 }
 
 async fn dev(
@@ -129,7 +188,7 @@ async fn dev(
     port: u16,
     watch: Vec<PathBuf>,
     migrate: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ExitCode> {
     let app_dir = std::env::current_dir()?;
     let build = CargoBuild::new(app_dir.clone(), bin)
         .await
@@ -153,10 +212,7 @@ async fn dev(
     let mut watcher = SourceWatcher::start(&dirs, &files)?;
     let events = Arc::new(Events::bind(([127, 0, 0, 1], port).into()).await?);
     let script_url = events.script_url();
-    println!(
-        "[dev] 开发构建的应用会自动把这个脚本注入 HTML，后端重启后页面自己刷新：{}",
-        events.script_url()
-    );
+    println!("[dev] 开发构建的应用会自动把这个脚本注入 HTML，后端重启后页面自己刷新：{script_url}");
     // 迁移相关的子命令是应用自己的，只对 silent-boot 应用（目录里有 silent-boot.toml）使用。
     let startup = if app_dir.join("silent-boot.toml").is_file() {
         Startup {
@@ -174,5 +230,5 @@ async fn dev(
         })
         .await;
     println!("[dev] 已停止");
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }

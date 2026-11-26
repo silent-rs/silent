@@ -24,6 +24,7 @@
 - [x] 脚手架 `new`：迁移 crate、实体 crate、分层的示例模块、接口测试、配置、Makefile、README、AGENTS.md；示例应用 `examples/demo`
 - [x] `migrate lint`、`baseline`、`repair`
 - [x] `healthcheck` 子命令
+- [x] 全局工具把 `migrate`、`generate`、`healthcheck` 转发给应用：`silent-boot migrate up`、`silent-boot generate entity` 都能在应用目录里直接用
 - [x] `mysql`、`postgres` feature：能编译
 - [x] 迁移对账容得下更新的数据库；执行锁显式释放；"旧版本建库后升级"和"两个进程同时迁移"的测试
 - [x] `generate module` 的第一步：按表生成 dto、service、api 并登记

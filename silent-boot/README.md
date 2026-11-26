@@ -29,12 +29,19 @@ cd silent-boot
 cargo install --path crates/silent-boot-cli     # 全局工具
 
 silent-boot new demo && cd demo                  # 生成应用骨架
-cargo run -- migrate up                          # 建库、建表
+silent-boot migrate up                           # 建库、建表（在应用里执行 cargo run -- migrate up）
 cargo run                                        # 启动：http://127.0.0.1:8080，文档在 /swagger
 cargo test                                       # 示例模块的接口测试
 
+silent-boot migrate generate "create order"      # 新增一条迁移：生成文件并登记
+silent-boot generate entity                      # 按库结构重新生成实体（自动带上 --features codegen）
+silent-boot generate module --table order        # 按表生成 dto、service、api 并登记
 silent-boot dev --migrate                        # 改代码自动重启，页面自动刷新
 ```
+
+和数据库打交道的子命令（`migrate …`、`generate …`）只有一个实现，在应用里（`silent_boot::cli`）：
+迁移列表是应用自己的，生成器又要和应用用的 SeaORM 版本一致。全局工具在应用目录里把它们转发为
+`cargo run --quiet -- <子命令>`，参数、输出、退出码原样交过去；没装全局工具时直接写 `cargo run -- …`。
 
 生成的项目自带 `README.md` 和 `AGENTS.md`，写了怎么加迁移、生成实体和模块、各层放什么。
 

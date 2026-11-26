@@ -721,7 +721,7 @@ L3 的前置条件：Silent 的路由树在启动时冻结（v2.15 起预构建�
 | 入口 | 前提 | 命令 |
 |---|---|---|
 | 应用内子命令 | 无，随应用编译；生成代码的子命令还要 `--features codegen` | `cargo run -- migrate up`、`cargo run --features codegen -- generate entity`、`cargo run --features codegen -- generate module`、`cargo run -- check` |
-| 全局工具 | `cargo install silent-boot-cli` | `silent-boot new`、`silent-boot dev`；在应用目录里，其余子命令被转发为 `cargo run --quiet -- <子命令>` |
+| 全局工具 | `cargo install silent-boot-cli` | `silent-boot new`、`silent-boot dev`；在应用目录里 `silent-boot migrate …`、`silent-boot generate …`（自动带上 `--features codegen`）、`silent-boot healthcheck …` 被转发为 `cargo run --quiet -- <子命令>`，`--help` 也交给应用；应用有多个可执行目标时在子命令前面写 `--bin <目标>` |
 | Makefile | 模板自带 | `make dev`、`make migrate`、`make entity`、`make check` |
 
 下文为简洁起见都写成 `silent-boot <子命令>`。
@@ -845,7 +845,7 @@ M1 的完成标准逐条对照见 `m1-verification.md`。这一节只记"实现�
 ### 17.5 命令行（§13）
 
 已经有的：`migrate generate / up / status / lint / baseline / repair`、`generate entity`、`generate module --table`、`healthcheck`、
-全局工具的 `new` 和 `dev`。还没有的：`migrate down / fresh / refresh / reset`、`generate module` 之外的平台选项、`generate openapi-types`、`check`。
+全局工具的 `new`、`dev`，以及把 `migrate`、`generate`、`healthcheck` 转发给应用（从当前目录往上找 `silent-boot.toml` 定位应用；应用的输出和退出码原样返回）。还没有的：`migrate down / fresh / refresh / reset`、`generate module` 之外的平台选项、`generate openapi-types`、`check`。
 子命令的输出可以写到调用方给的缓冲区，`--json` 目前只有 `migrate status` 有。
 
 数据库地址的优先级：`--database-url`、环境变量 `SB_DATABASE_URL`、配置文件里的 `[database].url`。
