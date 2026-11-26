@@ -38,11 +38,11 @@ jobs:
       - name: Check code format
         run: cargo fmt --all -- --check
       - name: Lint rust sources with all features
-        run: cargo clippy -p silent-boot --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Lint rust sources with the core feature set
         run: cargo clippy -p silent-boot --all-targets --no-default-features --features sqlite -- -D warnings
       - name: Execute rust tests
-        run: cargo nextest run -p silent-boot --all-features
+        run: cargo nextest run --workspace --all-features
 
   msrv:
     strategy:
@@ -61,4 +61,4 @@ jobs:
         with:
           workspaces: silent-boot
       - name: Check with the minimum supported Rust version
-        run: cargo +1.94 check -p silent-boot --all-features --all-targets
+        run: cargo +1.94 check --workspace --all-features --all-targets

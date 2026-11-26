@@ -326,7 +326,7 @@ Silent handler 的错误类型固定为 `SilentError`（已核对 `HandlerWrappe
 OpenAPI：
 
 - 用 silent-openapi（utoipa 6）标注 dto 与 handler；`/swagger` 在开发环境默认开启，生产环境可关闭或只开内网。
-- `silent-boot dev` 在 Rust 变更后导出 `openapi.json`，用 `openapi-typescript` 生成 `web/src/api/schema.d.ts`，前端请求函数引用同一份类型（工具链待验证，§16 V10）。
+- `silent-boot dev` 在 Rust 变更后导出 `openapi.json`，用 `openapi-typescript` 生成 `web/src/api/schema.d.ts`，前端请求函数引用同一份类型（工具链已在 M0 验证，见 `m0-verification.md` 的 F15：`openapi-typescript` 7 要求 `typescript` 5.x；真实文档接入后再对一次）。
 
 ## 6. 数据库与迁移
 
@@ -378,7 +378,7 @@ silent-boot dev                                 # 另开一个终端：构建、
 - 能力写成 `silent-boot` crate 里的库函数，应用二进制在入口处分派（§3）。`migrate` 子命令放在 `cli` feature 里，默认开启；`generate entity`、`generate module`、`check` 放在 `codegen` feature 里，默认不开，开发和 CI 用 `--features codegen` 打开。
 - 需要读写应用代码的命令都在应用的依赖图里执行，也就是 `cargo run -- <子命令>`。原因有两个：迁移列表只存在于应用代码里；实体和模块的生成器必须与该应用使用的 SeaORM、框架版本一致。sea-orm-cli 自己也把 `sea-orm-codegen` 锁在同一版本（已核对其依赖声明），版本错开时生成的实体可能编不过。
 - 全局工具 `silent-boot` 很薄，只做两件事：`new`（脚手架模板随工具内嵌，工具与框架同步发版）；在应用目录里把其余子命令转发为 `cargo run --quiet -- <子命令>`。
-- `dev` 的运行循环放在全局工具里，不能是应用的子命令：它要反复重建并重启应用，不能和被重启的服务是同一个可执行文件（Windows 上无法覆盖正在运行的 exe）。
+- `dev` 的运行循环放在全局工具里，不能是应用的子命令：它要反复重建并重启应用，不能和被重启的服务是同一个可执行文件（Windows 上无法覆盖正在运行的 exe）。事件服务器也放在工具进程里，所以重启应用时页面连着的事件流不会断。
 - M0 实测了 feature 的代价（`m0-verification.md` 的 F10）：开启 LTO 和 strip 后，`cli`（clap 一族）让示例二进制增加约 1.4 MiB，代码生成再增加约 2 MiB。所以把两者拆开：`cli` 默认开启，发布流程里的迁移 Job 要用它；`codegen` 默认不开，只有开发时生成实体才需要。
 - 与 sea-orm-cli 的关系是"日常取代，保留后门"。应用的 `migration/` 仍是标准的 SeaORM 迁移 crate，sea-orm-cli 照样能操作；对照表没有覆盖到的选项（seaography、ER 图、前端格式实体等）继续用 sea-orm-cli。区别是 sea-orm-cli 不会执行框架迁移，也不带执行锁。
 
@@ -426,7 +426,7 @@ silent-boot dev                                 # 另开一个终端：构建、
 
 - 默认用 Rust DSL（sea-query 的 `Table::create()`、`Table::alter()`），一份代码跑三种数据库。
 - 需要原生 SQL 时通过 `manager.get_connection().execute_unprepared(...)` 执行，按 `manager.get_database_backend()` 分方言，方言差异集中到框架提供的少量 helper 里。
-- 每条迁移在 SQLite、MySQL 8、PostgreSQL 上各跑一遍是 CI 的必做项。各库的能力差异决定了迁移的写法：
+- 框架只在 SQLite 上自动验证迁移，其它数据库由 SeaORM 的方言支持负责（D14）。各库的能力差异决定了迁移的写法，写迁移时对照下表：
 
 | 操作 | SQLite | MySQL 8 | PostgreSQL |
 |---|---|---|---|
@@ -448,7 +448,7 @@ silent-boot dev                                 # 另开一个终端：构建、
 
 - 应用进程默认不执行迁移。这样"谁改了结构"永远只有一个答案：`migrate` 命令。
 - **执行器**：框架的 `MigrationRunner` 依次完成：获取执行锁 → 框架迁移 → 应用迁移 → 写审计 → 释放锁。
-- **并发**：sea-orm-migration 的 `exec_up` 自身不加锁（已核对），多副本同时执行会重复跑。锁按方言实现：PostgreSQL 用 `pg_advisory_lock`，MySQL 用 `GET_LOCK`，SQLite 依赖单写者。拿不到锁的副本等待超时后，只有在确认没有待执行迁移时才允许继续启动。
+- **并发**：sea-orm-migration 的 `exec_up` 自身不加锁（已核对，M0 也实测到不加锁会重复执行），多副本同时执行会重复跑。锁是 `sb_locks` 表里的租约行，三种数据库的写法相同（`db::lock`，M0 已实现，之后的定时任务也用它）。拿不到锁的副本等待超时后，只有在确认没有待执行迁移时才允许继续启动。
 - **原子性**：SeaORM 只在 PostgreSQL 上默认把每条迁移包进事务，MySQL 与 SQLite 默认不包（已核对 `use_transaction` 的约定）。框架的 `#[migration]` 声明宏默认设置 `use_transaction() = Some(true)`：SQLite 上的迁移因此具备原子性，MySQL 上的数据回填部分可以回滚（DDL 仍是隐式提交）。个别迁移可以显式改回 `Some(false)`，例如 PostgreSQL 的 `CONCURRENTLY` 建索引。
 - **失败恢复**：
   - PostgreSQL 与 SQLite：单条迁移失败整体回滚，修正后重跑。
@@ -632,7 +632,7 @@ pub struct ConfigSnapshot {
 - `Dockerfile`：三阶段，前端 `yarn build` → Rust musl 静态编译（依赖层缓存）→ `distroless/static`、非 root；版本取自 workspace `Cargo.toml`。
 - `deploy/compose.yaml`：`app`（可 `--scale app=N`）、`db`、`caddy`（反向代理与 HTTPS）、可选 `redis`；健康检查用 `healthcheck` 子命令（distroless 镜像里没有 curl）。
 - `deploy/k8s/`：Deployment、Service、Ingress、ConfigMap 与 Secret、HPA、PodDisruptionBudget、探针；迁移用独立的 Job（或 initContainer）以同一镜像执行 `migrate up`，在 Deployment 滚动之前完成；Helm chart 视需要。
-- GitHub Actions：CI（fmt、clippy、nextest、三库迁移矩阵、前端 lint 与 build）；Release（多平台二进制与镜像）。
+- GitHub Actions：CI（fmt、clippy、nextest、前端 lint 与 build）；Release（多平台二进制与镜像）。
 
 ### 9.5 已知限制（写入文档）
 
@@ -697,7 +697,7 @@ silent-boot generate module --table article --package content
 | 层级 | 能力 | 实现 | 阶段 |
 |---|---|---|---|
 | L0 提示 | 待执行迁移的提醒 | `dev` 启动时只读查询待执行的迁移，提示 `silent-boot migrate up`；`--migrate` 可选在启动前执行一次 | M1 |
-| L1 进程级 | 改 Rust 后增量编译、重启、刷新浏览器 | 全局工具 `silent-boot dev`：`notify` 监听 `src/`、`entity/`、`Cargo.toml`（防抖）→ `cargo build` → 重启应用子进程；dev 构建暴露 `/__dev__/events`（SSE），页面脚本收到 `reload` 事件后刷新 | M1 |
+| L1 进程级 | 改 Rust 后增量编译、重启、刷新浏览器 | 全局工具 `silent-boot dev`（M0 已实现，`crates/silent-boot-cli`）：`notify` 监听 `src/`、`entity/src/`、`migration/src/`、`templates/`、`Cargo.toml`（防抖 150 毫秒，系统的文件事件不可用时退回轮询）→ `cargo build` → 先 SIGTERM 再强杀旧进程 → 启动新进程。事件服务器在工具进程里（默认 `127.0.0.1:9230`），页面引入它给出的 `reload.js` 后收到 `reload` 自动刷新，构建失败时把错误盖在页面上 | M0 |
 | L1 进程级 | 编译错误可视化 | 编译输出留在终端，并通过 SSE 推到浏览器覆盖层 | M4 |
 | L1 进程级 | 前端热更新 | Vite HMR，代理 `/api` | M1 |
 | L2 运行时 | 配置热更新 | §8.3 | M4 |
@@ -742,7 +742,7 @@ silent-boot generate entity [选项]                          # 等价于 sea-or
 silent-boot generate module --table <t> [--package <p>] [--force] [--dry-run]
 silent-boot generate openapi-types
 
-silent-boot dev [--migrate] [--no-frontend]
+silent-boot dev [--bin <目标>] [--port <端口>] [--watch <目录或文件>,…]   # 其余选项随 M1 补上
 silent-boot check                                          # 分层规范、权限声明、配置校验
 <应用> healthcheck                                         # 容器内使用
 ```
@@ -754,13 +754,13 @@ silent-boot check                                          # 分层规范、权�
 
 - 单元测试：配置合并优先级、错误码映射、权限集合计算、生成器模板快照。
 - 集成测试：`TestClient`（`silent` 的 `test` feature，已核对）加 SQLite 内存库或临时文件库；覆盖鉴权、CRUD、分页边界、校验失败。
-- 迁移测试（SQLite、MySQL、PostgreSQL 三库矩阵）：
+- 迁移测试（只在 SQLite 上跑，D14）：
   - 从零建库；
   - 升级测试：保留每个已发布版本的迁移列表，"旧版本建库 → 写入数据 → 新版本 `migrate up` → 断言数据保留"；
   - 两进程并发 `migrate up`，只执行一次；
   - SQLite 上迁移中途失败不留下半成品；
-  - MySQL 部分失败后的 `status` 与 `repair` 演练；
   - 破坏性操作缺少标记时 lint 失败。
+  - MySQL、PostgreSQL 上的行为不自动验证（D14），只在写迁移时对照 §6.6 的差异表。
 - 命令行测试：`generate entity` 的结果与 sea-orm-cli 对比；`--dry-run` 不写文件；`--json` 输出可解析。
 - 多副本测试：同一测试进程内启动两个 `App` 实例共享一个数据库文件，验证令牌互通、权限变更传播、任务只执行一次。
 - 生成物测试：对示例库执行 `generate module`，对生成的项目跑 `cargo check` 与 `clippy -D warnings`；生成的 create、update 与批量更新正确写入审计字段。
@@ -791,11 +791,11 @@ silent-boot check                                          # 分层规范、权�
 | V7 | rust-embed 前端嵌入 | 嵌入 `web/dist` | release 访问正常，debug 从磁盘读取 |
 | V8 | Tera 重载 | `full_reload()` | 修改模板后无需重启 |
 | V9 | 监听重启循环 | 全局工具的 `dev`：`notify` + `cargo build` + 重启 + SSE 通知 | 记录"保存到页面刷新"的耗时 |
-| V10 | OpenAPI 到 TS 类型 | `openapi-typescript` | 生成 `schema.d.ts` 并被前端引用 |
+| V10 | OpenAPI 到 TS 类型 | `openapi-typescript` | 生成 `schema.d.ts` 并被前端引用。M0 用手写的文档验证通过（F15） |
 | V11 | 任务互斥 SQL | 双实例同时触发 | 只有一个实例执行 |
 | V12 | 项目名占用 | crates.io 与 GitHub 检索 | 名称可用 |
 | V13 | SQLite 上的迁移事务与 ALTER 边界 | `use_transaction() = Some(true)` 的迁移中途失败；删列、改类型、重命名 | 失败后库无变化；记录哪些操作需要重建表 |
 | V14 | 应用内 `generate entity` | 用 `sea-orm-codegen` 与 `sea-schema` 的库级实现，在应用的依赖图里执行；与基准命令 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 输出到同一目录的结果对比 | 实体固定生成到 `entity/src/`；对同样的表，输出一致；应用的 SeaORM 版本与 codegen 版本一致 |
 | V15 | 两套迁移器共用一个库 | 框架迁移表与应用迁移表并存，`migrate up` 顺序正确 | 首次建库建齐系统表；框架升级能带入新迁移 |
-| V16 | MySQL 部分失败恢复 | 构造中途失败的迁移 | `status` 能定位，`repair` 后可继续 |
+| V16 | MySQL 部分失败恢复 | 不做（D14） | — |
 | V17 | `cli` feature 的代价 | 对比开关 `cli` feature 时 release 二进制的体积与编译时间；验证子命令命中后不启动服务 | 体积与时间差异记录在案，并据此决定是否改用独立的开发用 bin target |

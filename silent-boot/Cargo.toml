@@ -31,6 +31,8 @@ scru128 = "4"
 clap = { version = "4", features = ["derive", "env"] }
 async-trait = "0.1"
 thiserror = "2"
+anyhow = "1"
+notify = "9"
 sea-orm-codegen = "=2.0.4"
 sea-schema = { version = "0.18.1", default-features = false, features = [
     "discovery",

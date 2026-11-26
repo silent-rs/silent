@@ -1,6 +1,6 @@
 # silent-boot · 总体规划
 
-> 状态：**已确认，M0 进行中** ｜ 编写日期：2026-11-25
+> 状态：**已确认，M0 验证完成，M1 进行中** ｜ 编写日期：2026-11-25
 > 技术方案：[design.md](docs/design.md) ｜ 验证记录：[m0-verification.md](docs/m0-verification.md) ｜ 任务清单：[TODO.md](TODO.md)
 >
 > silent-boot 是基于 Silent 的全栈快速开发框架。它先放在 Silent 仓库里，以嵌套 workspace 的形式开发：目录 `silent-boot/`，有自己的 `Cargo.toml` 和锁文件，不进外层 workspace。是否拆成独立仓库，M1 之后再决定。
@@ -11,6 +11,7 @@
 > v0.5 变更：`generate entity` 以一直在用的 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 为基准命令，默认行为与它一致。
 > v0.6 变更：澄清 SeaORM 不会自动填充审计时间，这两列仍由迁移定义、值由 service 层写入；`generate entity` 的输出与基准命令一致。
 > v0.7 变更：立项开发。按"先在 Silent 仓库内以嵌套 workspace 开发"调整 D1 与 §6 第 1 条；任务清单移到 `TODO.md`，验证结论记在 `docs/m0-verification.md`。
+> v0.8 变更：数据库能力全部交给 SeaORM（D14），框架只用 SQLite 做自动化测试；M0 的验证项全部有结论，转入 M1。
 
 ## 1. 背景与定位
 
@@ -48,7 +49,7 @@
 | G4 | 反馈快 | 改 Rust 代码后增量编译、重启并刷新浏览器；改配置和模板不重启 |
 | G5 | 可横向扩展 | `docker compose up --scale app=3` 直接可用：令牌共享、任务不重复执行、滚动重启无 5xx |
 | G6 | 单二进制交付 | 前端内嵌；镜像 distroless、非 root |
-| G7 | 结构变更可信 | `migrate up` 与 `generate entity` 两条命令完成结构变更；实体固定生成到 `entity/src/`，对同样的表输出与基准命令 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 一致；三种数据库的 CI 与"旧版本升级"测试通过，多副本不会重复执行 |
+| G7 | 结构变更可信 | `migrate up` 与 `generate entity` 两条命令完成结构变更；实体固定生成到 `entity/src/`，对同样的表输出与基准命令 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 一致；"旧版本升级"测试通过，多副本不会重复执行 |
 
 ## 3. 范围
 
@@ -82,7 +83,7 @@
 |---|---|---|
 | Web | Silent `2.16`（crates.io 版本，MSRV 1.85） | features：`server` `static` `security` `scheduler` `template` `tower-compat` `metrics`；测试用 `test` |
 | ORM 与迁移 | SeaORM `2.0`、sea-orm-migration `2.0`；实体生成调用 `sea-orm-codegen` 与 `sea-schema`（sea-orm-cli 用的同一套库） | 2.0.0 发布于 2026-07-19；SQLx 0.9、SeaQuery 1.0；**rust-version 1.94**；`sea-orm-codegen` 须与 SeaORM 同版本（sea-orm-cli 用 `=` 锁版） |
-| 数据库 | SQLite（默认）、MySQL 8、PostgreSQL | 由 cargo feature 选择驱动；迁移在三种库上都要跑通 |
+| 数据库 | 交给 SeaORM：SQLite（默认），MySQL、PostgreSQL 通过 feature 选择 | 框架自己只用 SQLite 做自动化测试；其它数据库由 SeaORM 负责，框架只保证带对应 feature 时能编译（D14） |
 | 命令行 | clap 4 | 全局工具很薄；迁移与代码生成命令在应用的依赖图里执行 |
 | 工具链 | Rust edition 2024，MSRV 1.94（受 SeaORM 约束） | 本机 1.100 满足 |
 | ID 与时间 | scru128 4；chrono 0.4（`Local::now().naive_local()`） | 见风险 R3 |
@@ -106,7 +107,7 @@
 | 里程碑 | 内容 | 优先级 | 完成标准 |
 |---|---|---|---|
 | **M0 验证与定稿** | 最小 spike：Silent + SeaORM 2.0 + 迁移 + SQLite 跑通；定稿 §8 决策；建仓库与 CI | P0 | design.md §16 每项验证有结论；D1–D13 定稿；spike 的 `cargo check` 与 `nextest` 通过 |
-| **M1 核心底座** | 启动器、脚手架 `new`、分层模板、统一响应与错误、OpenAPI、SeaORM 接入；**迁移核心**：`migrate generate / up / status / lint` 与 `generate entity`（包入 sea-orm-cli 的能力，作为应用子命令执行）、框架迁移与应用迁移分表、执行锁、SQLite 事务化；`dev` 运行循环（构建、启动、监听、重启、刷新）、`/healthz` 与 `/readyz`、优雅关停 | P0 | `new` 出的项目 5 分钟内可运行；内置示例模块的 CRUD 有 TestClient 集成测试（成功、参数错误、404）；`/swagger` 可访问；SQLite、MySQL、PostgreSQL 三库从零建库通过，两进程并发执行迁移只跑一次，"旧版本建库后升级"测试通过，`generate entity` 对同样的表输出与基准命令一致；`fmt`、`clippy -D warnings`、`nextest` 全部通过；生成项目 `cargo check` 零警告 |
+| **M1 核心底座** | 启动器、脚手架 `new`、分层模板、统一响应与错误、OpenAPI、SeaORM 接入；**迁移核心**：`migrate generate / up / status / lint` 与 `generate entity`（包入 sea-orm-cli 的能力，作为应用子命令执行）、框架迁移与应用迁移分表、执行锁、SQLite 事务化；`dev` 运行循环（构建、启动、监听、重启、刷新）、`/healthz` 与 `/readyz`、优雅关停 | P0 | `new` 出的项目 5 分钟内可运行；内置示例模块的 CRUD 有 TestClient 集成测试（成功、参数错误、404）；`/swagger` 可访问；SQLite 上从零建库通过，带 `mysql`、`postgres` feature 时能编译，两进程并发执行迁移只跑一次，"旧版本建库后升级"测试通过，`generate entity` 对同样的表输出与基准命令一致；`fmt`、`clippy -D warnings`、`nextest` 全部通过；生成项目 `cargo check` 零警告 |
 | **M2 认证与 RBAC** | 登录、刷新、登出；用户、角色、菜单、部门、字典、参数、日志（系统表由框架迁移创建）；认证与权限中间件；管理前端基座（登录、布局、动态菜单） | P0 | 集成测试覆盖错误密码、锁定、过期、撤销、401 与 403；双节点下角色变更 5 秒内生效；前端可登录并按菜单渲染；全新数据库首次启动完成框架迁移并引导默认管理员（随机密码只打印一次） |
 | **M3 代码生成（CLI）** | 从表生成 dto、service、api、路由注册、菜单 SQL、前端页面（实体由 `generate entity` 负责）；新表的迁移骨架（`migrate generate --table`）；模板可覆盖 | P0 | 对示例库 10 张表生成后 `cargo check` 通过；重复生成不破坏手改内容；分层规范机检通过；"文章管理"从建表到联调端到端通过 |
 | **M4 配置中心与开发体验** | 分层配置、内置 Provider、热更新、变更订阅、管理页；`dev` 增强（浏览器刷新、错误覆盖层、OpenAPI 到 TS 类型同步） | P1 | 合并优先级有单测；远端变更 5 秒内生效，非法配置被拒绝并告警；远端不可达时用本地缓存启动；改 Rust 自动重启并刷新浏览器；改配置和模板不重启 |
@@ -142,7 +143,7 @@
 | R8 | 静态资源没有 SPA 回退（`StaticOptions` 只有压缩与目录列表） | 前端 history 路由刷新 404 | 自实现兜底路由，M0 验证与 `<path:**>` 的匹配优先级 |
 | R9 | 多节点缓存一致性存在时间窗 | 权限与配置变更延迟生效 | 版本号加短 TTL（目标 5 秒内）；有 Redis 时即时通知；文档说明 |
 | R10 | 范围蔓延 | 久拖不决 | 遵守 §3.2；每个里程碑以完成标准收口 |
-| R11 | SQLite 的 ALTER 能力有限，MySQL 的 DDL 不能回滚 | 同一条迁移在三种库上行为不一致，失败可能留下半成品 | 三库 CI 矩阵；统一在事务中执行；一条迁移只做一件事；破坏性操作必须标记；`status` 与 `repair` 兜底 |
+| R11 | 各数据库的 ALTER 能力不同，MySQL 的 DDL 不能回滚 | 同一条迁移在不同库上行为可能不一致，失败可能留下半成品 | 差异写进设计供写迁移时参考；统一在事务中执行；一条迁移只做一件事；破坏性操作必须标记；`status` 与 `repair` 兜底。只在 SQLite 上自动验证（D14） |
 | R12 | SeaORM 迁移器不加锁，迁移记录没有校验和 | 多副本会重复执行；改动历史迁移无法发现 | 框架加执行锁与审计表；`migrate status` 提示已执行迁移被修改 |
 | R13 | 包入 sea-orm-cli 的能力后，生成的实体依赖 `sea-orm-codegen` 与 SeaORM 版本一致 | 版本错开时生成的实体可能编不过 | 命令在应用的依赖图里执行；M0 对比两者结果（design.md §16 V14） |
 | R14 | 命令行和代码生成的依赖会进生产二进制 | 体积和编译时间增加 | M0 已量化：开启 LTO 和 strip 后，`cli` 约 1.4 MiB，代码生成约 2 MiB。代码生成已拆到默认不开的 `codegen` feature；release profile 要配置 LTO 和 strip |
@@ -166,9 +167,10 @@
 | D11 | 框架迁移与应用迁移 | 分表管理：`sb_migrations` 与 `seaql_migrations` | 合并到一个迁移列表 |
 | D12 | 命令的入口形态 | 应用内子命令（`cargo run -- migrate up`）加全局工具转发；`dev` 默认不执行迁移 | 只做全局工具（需要另行编译迁移 crate）；`dev --migrate` 设为默认 |
 | D13 | 审计时间的填充方式 | 由 service 层写入：生成的模板已经写好，实体文件与基准命令一致，和 silent-oss 现在的做法相同 | 由生成器把填充逻辑写进实体末尾的 `ActiveModelBehavior`，自动填充，但覆盖不到批量更新 |
+| D14 | 多数据库的验证范围 | 数据库能力全部交给 SeaORM：框架只用 SQLite 做自动化测试；MySQL、PostgreSQL 通过 feature 提供，只保证 `cargo check` 通过，不在 CI 里跑真实数据库（2026-11-26 确认） | 为三种数据库各起一个服务做迁移矩阵 |
 
 ## 9. 任务清单与验证记录
 
-日常任务在 [TODO.md](TODO.md)，按里程碑分节，当前是 M0。每一项验证的结论和实测发现记在 [docs/m0-verification.md](docs/m0-verification.md)。
+日常任务在 [TODO.md](TODO.md)，按里程碑分节，当前是 M1。每一项验证的结论和实测发现记在 [docs/m0-verification.md](docs/m0-verification.md)。
 
 环境现状（2026-11-25 本机核对）：Rust 1.100.0、sea-orm-cli 2.0.4、watchexec 2.8.0、cargo generate 0.26.0、Node 22.16.0、yarn 1.22.22、pnpm 9.15.0、Docker 29.8.2；cargo-watch 仓库已归档，不再沿用 silent-template 的 `.cargo-watch.toml` 方案。

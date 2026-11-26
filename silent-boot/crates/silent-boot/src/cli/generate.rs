@@ -19,12 +19,12 @@ use sea_orm_codegen::{
 use sea_schema::sqlite::def::ColumnVisibility;
 use sea_schema::sqlite::discovery::SchemaDiscovery;
 
-/// 默认跳过的表：两张迁移跟踪表，以及框架自己的两张表。
+/// 默认跳过的表：两张迁移跟踪表，以及框架自己的执行记录表和锁表。
 pub const DEFAULT_IGNORED_TABLES: &[&str] = &[
     "seaql_migrations",
     "sb_migrations",
     "sb_migration_log",
-    "sb_migration_lock",
+    "sb_locks",
 ];
 
 /// `generate entity` 的可选参数。

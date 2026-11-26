@@ -1,8 +1,10 @@
-//! 数据库接入：连接管理与迁移。
+//! 数据库接入：连接管理、具名执行锁和迁移。
 //!
-//! 迁移部分见 [`migrate`]：框架迁移与应用迁移分开跟踪，由 [`migrate::MigrationRunner`]
-//! 加锁后统一执行。
+//! - [`lock`]：用租约行实现的具名锁，迁移和之后的定时任务共用。
+//! - [`migrate`]：框架迁移与应用迁移分开跟踪，由 [`migrate::MigrationRunner`]
+//!   加锁后统一执行。
 
+pub mod lock;
 pub mod migrate;
 
 use sea_orm::DatabaseConnection;

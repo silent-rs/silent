@@ -1,6 +1,6 @@
 # M0 验证记录
 
-> 对应 `docs/design.md` §16。状态：进行中，更新于 2026-11-26。
+> 对应 `docs/design.md` §16。状态：验证项全部有结论，更新于 2026-11-26。CI 工作流还没在 GitHub 上实际跑过（分支未推送）。
 >
 > 标"实测"的内容都是在本机跑出来的。测试在 `crates/silent-boot/tests/` 里，可以直接重跑。
 
@@ -16,17 +16,22 @@
 | V6 | 迁移并发 | 通过（SQLite） | `migration.rs::v6_lock_lets_only_one_runner_apply_migrations`；不加锁的对照组 `v6_repro_two_runners_without_lock`（手动运行，见 F2） |
 | V7 | rust-embed 前端嵌入 | 通过（debug 读磁盘） | `embed_reload.rs::v7_rust_embed_reads_from_disk_in_debug_builds`。release 下的编译期内嵌没有在本机验证 |
 | V8 | Tera 重载 | 通过 | `embed_reload.rs::v8_tera_full_reload_picks_up_changed_and_added_templates`，见 F11 |
-| V9 | `dev` 监听重启循环 | 未做 | |
-| V10 | OpenAPI 到 TS 类型 | 未做 | |
-| V11 | 任务互斥 SQL | 未做 | |
+| V9 | `dev` 监听重启循环 | 通过 | `silent-boot-cli` 的 `tests/dev_loop.rs` 三个测试：事件服务器、监听器、运行循环；真实计时见 F13 |
+| V10 | OpenAPI 到 TS 类型 | 通过（手写的文档） | `openapi-typescript` 7.13.0 把一份 OpenAPI 3.1 文档转成 `paths`、`components`、`operations` 三组类型，见 F15。真实的文档要到 M1 接入 silent-openapi 之后才有，到时再对一次 |
+| V11 | 任务互斥 SQL | 通过 | `lock.rs` 的两个测试：两个实例同时到点时只有一个执行；不同名字互不影响，租约过期可以接管，同一持有者可以重入。与迁移用的是同一把具名锁 |
 | V12 | 项目名占用 | 可用 | 2026-11-26 查 crates.io：`silent-boot` 不存在，也没有相近的名字；silent-rs 下没有 `silent-boot`、`silent-stack`、`silent-forge` 仓库 |
 | V13 | SQLite 上的迁移事务与 ALTER 边界 | 通过 | 事务：`migration.rs::v13_failed_migration_rolls_back_on_sqlite_only_inside_transaction`；ALTER：`sqlite_alter.rs` 的两个测试，见 F9 |
 | V14 | 应用内 `generate entity` | 通过 | `generate.rs::v14_generate_entity_matches_the_baseline_command`：库级实现的输出与基准命令对同样的库生成的三个文件逐字节一致 |
 | V15 | 两套迁移器共用一个库 | 通过 | `migration.rs::v15_framework_and_app_migrators_share_one_database` |
-| V16 | MySQL 部分失败恢复 | 未做 | 需要 MySQL 环境 |
+| V16 | MySQL 部分失败恢复 | 不做（D14） | 数据库能力交给 SeaORM，不在真实的 MySQL 上验证 |
 | V17 | `cli` feature 的代价 | 已量化 | 见 F10。结论：把代码生成拆到默认不开的 `codegen` feature 里 |
 
-另外已经落地的部分（不属于验证项）：`migrate generate`、`migrate up`、`migrate status` 三个子命令，以及 CI（`.github/workflows/silent-boot.yml`：fmt、clippy、nextest、MSRV 检查）。
+另外已经落地的部分（不属于验证项）：
+
+- 全局工具 `silent-boot-cli`：`silent-boot dev` 运行循环和它的事件服务器。
+- 具名执行锁 `db::lock`（表 `sb_locks`），迁移执行器和之后的定时任务共用。
+- `migrate generate`、`migrate up`、`migrate status` 三个子命令。
+- CI（`.github/workflows/silent-boot.yml`：fmt、clippy、nextest、MSRV 检查）。
 
 ## 实测发现
 
@@ -123,6 +128,35 @@ SQLite 的数据库文件所在目录被删除以后，已经打开的连接还�
 
 Silent 的 `TemplateMiddleware` 只在启动时加载一次，模板热更新要在框架层监听目录并调用 `full_reload()`（`docs/design.md` §12）。
 
+### F12 文件监听的三件事
+
+- 本机的终端沙箱里，macOS 的 FSEvents 能创建但启动不了（`Failed to start watching`）。监听器现在会自动退回每 500 毫秒轮询一次，并打印一行提示。在你平时的终端里应当直接用 FSEvents。
+- 目录自身的修改时间不能当作变更信号：往目录里写一个无关文件（比如 `notes.md`）也会改它。监听器只看文件，目录里增删源码文件时文件自己会报事件，不会漏。
+- 轮询监听器报的是文件级的事件，和系统事件的行为一致。
+
+### F13 `dev` 的真实计时
+
+| 场景 | 保存到应用重启 | 保存到页面收到 `reload` |
+|---|---|---|
+| 测试里不构建（`JustRun`），4 次 | 625、572、519、572 毫秒 | 相同 |
+| 示例应用 `sb-sample`，真实 `cargo build`，两次 | 循环自己量到 591 毫秒 | 1084、1076 毫秒 |
+
+两组数字里都有约 500 毫秒是沙箱里轮询的间隔。在能用系统文件事件的环境里，这个示例应用的"保存到页面刷新"预计在 0.7 到 1 秒；真实项目取决于增量编译的时间。
+
+循环做的是：防抖 150 毫秒 → `cargo build` → 给旧进程发 SIGTERM，超过宽限期还没退出就强杀 → 启动新进程 → 给页面发 `reload`。构建失败时旧进程保持不动，页面收到 `build-error` 并把错误盖在页面上。
+
+### F14 具名锁取代了只给迁移用的锁
+
+M0 最初给迁移写了一把独占的锁（表 `sb_migration_lock`，固定一行）。验证 V11 时把它改成了通用的具名锁：表 `sb_locks(name, owner, lease_until)`，迁移用 `migrate` 这个名字，定时任务之后用 `job:<id>`。迁移执行器和任务互斥共用一套实现和一张表。
+
+### F15 OpenAPI 文档转前端类型
+
+在临时目录里用 `openapi-typescript@7.13.0` 转换一份手写的 OpenAPI 3.1 文档（一个列表接口、一个新增接口、两个 schema）：
+
+- 生成的是 `paths`、`components`、`operations` 三组类型，每个操作的查询参数、请求体、响应体都有对应类型。转换用时 14 毫秒，输出 92 行。
+- 它要求 `typescript` 是 5.x：装成 7.x 时运行报错（`ts.factory` 为 undefined），换成 `typescript@5`（5.9.3）就正常。前端项目的 `typescript` 要锁在 5.x。
+- 这里的输入是手写的文档，只能说明工具链可用。M1 接入 silent-openapi 之后再确认两件事：导出的文档能不能被它正常读取，生成的类型和后端的 DTO 是否对得上。
+
 ## 复现命令
 
 ```bash
@@ -130,9 +164,9 @@ cd silent-boot
 
 # 进 CI 的验证
 cargo fmt --all -- --check
-cargo clippy -p silent-boot --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo clippy -p silent-boot --all-targets --no-default-features --features sqlite -- -D warnings
-cargo nextest run -p silent-boot --all-features
+cargo nextest run --workspace --all-features
 
 # F2 的对照组
 cargo test -p silent-boot --test migration v6_repro -- --ignored --nocapture
@@ -146,7 +180,7 @@ rustup run 1.94 cargo check -p silent-boot --all-features --all-targets
 # V14 的基准：用迁移生成样例库，再用基准命令生成实体
 SB_SAMPLE_DB=/tmp/sb-m0-sample/article.db cargo test -p silent-boot --test tools write_sample_db -- --ignored
 sea-orm-cli generate entity --with-serde both -v -o crates/silent-boot/tests/common/entity -l \
-    --ignore-tables seaql_migrations,sb_migrations,sb_migration_log,sb_migration_lock \
+    --ignore-tables seaql_migrations,sb_migrations,sb_migration_log,sb_locks \
     -u "sqlite:///tmp/sb-m0-sample/article.db?mode=rw"
 
 # V17 的体积：需要一个只用核心库的最小程序作对照，量完删掉
@@ -155,4 +189,12 @@ cargo build --release -p silent-boot --example plain --no-default-features --fea
 cargo build --release -p silent-boot --bin sb-sample --no-default-features --features sqlite,cli
 cargo build --release -p silent-boot --bin sb-sample --no-default-features --features sqlite,cli,codegen
 ls -la target/release/examples/plain target/release/sb-sample
+
+# V9：在示例应用上跑一遍 dev 循环，另开一个终端改 src/ 下的文件，或访问 http://127.0.0.1:9230/__dev__/events
+cd crates/silent-boot && cargo run -p silent-boot-cli -- dev --bin sb-sample --port 9230
+
+# V10：OpenAPI 文档转前端类型。需要本机的 Node 和 yarn，openapi.json 是一份 OpenAPI 3.1 文档
+mkdir /tmp/sb-o2ts && cd /tmp/sb-o2ts && yarn init -y
+yarn add openapi-typescript@7 typescript@5
+./node_modules/.bin/openapi-typescript openapi.json -o schema.d.ts
 ```

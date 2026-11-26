@@ -2,7 +2,7 @@
 //!
 //! 约定见 `docs/design.md` §6：
 //! - 框架迁移记录在 `sb_migrations`，应用迁移记录在 SeaORM 默认的 `seaql_migrations`；
-//! - 执行顺序固定为先框架、后应用，整个过程持有 `sb_migration_lock` 里的执行锁；
+//! - 执行顺序固定为先框架、后应用，整个过程持有 `sb_locks` 表里的 `migrate` 锁（见 [`crate::db::lock`]）；
 //! - 应用迁移用 [`migration!`] 声明，默认在事务里执行，SQLite 上因此可以整体回滚。
 //!
 //! 本模块 re-export 了 `sea-orm-migration` 的 prelude，应用迁移只需要
@@ -10,21 +10,17 @@
 
 pub mod framework;
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub use async_trait::async_trait;
 use sea_orm::DatabaseConnection;
 use sea_orm_migration::Migration;
 pub use sea_orm_migration::prelude::*;
 
-/// 执行锁所在的表。
-const LOCK_TABLE: &str = "sb_migration_lock";
-/// 执行锁所在表的主键，固定为 1。
-const LOCK_ID: i64 = 1;
-/// 锁的租约时长。持有者异常退出后，其它实例最多等这么久就能接管。
-const LOCK_LEASE: Duration = Duration::from_secs(600);
-/// 等锁时的轮询间隔。
-const LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+use super::lock::{self, LockOptions};
+
+/// 迁移执行器用的锁名，见 [`crate::db::lock`]。
+const LOCK_NAME: &str = "migrate";
 
 /// 框架迁移：系统表和框架自身需要的结构。
 #[derive(Debug, Default, Clone, Copy)]
@@ -45,9 +41,9 @@ impl MigratorTrait for FrameworkMigrator {
 /// 迁移命令可能遇到的错误。
 #[derive(Debug, thiserror::Error)]
 pub enum MigrateError {
-    /// 等待执行锁超时。
-    #[error("等待迁移执行锁超时（等了 {waited:?}，持有者 {owner}）")]
-    LockTimeout { owner: String, waited: Duration },
+    /// 没拿到执行锁。
+    #[error(transparent)]
+    Lock(#[from] super::lock::LockError),
     /// 数据库错误。
     #[error(transparent)]
     Db(#[from] DbErr),
@@ -142,7 +138,11 @@ impl MigrationRunner {
         F: MigratorTrait,
         A: MigratorTrait,
     {
-        let guard = self.acquire_lock(db).await?;
+        let options = LockOptions {
+            timeout: self.lock_timeout,
+            ..LockOptions::default()
+        };
+        let guard = lock::acquire(db, LOCK_NAME, &self.instance, &options).await?;
         let framework = self.run_group::<F>(db, "framework", steps).await?;
         let app = self.run_group::<A>(db, "app", steps).await?;
         drop(guard);
@@ -232,50 +232,7 @@ impl MigrationRunner {
             .to_owned();
         let _ = db.execute(&stmt).await;
     }
-
-    async fn acquire_lock(&self, db: &DatabaseConnection) -> Result<LockGuard, MigrateError> {
-        ensure_lock_table(db).await?;
-        let deadline = Instant::now() + self.lock_timeout;
-        loop {
-            let lease_until = unix_now() + LOCK_LEASE.as_secs() as i64;
-            if try_acquire(db, &self.instance, lease_until).await? {
-                return Ok(LockGuard {
-                    db: db.clone(),
-                    owner: self.instance.clone(),
-                });
-            }
-            if Instant::now() >= deadline {
-                let owner = lock_owner(db).await?.unwrap_or_default();
-                return Err(MigrateError::LockTimeout {
-                    owner,
-                    waited: self.lock_timeout,
-                });
-            }
-            tokio::time::sleep(LOCK_POLL_INTERVAL).await;
-        }
-    }
 }
-
-/// 持有执行锁的凭证，离开作用域时释放。
-#[derive(Debug)]
-pub struct LockGuard {
-    db: DatabaseConnection,
-    owner: String,
-}
-
-impl Drop for LockGuard {
-    fn drop(&mut self) {
-        // Drop 里不能 await，交给运行时在后台释放。
-        let db = self.db.clone();
-        let owner = self.owner.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                let _ = release_lock(&db, &owner).await;
-            });
-        }
-    }
-}
-
 fn default_instance() -> String {
     std::env::var("INSTANCE_ID").unwrap_or_else(|_| format!("pid-{}", std::process::id()))
 }
@@ -293,91 +250,6 @@ fn to_json<T: serde::Serialize>(value: &T) -> String {
 
 fn now_local() -> chrono::NaiveDateTime {
     chrono::Local::now().naive_local()
-}
-
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-async fn ensure_lock_table(db: &DatabaseConnection) -> Result<(), DbErr> {
-    let stmt = Table::create()
-        .table(Alias::new(LOCK_TABLE))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("id"))
-                .integer()
-                .not_null()
-                .primary_key(),
-        )
-        .col(ColumnDef::new(Alias::new("owner")).string().not_null())
-        .col(
-            ColumnDef::new(Alias::new("lease_until"))
-                .big_integer()
-                .not_null(),
-        )
-        .to_owned();
-    db.execute(&stmt).await?;
-    Ok(())
-}
-
-/// 占用执行锁。锁空闲、归自己、或租约已过期时成功。
-async fn try_acquire(
-    db: &DatabaseConnection,
-    owner: &str,
-    lease_until: i64,
-) -> Result<bool, DbErr> {
-    let insert = Query::insert()
-        .into_table(Alias::new(LOCK_TABLE))
-        .columns([
-            Alias::new("id"),
-            Alias::new("owner"),
-            Alias::new("lease_until"),
-        ])
-        .values_panic([LOCK_ID.into(), owner.to_owned().into(), lease_until.into()])
-        .on_conflict(OnConflict::column(Alias::new("id")).do_nothing().to_owned())
-        .to_owned();
-    if db.execute(&insert).await?.rows_affected() > 0 {
-        return Ok(true);
-    }
-
-    let update = Query::update()
-        .table(Alias::new(LOCK_TABLE))
-        .values([
-            (Alias::new("owner"), Expr::val(owner.to_owned())),
-            (Alias::new("lease_until"), Expr::val(lease_until)),
-        ])
-        .and_where(Expr::col(Alias::new("id")).eq(LOCK_ID))
-        .and_where(
-            Expr::col(Alias::new("owner"))
-                .eq(owner.to_owned())
-                .or(Expr::col(Alias::new("lease_until")).lt(unix_now())),
-        )
-        .to_owned();
-    Ok(db.execute(&update).await?.rows_affected() > 0)
-}
-
-async fn release_lock(db: &DatabaseConnection, owner: &str) -> Result<(), DbErr> {
-    let stmt = Query::delete()
-        .from_table(Alias::new(LOCK_TABLE))
-        .and_where(Expr::col(Alias::new("id")).eq(LOCK_ID))
-        .and_where(Expr::col(Alias::new("owner")).eq(owner.to_owned()))
-        .to_owned();
-    db.execute(&stmt).await?;
-    Ok(())
-}
-
-async fn lock_owner(db: &DatabaseConnection) -> Result<Option<String>, DbErr> {
-    let stmt = Query::select()
-        .column(Alias::new("owner"))
-        .from(Alias::new(LOCK_TABLE))
-        .and_where(Expr::col(Alias::new("id")).eq(LOCK_ID))
-        .to_owned();
-    let row = db.query_one(&stmt).await?;
-    row.map(|row| row.try_get::<String>("", "owner"))
-        .transpose()
 }
 
 /// 声明一条迁移：生成带文件名版本号的结构体，并默认在事务里执行。

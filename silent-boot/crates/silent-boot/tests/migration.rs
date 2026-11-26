@@ -64,7 +64,7 @@ async fn v15_framework_and_app_migrators_share_one_database() {
         "sb_migrations",
         "seaql_migrations",
         "sb_migration_log",
-        "sb_migration_lock",
+        "sb_locks",
         "article",
     ] {
         assert!(table_exists(&db, table).await, "{table} should exist");

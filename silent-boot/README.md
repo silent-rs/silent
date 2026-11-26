@@ -15,6 +15,24 @@
 - `db::DbRegistry`：数据库连接集合，目前只有默认连接。
 - `cli`：应用二进制的子命令入口。第一个参数不是框架的子命令时返回 `None`，应用照常启动服务；`migrate generate`、`migrate up`、`migrate status` 已经可用。
 - `cli::generate`（`codegen` feature）：`generate entity`，按库结构生成实体文件，输出与 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 一致。
+- `db::lock`：具名执行锁，一张表里的租约行。迁移执行器和之后的定时任务共用。
+- `silent-boot-cli`（另一个 crate，全局工具）：`silent-boot dev`。
+
+## dev 运行循环
+
+在应用的目录里运行：
+
+```bash
+cargo run -p silent-boot-cli -- dev --bin <可执行目标> --port 9230
+```
+
+它会构建并启动应用，监听 `src/`、`entity/src/`、`migration/src/`、`templates/` 和 `Cargo.toml`；有变更就重新构建、重启应用，并通知页面刷新。启动时它会打印一个脚本地址，开发时在页面里引入即可：
+
+```html
+<script src="http://127.0.0.1:9230/__dev__/reload.js"></script>
+```
+
+后端重启后页面自动刷新；构建失败时错误会盖在页面上，旧进程保持不动。
 
 ## feature
 
@@ -31,6 +49,6 @@
 ```bash
 cd silent-boot
 cargo fmt --all -- --check
-cargo clippy -p silent-boot --all-targets --all-features -- -D warnings
-cargo nextest run -p silent-boot --all-features
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo nextest run --workspace --all-features
 ```
