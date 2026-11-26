@@ -9,8 +9,9 @@
 
 mod common;
 
-use std::process::Command;
+use std::{fs, process::Command};
 
+use chrono::NaiveDateTime;
 use clap::error::ErrorKind;
 #[cfg(feature = "codegen")]
 use silent_boot::cli::Generate;
@@ -134,4 +135,100 @@ async fn v17_binary_runs_subcommand_then_exits_without_a_server() {
     assert_eq!(json[0]["scope"], "framework");
     assert_eq!(json[0]["applied"].as_array().map(Vec::len), Some(1));
     assert_eq!(json[1]["scope"], "app");
+}
+
+/// 脚手架生成的迁移器 `src/lib.rs`：两个受管区块由 `migrate generate` 维护，其余部分归应用。
+const MIGRATOR_TEMPLATE: &str = "\
+//! 应用的迁移器。
+use silent_boot::db::migrate::*;
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Migrator;
+
+impl MigratorTrait for Migrator {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        vec![
+            // <silent-boot:gen:list>
+            // </silent-boot:gen:list>
+        ]
+    }
+}
+
+// <silent-boot:gen:mods>
+// </silent-boot:gen:mods>
+";
+
+#[test]
+fn v5_migrate_generate_writes_the_file_and_registers_it() {
+    use silent_boot::cli::migrate::{self, GenerateError};
+
+    let crate_dir = tempfile::tempdir().expect("temp dir");
+    let src = crate_dir.path().join("src");
+    fs::create_dir_all(&src).expect("src dir");
+    fs::write(src.join("lib.rs"), MIGRATOR_TEMPLATE).expect("lib.rs");
+    let at =
+        NaiveDateTime::parse_from_str("2026-11-26 09:30:00", "%Y-%m-%d %H:%M:%S").expect("time");
+
+    let first = migrate::generate("create article", at, crate_dir.path()).expect("generate");
+    assert_eq!(first.module, "m20261126_093000_create_article");
+    // 骨架与参与编译的那份逐字相同，只差说明文字。
+    let body = fs::read_to_string(&first.file).expect("migration file");
+    let compiled = fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/common/skeleton/m20261125_120000_skeleton.rs"
+    ))
+    .expect("skeleton fixture");
+    assert_eq!(body.replace("/// create article", "/// skeleton"), compiled);
+
+    // 时间更早的迁移排在前面，先执行。
+    let second = migrate::generate(
+        "add extra column",
+        at - chrono::Duration::seconds(30),
+        crate_dir.path(),
+    )
+    .expect("generate");
+    assert_eq!(second.module, "m20261126_092930_add_extra_column");
+    let lib = fs::read_to_string(src.join("lib.rs")).expect("lib.rs");
+    let position = |needle: &str| {
+        lib.find(needle)
+            .unwrap_or_else(|| panic!("{needle} is not registered"))
+    };
+    assert!(
+        position("pub mod m20261126_092930_add_extra_column;")
+            < position("pub mod m20261126_093000_create_article;")
+    );
+    assert!(
+        position("Box::new(m20261126_092930_add_extra_column::Migration),")
+            < position("Box::new(m20261126_093000_create_article::Migration),")
+    );
+    // 区块之外的内容原样保留。
+    assert!(lib.starts_with("//! 应用的迁移器。"));
+    assert!(lib.contains("pub struct Migrator;"));
+    assert!(lib.ends_with("// </silent-boot:gen:mods>\n"));
+
+    // 名称不合法；同一秒已有同名文件。
+    assert!(matches!(
+        migrate::generate("bad-name", at, crate_dir.path()),
+        Err(GenerateError::InvalidName(_))
+    ));
+    assert!(matches!(
+        migrate::generate("create article", at, crate_dir.path()),
+        Err(GenerateError::AlreadyExists(_))
+    ));
+
+    // 迁移器里没有受管区块：报错，而且不留下任何迁移文件。
+    let bare = tempfile::tempdir().expect("temp dir");
+    fs::create_dir_all(bare.path().join("src")).expect("src dir");
+    fs::write(bare.path().join("src/lib.rs"), "pub struct Migrator;\n").expect("lib.rs");
+    assert!(matches!(
+        migrate::generate("x", at, bare.path()),
+        Err(GenerateError::MissingMarkers(_))
+    ));
+    assert_eq!(
+        fs::read_dir(bare.path().join("src"))
+            .expect("read_dir")
+            .count(),
+        1,
+        "only lib.rs should exist"
+    );
 }

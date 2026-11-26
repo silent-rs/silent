@@ -1,8 +1,8 @@
 //! 验证用的小应用：演示子命令命中后不启动服务。M1 会换成脚手架模板里的 main.rs。
 //!
-//! 数据库地址取自环境变量 `SB_DATABASE_URL`。
+//! 数据库地址取自环境变量 `SB_DATABASE_URL`，只有需要连库的子命令才会读它。
 
-use sea_orm::Database;
+use sea_orm::{Database, DatabaseConnection};
 #[cfg(feature = "codegen")]
 use silent_boot::cli::Generate;
 use silent_boot::cli::{Command, Migrate};
@@ -24,31 +24,37 @@ async fn main() {
         return;
     };
 
-    let url = match std::env::var("SB_DATABASE_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            eprintln!("SB_DATABASE_URL is not set");
-            std::process::exit(2);
-        }
-    };
     let result = match cli.command {
-        Command::Migrate { action } => {
-            let db = Database::connect(&url).await.expect("connect");
-            match action {
-                Migrate::Up { steps, dry_run } => silent_boot::cli::migrate::up::<
-                    FrameworkMigrator,
-                    SampleMigrator,
-                >(&db, steps, dry_run)
-                .await
-                .map_err(|e| e.to_string()),
-                Migrate::Status { json } => silent_boot::cli::migrate::status::<
-                    FrameworkMigrator,
-                    SampleMigrator,
-                >(&db, json)
-                .await
-                .map_err(|e| e.to_string()),
+        Command::Migrate { action } => match action {
+            Migrate::Generate { name } => {
+                let created = silent_boot::cli::migrate::generate(
+                    &name,
+                    chrono::Local::now().naive_local(),
+                    std::path::Path::new("migration"),
+                );
+                match created {
+                    Ok(created) => {
+                        println!("created {}", created.file.display());
+                        Ok(())
+                    }
+                    Err(e) => Err(e.to_string()),
+                }
             }
-        }
+            Migrate::Up { steps, dry_run } => {
+                let db = connect().await;
+                silent_boot::cli::migrate::up::<FrameworkMigrator, SampleMigrator>(
+                    &db, steps, dry_run,
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
+            Migrate::Status { json } => {
+                let db = connect().await;
+                silent_boot::cli::migrate::status::<FrameworkMigrator, SampleMigrator>(&db, json)
+                    .await
+                    .map_err(|e| e.to_string())
+            }
+        },
         #[cfg(feature = "codegen")]
         Command::Generate {
             action:
@@ -58,6 +64,7 @@ async fn main() {
                     dry_run,
                 },
         } => {
+            let url = database_url();
             let root = std::path::Path::new("entity/src");
             let options = silent_boot::cli::generate::EntityOptions {
                 tables,
@@ -87,4 +94,18 @@ async fn main() {
         eprintln!("error: {e}");
         std::process::exit(1);
     }
+}
+
+fn database_url() -> String {
+    match std::env::var("SB_DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("SB_DATABASE_URL is not set");
+            std::process::exit(2);
+        }
+    }
+}
+
+async fn connect() -> DatabaseConnection {
+    Database::connect(database_url()).await.expect("connect")
 }

@@ -67,6 +67,12 @@ pub enum Command {
 /// `migrate` 的动作。
 #[derive(Debug, Clone, Subcommand, PartialEq, Eq)]
 pub enum Migrate {
+    /// 生成一条迁移的文件并登记到迁移器：`migrate generate "create article"`。
+    Generate {
+        /// 迁移名称，例如 "create article"。会变成文件名的一部分，空格换成下划线。
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
     /// 执行待执行的迁移：先框架，后应用。
     Up {
         /// 每组最多执行几条。

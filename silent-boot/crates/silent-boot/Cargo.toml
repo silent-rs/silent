@@ -38,6 +38,8 @@ sqlx = { workspace = true, optional = true }
 [dev-dependencies]
 silent = { workspace = true, features = ["static", "test"] }
 tempfile = "3"
+rust-embed = "8"
+tera = { version = "2.4", features = ["glob_fs"] }
 
 # 验证用的小应用：演示子命令命中后不启动服务。M1 会换成脚手架模板里的 main.rs。
 [[bin]]

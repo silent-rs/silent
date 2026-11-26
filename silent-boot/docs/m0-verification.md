@@ -12,21 +12,21 @@
 | V2 | MSRV 1.94 | 通过 | `rustc 1.94.1` 下 `cargo check -p silent-boot --all-features --all-targets` 通过（94 秒）。本机的 `~/.rustup` 不可写，工具链装在临时目录里验证，见"复现命令" |
 | V3 | 自定义提取器进入元组 | 通过 | `web.rs::v3_custom_extractor_joins_extractor_tuple`：`CurrentUser` 实现 `FromRequest`，参与三元组 handler，拿不到时返回 401 |
 | V4 | SPA 兜底与 `<path:**>` 优先级 | 通过（自带兜底） | `web.rs::v4_spa_fallback_leaves_api_and_static_assets_alone`：`/api/*` 不受影响，`/articles/123` 回退到 `index.html`，`/assets` 前缀下的静态资源由 Silent 的静态处理器返回，缺失的仍是 404 |
-| V5 | sea-orm-cli 的 `migrate generate` | 未做 | 迁移文件的骨架和登记还没写 |
+| V5 | sea-orm-cli 的 `migrate generate` | 通过（已实现） | `cli.rs::v5_migrate_generate_writes_the_file_and_registers_it`：文件名规则与 sea-orm-cli 相同；骨架参与编译（`tests/common/skeleton/`）；登记进迁移器的两个受管区块并按名称排序；登记不了时不留下文件 |
 | V6 | 迁移并发 | 通过（SQLite） | `migration.rs::v6_lock_lets_only_one_runner_apply_migrations`；不加锁的对照组 `v6_repro_two_runners_without_lock`（手动运行，见 F2） |
-| V7 | rust-embed 前端嵌入 | 未做 | |
-| V8 | Tera 重载 | 未做 | |
+| V7 | rust-embed 前端嵌入 | 通过（debug 读磁盘） | `embed_reload.rs::v7_rust_embed_reads_from_disk_in_debug_builds`。release 下的编译期内嵌没有在本机验证 |
+| V8 | Tera 重载 | 通过 | `embed_reload.rs::v8_tera_full_reload_picks_up_changed_and_added_templates`，见 F11 |
 | V9 | `dev` 监听重启循环 | 未做 | |
 | V10 | OpenAPI 到 TS 类型 | 未做 | |
 | V11 | 任务互斥 SQL | 未做 | |
-| V12 | 项目名占用 | 未做 | `cargo search silent-boot` 当天没有返回结果，需要再查一次 |
+| V12 | 项目名占用 | 可用 | 2026-11-26 查 crates.io：`silent-boot` 不存在，也没有相近的名字；silent-rs 下没有 `silent-boot`、`silent-stack`、`silent-forge` 仓库 |
 | V13 | SQLite 上的迁移事务与 ALTER 边界 | 通过 | 事务：`migration.rs::v13_failed_migration_rolls_back_on_sqlite_only_inside_transaction`；ALTER：`sqlite_alter.rs` 的两个测试，见 F9 |
 | V14 | 应用内 `generate entity` | 通过 | `generate.rs::v14_generate_entity_matches_the_baseline_command`：库级实现的输出与基准命令对同样的库生成的三个文件逐字节一致 |
 | V15 | 两套迁移器共用一个库 | 通过 | `migration.rs::v15_framework_and_app_migrators_share_one_database` |
 | V16 | MySQL 部分失败恢复 | 未做 | 需要 MySQL 环境 |
 | V17 | `cli` feature 的代价 | 已量化 | 见 F10。结论：把代码生成拆到默认不开的 `codegen` feature 里 |
 
-另外已经落地的部分（不属于验证项）：`migrate up` 与 `migrate status` 子命令，以及 CI（`.github/workflows/silent-boot.yml`：fmt、clippy、nextest、MSRV 检查）。
+另外已经落地的部分（不属于验证项）：`migrate generate`、`migrate up`、`migrate status` 三个子命令，以及 CI（`.github/workflows/silent-boot.yml`：fmt、clippy、nextest、MSRV 检查）。
 
 ## 实测发现
 
@@ -113,6 +113,15 @@ SQLite 的数据库文件所在目录被删除以后，已经打开的连接还�
 - `codegen`（`sea-orm-codegen`、`prettyplease`）再增加约 2 MiB。只有开发时生成实体才用得到，所以默认不开，开发和 CI 用 `--features codegen` 打开。
 - 不开 LTO 和 strip 时数字明显更大（对应约 3.5、6.1、11.0 MiB），正式的 release profile 需要像 silent-oss 一样配置 LTO 和 strip。
 - 这里的二进制不含 Silent 的 Web 服务器部分，真实服务里 `cli` 的占比会更小。
+
+### F11 Tera 2.4 的几个细节
+
+- `Tera::new()` 不带参数，随后用 `load_from_glob` 加载目录。
+- `full_reload()` 需要 `glob_fs` feature（feature 名不是 `glob`）。
+- `get_template` 是私有方法，判断模板是否存在用 `get_template_names()`。
+- Tera 自己不感知磁盘变化：不重载时读到的还是旧内容，新增的文件不存在；调用 `full_reload()` 之后两者都生效。
+
+Silent 的 `TemplateMiddleware` 只在启动时加载一次，模板热更新要在框架层监听目录并调用 `full_reload()`（`docs/design.md` §12）。
 
 ## 复现命令
 
