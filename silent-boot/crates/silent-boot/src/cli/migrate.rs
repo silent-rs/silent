@@ -221,6 +221,10 @@ fn print_groups<W: io::Write>(
         for name in &group.pending {
             writeln!(out, "  pending  {name}")?;
         }
+        // 数据库比这个版本新：列出来，但不算问题。
+        for name in &group.unknown {
+            writeln!(out, "  newer    {name}")?;
+        }
         if group.pending.is_empty() && (!show_applied || group.applied.is_empty()) {
             writeln!(out, "  up to date")?;
         }

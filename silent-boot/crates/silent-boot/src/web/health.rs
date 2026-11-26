@@ -44,9 +44,13 @@ impl Readiness {
             };
         }
         for (scope, migrator) in [("framework", &self.framework), ("app", &self.app)] {
-            match migrator.pending_read_only(self.db.db()).await {
-                Ok(pending) if !pending.is_empty() => {
-                    reasons.push(format!("{scope} migrations pending: {}", pending.len()));
+            // 数据库比这个版本新（有这个版本不认识的迁移）不算未就绪：滚动发布时旧副本要继续服务。
+            match migrator.diff(self.db.db()).await {
+                Ok(diff) if !diff.pending.is_empty() => {
+                    reasons.push(format!(
+                        "{scope} migrations pending: {}",
+                        diff.pending.len()
+                    ));
                 }
                 Ok(_) => {}
                 Err(e) => reasons.push(format!("{scope} migrations: {e}")),

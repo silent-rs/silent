@@ -1,5 +1,6 @@
-//! M0 验证：迁移核心，对应 `docs/design.md` §16 的 V6、V13、V15。
+//! 迁移核心，对应 `docs/design.md` §16 的 V6、V13、V15，以及 M1 的"旧版本建库后升级"。
 //!
+//! - 升级：旧版本的迁移列表建的库，写入数据之后由新版本接着升级，数据保留，旧版本照样能跑。
 //! - V15：框架迁移与应用迁移共用一个库，各有跟踪表，执行顺序正确。
 //! - V13：`migration!` 声明的迁移在 SQLite 上失败时整体回滚；不包事务的会留下半成品。
 //! - V6：两个执行器并发时，执行锁保证迁移只被执行一次。
@@ -11,7 +12,11 @@ use std::time::Duration;
 use common::app::{AppMigrator, SEED_DELAY_MS};
 use common::fail::{NoTxMigrator, TxMigrator};
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
-use silent_boot::db::migrate::{FrameworkMigrator, MigrateError, MigrationRunner, MigratorTrait};
+use silent_boot::db::DbRegistry;
+use silent_boot::db::migrate::{
+    FrameworkMigrator, MigrateError, MigrationRunner, MigrationTrait, MigratorTrait,
+};
+use silent_boot::web::Readiness;
 
 async fn scalar(db: &DatabaseConnection, sql: &str) -> i64 {
     let stmt = Statement::from_string(DbBackend::Sqlite, sql.to_owned());
@@ -221,4 +226,124 @@ async fn v6_repro_two_runners_without_lock() {
         "exactly one runner should fail"
     );
     assert_eq!(rows, 4, "the seed migration should have been applied twice");
+}
+
+/// 旧版本：只认建表那一条迁移。
+#[derive(Debug, Default, Clone, Copy)]
+struct ReleaseV1;
+
+impl MigratorTrait for ReleaseV1 {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        vec![Box::new(
+            common::app::m20261125_120000_create_article::Migration,
+        )]
+    }
+}
+
+/// 新版本：多了一条加列的迁移。
+#[derive(Debug, Default, Clone, Copy)]
+struct ReleaseV2;
+
+impl MigratorTrait for ReleaseV2 {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        vec![
+            Box::new(common::app::m20261125_120000_create_article::Migration),
+            Box::new(common::alter::m20261126_000002_add_column::Migration),
+        ]
+    }
+}
+
+const ADD_COLUMN: &str = "m20261126_000002_add_column";
+
+#[tokio::test]
+async fn upgrading_a_database_created_by_an_old_release_keeps_the_data() {
+    let (_dir, db) = common::temp_db().await;
+
+    // 旧版本建库，跑了一段时间，写下了数据。
+    MigrationRunner::new("v1")
+        .up(&db, &FrameworkMigrator, &ReleaseV1, None)
+        .await
+        .expect("v1 builds the database");
+    db.execute_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        "INSERT INTO article (id, title, status, created_at, updated_at) \
+         VALUES ('a1', '旧数据', 0, '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+            .to_owned(),
+    ))
+    .await
+    .expect("insert");
+    assert!(!column_exists(&db, "article", "extra").await);
+
+    // 新版本的二进制接手：先看到一条待执行的迁移；执行之后列有了，数据还在。
+    let status = MigrationRunner::status(&db, &FrameworkMigrator, &ReleaseV2)
+        .await
+        .expect("status");
+    assert_eq!(status[1].pending, vec![ADD_COLUMN.to_owned()]);
+    let report = MigrationRunner::new("v2")
+        .up(&db, &FrameworkMigrator, &ReleaseV2, None)
+        .await
+        .expect("v2 upgrades the database");
+    assert_eq!(report.app.applied, vec![ADD_COLUMN.to_owned()]);
+    assert!(report.framework.applied.is_empty());
+    assert!(column_exists(&db, "article", "extra").await);
+    assert_eq!(article_rows(&db).await, 1);
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS c FROM seaql_migrations").await,
+        2
+    );
+
+    // 滚动发布期间还在跑的旧副本：不认识新迁移，不报错，也不会重复执行任何东西。
+    let old = MigrationRunner::new("v1-again")
+        .up(&db, &FrameworkMigrator, &ReleaseV1, None)
+        .await
+        .expect("the old release still runs");
+    assert!(old.is_empty());
+    assert_eq!(article_rows(&db).await, 1);
+
+    // 旧副本的状态里把不认识的迁移列成"数据库比这个版本新"，不算待执行；就绪检查照样通过。
+    let status = MigrationRunner::status(&db, &FrameworkMigrator, &ReleaseV1)
+        .await
+        .expect("status of the old release");
+    assert!(status[1].pending.is_empty());
+    assert_eq!(status[1].unknown, vec![ADD_COLUMN.to_owned()]);
+    let readiness = Readiness::new(DbRegistry::new(db.clone()), FrameworkMigrator, ReleaseV1);
+    assert!(
+        readiness.check().await.ready,
+        "an old replica stays ready after the database was upgraded"
+    );
+}
+
+/// 一个和线上分叉的版本：既缺线上已经执行的迁移，又有自己没执行过的迁移。
+#[derive(Debug, Default, Clone, Copy)]
+struct SkewedRelease;
+
+impl MigratorTrait for SkewedRelease {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        vec![
+            Box::new(common::app::m20261125_120000_create_article::Migration),
+            Box::new(common::alter::m20261126_000003_rename_column::Migration),
+        ]
+    }
+}
+
+#[tokio::test]
+async fn a_release_that_diverged_from_the_database_refuses_to_migrate() {
+    let (_dir, db) = common::temp_db().await;
+    MigrationRunner::new("v2")
+        .up(&db, &FrameworkMigrator, &ReleaseV2, None)
+        .await
+        .expect("v2 builds the database");
+
+    // 分叉的版本：不认识 add_column，又想执行 rename_column。
+    let err = MigrationRunner::new("skewed")
+        .up(&db, &FrameworkMigrator, &SkewedRelease, None)
+        .await
+        .expect_err("a diverged release must not migrate");
+    assert!(matches!(err, MigrateError::DatabaseIsNewer(_)), "{err:?}");
+    let text = err.to_string();
+    assert!(text.contains(ADD_COLUMN), "{text}");
+    assert!(text.contains("m20261126_000003_rename_column"), "{text}");
+    // 它自己的迁移没有被执行。
+    assert!(!column_exists(&db, "article", "extra_renamed").await);
+    assert!(column_exists(&db, "article", "extra").await);
 }

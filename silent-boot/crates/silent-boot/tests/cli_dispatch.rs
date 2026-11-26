@@ -590,3 +590,61 @@ async fn v34_binary_lists_subcommands_and_starts_a_server_that_healthcheck_can_s
         seen.join("\n")
     );
 }
+
+async fn count(url: &str, sql: &str) -> i64 {
+    raw(url, sql).await[0]
+        .try_get::<i64>("", "c")
+        .expect("count")
+}
+
+/// 两个真实的进程同时执行 `migrate up`：一个执行，另一个等到锁之后发现没有事可做。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn v35_two_processes_migrate_at_once_and_only_one_applies() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let url = format!("sqlite://{}/data/app.db", dir.path().display());
+    let bin = env!("CARGO_BIN_EXE_sb-sample");
+    let spawn = || {
+        std::process::Command::new(bin)
+            .args(["migrate", "up", "--database-url", &url])
+            .current_dir(dir.path())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn")
+    };
+    let first = spawn();
+    let second = spawn();
+    let outputs = [
+        first.wait_with_output().expect("first"),
+        second.wait_with_output().expect("second"),
+    ];
+    let applied = |output: &std::process::Output| {
+        let text = String::from_utf8_lossy(&output.stdout);
+        text.lines()
+            .find_map(|line| {
+                line.strip_prefix("framework: ")?
+                    .strip_suffix(" applied")?
+                    .parse::<usize>()
+                    .ok()
+            })
+            .unwrap_or_else(|| panic!("no framework line in {text}"))
+    };
+    let mut counts = [applied(&outputs[0]), applied(&outputs[1])];
+    counts.sort();
+    assert_eq!(counts, [0, 1], "exactly one process applies the migration");
+    for output in &outputs {
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    assert_eq!(tracked(&url, "sb_migrations").await.len(), 1);
+    // 每个执行器给两组迁移各留一行执行记录：什么都没执行的那次也留。
+    assert_eq!(
+        count(&url, "SELECT COUNT(*) AS c FROM sb_migration_log").await,
+        4
+    );
+    // 锁已经释放：表里没有还占着的行。
+    assert_eq!(count(&url, "SELECT COUNT(*) AS c FROM sb_locks").await, 0);
+}

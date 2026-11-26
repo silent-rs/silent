@@ -53,16 +53,31 @@ pub enum LockError {
     Db(#[from] DbErr),
 }
 
-/// 持有锁的凭证，离开作用域时释放。
+/// 持有锁的凭证。离开作用域时释放；拿得准的路径上用 [`LockGuard::release`] 显式释放。
 #[derive(Debug)]
 pub struct LockGuard {
     db: DatabaseConnection,
     name: String,
     owner: String,
+    released: bool,
+}
+
+impl LockGuard {
+    /// 释放锁，等释放完成才返回。
+    ///
+    /// 命令执行完进程可能马上退出：那时 Drop 里排给运行时的后台任务不一定来得及跑，
+    /// 锁要等到租约过期才会被别人拿到。所以 `MigrationRunner::up` 在返回前显式调用它。
+    pub async fn release(mut self) {
+        self.released = true;
+        let _ = release(&self.db, &self.name, &self.owner).await;
+    }
 }
 
 impl Drop for LockGuard {
     fn drop(&mut self) {
+        if self.released {
+            return;
+        }
         // Drop 里不能 await，交给运行时在后台释放。
         let db = self.db.clone();
         let name = self.name.clone();
@@ -93,6 +108,7 @@ pub async fn acquire(
                 db: db.clone(),
                 name: name.to_owned(),
                 owner: owner.to_owned(),
+                released: false,
             });
         }
         if Instant::now() >= deadline {

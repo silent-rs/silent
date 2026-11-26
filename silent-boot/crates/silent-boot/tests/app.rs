@@ -695,12 +695,10 @@ async fn v27_state_is_shared_and_migrators_are_reachable() {
     let dir = tempfile::tempdir().unwrap();
     let app = build(dir.path(), |b| b).await;
     let migrators = app.state().migrators();
-    let pending = migrators
-        .app
-        .pending_read_only(app.state().db.db())
-        .await
-        .unwrap();
-    assert!(pending.is_empty());
+    let diff = migrators.app.diff(app.state().db.db()).await.unwrap();
+    assert!(diff.pending.is_empty());
+    assert!(diff.unknown.is_empty());
+    assert_eq!(diff.applied.len(), 2);
     assert_eq!(app.config().app.name, "app");
     assert_eq!(app.config().database.url, app.state().config.database.url);
     assert_eq!(app.state().env, silent_boot::config::Env::Development);

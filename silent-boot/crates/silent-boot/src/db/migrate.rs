@@ -5,6 +5,10 @@
 //! - 执行顺序固定为先框架、后应用，整个过程持有 `sb_locks` 表里的 `migrate` 锁（见 [`crate::db::lock`]）；
 //! - 应用迁移用 [`migration!`] 声明，默认在事务里执行，SQLite 上因此可以整体回滚。
 //!
+//! 对账的方式让滚动发布可行：待执行的迁移是"这个版本里有、跟踪表里还没有"的那些。跟踪表里有、
+//! 这个版本却不认识的迁移（数据库被更新的版本升级过）不算问题，旧副本照常就绪、照常启动；
+//! SeaORM 自己的 `up` 遇到这种情况会直接报错，所以执行器不调用它，而是算好待执行的清单再交给它执行。
+//!
 //! 本模块 re-export 了 `sea-orm-migration` 的 prelude，应用迁移只需要
 //! `use silent_boot::db::migrate::*;`。
 
@@ -14,8 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use async_trait::async_trait;
-use sea_orm::DatabaseConnection;
-use sea_orm_migration::Migration;
+use sea_orm::{ConnectionTrait as _, DatabaseConnection, TransactionTrait as _};
 pub use sea_orm_migration::prelude::*;
 
 use super::lock::{self, LockOptions};
@@ -49,6 +52,40 @@ impl MigratorTrait for NoMigrations {
     }
 }
 
+/// 一组迁移和它的跟踪表对账的结果。
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct MigrationDiff {
+    /// 这个版本里的迁移，已经记在跟踪表里的，按执行顺序。
+    pub applied: Vec<String>,
+    /// 这个版本里的迁移，跟踪表里还没有的，按执行顺序。
+    pub pending: Vec<String>,
+    /// 跟踪表里有、这个版本却不认识的：数据库已经被更新的版本升级过。
+    pub unknown: Vec<String>,
+}
+
+impl MigrationDiff {
+    /// `migrations` 是这个版本里的全部迁移（按执行顺序），`recorded` 是跟踪表里的版本。
+    pub fn between(migrations: &[String], recorded: &[String]) -> Self {
+        Self {
+            applied: migrations
+                .iter()
+                .filter(|name| recorded.contains(name))
+                .cloned()
+                .collect(),
+            pending: migrations
+                .iter()
+                .filter(|name| !recorded.contains(name))
+                .cloned()
+                .collect(),
+            unknown: recorded
+                .iter()
+                .filter(|name| !migrations.contains(name))
+                .cloned()
+                .collect(),
+        }
+    }
+}
+
 /// [`MigratorTrait`] 的对象安全视图。
 ///
 /// [`MigratorTrait`] 的方法都是带泛型的关联函数，没法做成 `dyn`。启动器和命令行需要在编译期
@@ -57,16 +94,27 @@ impl MigratorTrait for NoMigrations {
 pub trait Migrator: Send + Sync {
     /// 跟踪表的名字：应用的默认是 `seaql_migrations`，框架的是 `sb_migrations`。
     fn table_name(&self) -> String;
-    /// 执行待执行的迁移，`steps` 限制最多执行几条。会建跟踪表。
-    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr>;
+    /// 这个版本里的全部迁移，按执行顺序。
+    fn migration_names(&self) -> Vec<String>;
+    /// 跟踪表里记下的版本，按执行顺序。不建表：表还不存在时是空的。
+    async fn recorded(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+    /// 执行给定的迁移并写跟踪表，`steps` 限制最多执行几条。
+    ///
+    /// `migrations` 必须是 [`Migrator::migration_names`] 的子集，按那个顺序执行。
+    async fn apply(
+        &self,
+        db: &DatabaseConnection,
+        migrations: &[String],
+        steps: Option<u32>,
+    ) -> Result<(), DbErr>;
     /// 建跟踪表，已经存在时什么都不做。
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr>;
-    /// 待执行的迁移名，会建跟踪表。
-    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
-    /// 已执行的迁移名，不建表、不加锁。
-    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
-    /// 待执行的迁移名，不建表、不加锁。跟踪表还不存在时，全部迁移都算待执行。
-    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+
+    /// 和跟踪表对账。不建表、不加锁。
+    async fn diff(&self, db: &DatabaseConnection) -> Result<MigrationDiff, DbErr> {
+        let recorded = self.recorded(db).await?;
+        Ok(MigrationDiff::between(&self.migration_names(), &recorded))
+    }
 }
 
 #[async_trait]
@@ -75,28 +123,57 @@ impl<T: MigratorTrait + Sync + 'static> Migrator for T {
         T::migration_table_name().to_string()
     }
 
-    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
-        T::up(db, steps).await
+    fn migration_names(&self) -> Vec<String> {
+        T::migrations()
+            .iter()
+            .map(|migration| migration.name().to_owned())
+            .collect()
+    }
+
+    async fn recorded(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        recorded(db, &T::migration_table_name()).await
+    }
+
+    async fn apply(
+        &self,
+        db: &DatabaseConnection,
+        migrations: &[String],
+        steps: Option<u32>,
+    ) -> Result<(), DbErr> {
+        let table = T::migration_table_name();
+        T::install(db).await?;
+        let backend = db.get_database_backend();
+        let mut left = steps;
+        for migration in T::migrations() {
+            let name = migration.name().to_owned();
+            if !migrations.contains(&name) {
+                continue;
+            }
+            if let Some(left) = left.as_mut() {
+                if *left == 0 {
+                    break;
+                }
+                *left -= 1;
+            }
+            // 和 SeaORM 的约定一致：迁移自己没说、又只有 PostgreSQL 的 DDL 能回滚时，才放进事务。
+            let use_txn = migration
+                .use_transaction()
+                .unwrap_or(backend == sea_orm::DatabaseBackend::Postgres);
+            if use_txn {
+                let txn = db.begin().await?;
+                migration.up(&SchemaManager::new(&txn)).await?;
+                insert_record(&txn, &table, &name).await?;
+                txn.commit().await?;
+            } else {
+                migration.up(&SchemaManager::new(db)).await?;
+                insert_record(db, &table, &name).await?;
+            }
+        }
+        Ok(())
     }
 
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
         T::install(db).await
-    }
-
-    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        Ok(migration_names(T::get_pending_migrations(db).await?))
-    }
-
-    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        Ok(migration_names(
-            T::get_applied_migrations_read_only(db).await?,
-        ))
-    }
-
-    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        Ok(migration_names(
-            T::get_pending_migrations_read_only(db).await?,
-        ))
     }
 }
 
@@ -106,24 +183,25 @@ impl Migrator for AnyMigrator {
         self.0.table_name()
     }
 
-    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
-        self.0.up(db, steps).await
+    fn migration_names(&self) -> Vec<String> {
+        self.0.migration_names()
+    }
+
+    async fn recorded(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.recorded(db).await
+    }
+
+    async fn apply(
+        &self,
+        db: &DatabaseConnection,
+        migrations: &[String],
+        steps: Option<u32>,
+    ) -> Result<(), DbErr> {
+        self.0.apply(db, migrations, steps).await
     }
 
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
         self.0.install(db).await
-    }
-
-    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.pending(db).await
-    }
-
-    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.applied(db).await
-    }
-
-    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.pending_read_only(db).await
     }
 }
 
@@ -153,29 +231,24 @@ impl AnyMigrator {
         self.0.table_name()
     }
 
-    /// 见 [`Migrator::up`]。
-    pub async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
-        self.0.up(db, steps).await
+    /// 见 [`Migrator::migration_names`]。
+    pub fn migration_names(&self) -> Vec<String> {
+        self.0.migration_names()
+    }
+
+    /// 见 [`Migrator::recorded`]。
+    pub async fn recorded(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.recorded(db).await
+    }
+
+    /// 见 [`Migrator::diff`]。
+    pub async fn diff(&self, db: &DatabaseConnection) -> Result<MigrationDiff, DbErr> {
+        self.0.diff(db).await
     }
 
     /// 见 [`Migrator::install`]。
     pub async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
         self.0.install(db).await
-    }
-
-    /// 见 [`Migrator::pending`]。
-    pub async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.pending(db).await
-    }
-
-    /// 见 [`Migrator::applied`]。
-    pub async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.applied(db).await
-    }
-
-    /// 见 [`Migrator::pending_read_only`]。
-    pub async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
-        self.0.pending_read_only(db).await
     }
 
     /// 当成 trait 对象用。
@@ -190,6 +263,31 @@ impl<T: MigratorTrait + Sync + 'static> From<T> for AnyMigrator {
     }
 }
 
+/// 数据库比这个版本新，这个版本又有待执行的迁移：不能用旧版本接着升级。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatabaseIsNewer {
+    /// 跟踪表里有、这个版本不认识的迁移。
+    pub unknown: Vec<String>,
+    /// 这个版本里待执行的迁移。
+    pub pending: Vec<String>,
+}
+
+impl std::error::Error for DatabaseIsNewer {}
+
+impl std::fmt::Display for DatabaseIsNewer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "数据库里有 {} 条迁移这个版本不认识（例如 {}），这个版本又有 {} 条待执行的迁移（例如 {}）。\
+             不要用旧版本执行迁移：换最新的版本执行",
+            self.unknown.len(),
+            self.unknown.first().map(String::as_str).unwrap_or_default(),
+            self.pending.len(),
+            self.pending.first().map(String::as_str).unwrap_or_default()
+        )
+    }
+}
+
 /// 迁移命令可能遇到的错误。
 #[derive(Debug, thiserror::Error)]
 pub enum MigrateError {
@@ -199,17 +297,20 @@ pub enum MigrateError {
     /// 数据库错误。
     #[error(transparent)]
     Db(#[from] DbErr),
+    /// 数据库比这个版本新，这个版本又有待执行的迁移。
+    #[error(transparent)]
+    DatabaseIsNewer(#[from] DatabaseIsNewer),
     /// 结果写不出来。
     #[error("写入输出失败：{0}")]
     Io(#[from] std::io::Error),
 }
 
-/// 一组迁移（框架或应用）的执行结果。
+/// 一次 `migrate up` 里一组的执行结果。
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct GroupReport {
     /// 执行前待执行的迁移。
     pub pending_before: Vec<String>,
-    /// 本次实际写入跟踪表的迁移。
+    /// 本次实际执行并记进跟踪表的迁移。
     pub applied: Vec<String>,
 }
 
@@ -245,10 +346,12 @@ impl RunReport {
 pub struct GroupStatus {
     /// `framework` 或 `app`。
     pub scope: &'static str,
-    /// 已执行的迁移，按执行顺序。
+    /// 这个版本里的迁移里，已经执行的，按执行顺序。
     pub applied: Vec<String>,
-    /// 待执行的迁移。
+    /// 待执行的迁移，按执行顺序。
     pub pending: Vec<String>,
+    /// 跟踪表里有、这个版本不认识的迁移：数据库被更新的版本升级过。
+    pub unknown: Vec<String>,
 }
 
 /// 迁移执行器。
@@ -284,6 +387,7 @@ impl MigrationRunner {
     /// 先执行框架迁移，再执行应用迁移，全程持有执行锁。
     ///
     /// `steps` 对两组分别生效。任何一组失败都会立刻返回，已经执行的迁移不会回滚。
+    /// 数据库比这个版本新、这个版本又有待执行的迁移时拒绝执行，见 [`MigrateError::DatabaseIsNewer`]。
     pub async fn up(
         &self,
         db: &DatabaseConnection,
@@ -296,10 +400,15 @@ impl MigrationRunner {
             ..LockOptions::default()
         };
         let guard = lock::acquire(db, LOCK_NAME, &self.instance, &options).await?;
-        let framework = self.run_group(db, "framework", framework, steps).await?;
-        let app = self.run_group(db, "app", app, steps).await?;
-        drop(guard);
-        Ok(RunReport { framework, app })
+        let result = async {
+            let framework = self.run_group(db, "framework", framework, steps).await?;
+            let app = self.run_group(db, "app", app, steps).await?;
+            Ok(RunReport { framework, app })
+        }
+        .await;
+        // 显式释放：命令执行完进程可能马上退出，靠 Drop 里的后台任务不可靠。
+        guard.release().await;
+        result
     }
 
     /// 只读查询两组迁移的状态：不建表、不加锁。
@@ -321,17 +430,29 @@ impl MigrationRunner {
         migrator: &dyn Migrator,
         steps: Option<u32>,
     ) -> Result<GroupReport, MigrateError> {
-        let pending_before = migrator.pending(db).await?;
-        let result = migrator.up(db, steps).await;
-        // 失败时也记录已经写入跟踪表的迁移，方便定位。
-        let applied = migrator
-            .applied(db)
-            .await?
-            .into_iter()
-            .filter(|name| pending_before.contains(name))
+        let before = migrator.diff(db).await?;
+        if !before.unknown.is_empty() && !before.pending.is_empty() {
+            return Err(DatabaseIsNewer {
+                unknown: before.unknown,
+                pending: before.pending,
+            }
+            .into());
+        }
+        let result = if before.pending.is_empty() {
+            Ok(())
+        } else {
+            migrator.apply(db, &before.pending, steps).await
+        };
+        // 失败时也记录已经写进跟踪表的迁移，方便定位。
+        let after = migrator.diff(db).await?;
+        let applied = before
+            .pending
+            .iter()
+            .filter(|name| after.applied.contains(name))
+            .cloned()
             .collect();
         let report = GroupReport {
-            pending_before,
+            pending_before: before.pending,
             applied,
         };
         self.log(db, scope, &report, result.as_ref().err()).await;
@@ -344,12 +465,12 @@ impl MigrationRunner {
         scope: &'static str,
         migrator: &dyn Migrator,
     ) -> Result<GroupStatus, MigrateError> {
-        let applied = migrator.applied(db).await?;
-        let pending = migrator.pending_read_only(db).await?;
+        let diff = migrator.diff(db).await?;
         Ok(GroupStatus {
             scope,
-            applied,
-            pending,
+            applied: diff.applied,
+            pending: diff.pending,
+            unknown: diff.unknown,
         })
     }
 
@@ -390,15 +511,47 @@ impl MigrationRunner {
         let _ = db.execute(&stmt).await;
     }
 }
+
 fn default_instance() -> String {
     std::env::var("INSTANCE_ID").unwrap_or_else(|_| format!("pid-{}", std::process::id()))
 }
 
-fn migration_names(migrations: Vec<Migration>) -> Vec<String> {
-    migrations
-        .into_iter()
-        .map(|migration| migration.name().to_owned())
+/// 跟踪表里记下的版本，按执行顺序。表还不存在时是空的，不建表。
+async fn recorded(db: &DatabaseConnection, table: &DynIden) -> Result<Vec<String>, DbErr> {
+    // 先用只读的探测确认表在不在：直接查的话，三种数据库报"表不存在"的原文不一样。
+    if !SchemaManager::new(db).has_table(table.to_string()).await? {
+        return Ok(Vec::new());
+    }
+    let stmt = Query::select()
+        .column(Alias::new("version"))
+        .from(table.clone())
+        .order_by(Alias::new("version"), Order::Asc)
+        .to_owned();
+    let rows = db.query_all(&stmt).await?;
+    rows.iter()
+        .map(|row| row.try_get::<String>("", "version"))
         .collect()
+}
+
+/// 写一行跟踪记录。`applied_at` 和 SeaORM 自己写的一样，是 Unix 秒。
+///
+/// SeaORM 的 `exec_up_with` 没有公开，而且它的 `up` 见到跟踪表里有这个版本不认识的迁移就报错，
+/// 所以执行循环由框架自己写，只借用 SeaORM 的迁移 trait 和建表逻辑。
+async fn insert_record<C: ConnectionTrait>(
+    db: &C,
+    table: &DynIden,
+    version: &str,
+) -> Result<(), DbErr> {
+    let stmt = Query::insert()
+        .into_table(table.clone())
+        .columns([Alias::new("version"), Alias::new("applied_at")])
+        .values_panic([
+            version.to_owned().into(),
+            chrono::Utc::now().timestamp().into(),
+        ])
+        .to_owned();
+    db.execute(&stmt).await?;
+    Ok(())
 }
 
 fn to_json<T: serde::Serialize>(value: &T) -> String {

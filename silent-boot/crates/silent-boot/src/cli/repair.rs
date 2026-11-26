@@ -31,7 +31,7 @@ pub async fn baseline(
     migrator: &dyn Migrator,
 ) -> Result<BaselineReport, RepairError> {
     migrator.install(db).await?;
-    let pending = migrator.pending_read_only(db).await?;
+    let pending = migrator.diff(db).await?.pending;
     let table = migrator.table_name();
     for version in &pending {
         insert(db, &table, version).await?;
@@ -49,7 +49,7 @@ pub async fn mark_applied(
     version: &str,
 ) -> Result<bool, RepairError> {
     migrator.install(db).await?;
-    if migrator.applied(db).await?.iter().any(|v| v == version) {
+    if migrator.recorded(db).await?.iter().any(|v| v == version) {
         return Ok(false);
     }
     insert(db, &migrator.table_name(), version).await?;
