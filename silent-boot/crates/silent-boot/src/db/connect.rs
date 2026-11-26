@@ -21,7 +21,7 @@ pub struct ConnectOptions<'a> {
     pub min_connections: u32,
     /// 建立连接的时限。
     pub connect_timeout: Duration,
-    /// 是否把每条 SQL 写进日志。开发时开着，线上关掉。
+    /// 是否把每条 SQL 写进日志（`debug` 级别）。开发时开着，线上关掉。
     pub sql_logging: bool,
 }
 
@@ -78,7 +78,11 @@ pub async fn connect(options: &ConnectOptions<'_>) -> Result<DatabaseConnection,
     }
     sea.min_connections(options.min_connections);
     sea.acquire_timeout(options.connect_timeout);
+    // SQL 记在 debug 级别：`log.level = "info"` 时每个请求只有一行访问日志，调成 debug 才看到每条语句。
     sea.sqlx_logging(options.sql_logging);
+    if options.sql_logging {
+        sea.sqlx_logging_level(log::LevelFilter::Debug);
+    }
     Ok(Database::connect(sea).await?)
 }
 

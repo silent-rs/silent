@@ -1,0 +1,11 @@
+[package]
+name = "migration"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+
+[dependencies]
+silent-boot.workspace = true
+# `DeriveMigrationName` 展开后按 crate 名引用它。
+sea-orm-migration.workspace = true

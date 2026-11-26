@@ -7,7 +7,12 @@ pub use silent::prelude::*;
 // 提取器 `State<T>` 在 Silent 的 prelude 里被它的底层容器 `State` 遮住了，这里换成 handler 用的那个。
 pub use silent::Server;
 pub use silent::extractor::{Json, Path, Query, State};
-pub use {sea_orm, silent};
+// 生成的代码直接用这些名字；版本和框架带进来的保持一致，应用不必再各写一份依赖。
+pub use chrono::{self, NaiveDateTime};
+pub use serde::{Deserialize, Serialize};
+pub use silent;
+pub use validator::Validate;
+pub use {scru128, sea_orm, serde_json, validator};
 
 pub use crate::app::{App, AppBuilder, AppState, BootError, BootResult};
 pub use crate::config::AppConfig;

@@ -189,7 +189,9 @@ impl App {
         let server = Server::new()
             .listen(Listener::from(listener))
             .with_config(self.server_config())
-            .with_shutdown(self.config.server.graceful_shutdown.into());
+            .with_shutdown(self.config.server.graceful_shutdown.into())
+            // 监听地址由 [`App::run`] 报一次就够了。
+            .on_listen(|_addrs| {});
         tokio::select! {
             _ = server.serve(self.router) => {}
             _ = shutdown => {

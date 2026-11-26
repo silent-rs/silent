@@ -65,3 +65,36 @@ jobs:
           workspaces: silent-boot
       - name: Check with the minimum supported Rust version
         run: cargo +1.94 check --workspace --all-features --all-targets
+  # examples/demo 是用 `silent-boot new` 生成之后提交的：守着模板不腐化，也是"生成出来就能跑"的证据。
+  example:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest ]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: silent-boot
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - uses: Swatinem/rust-cache@v1
+        with:
+          workspaces: silent-boot
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: The committed example is exactly what `silent-boot new` generates
+        working-directory: silent-boot/examples
+        run: |
+          cargo run -q -p silent-boot-cli -- new demo --path-framework ../crates/silent-boot --path-silent ../../silent --force
+          git diff --exit-code -- demo
+      - name: Lint the example
+        run: cargo clippy --manifest-path examples/demo/Cargo.toml --all-targets -- -D warnings
+      - name: Test the example
+        run: cargo nextest run --manifest-path examples/demo/Cargo.toml
+      - name: The entity files are what `generate entity` produces for the example schema
+        run: |
+          cargo run -q --manifest-path examples/demo/Cargo.toml -- migrate up
+          cargo run -q --manifest-path examples/demo/Cargo.toml --features codegen -- generate entity --dry-run > entity.log
+          cat entity.log
+          ! grep -q "would change" entity.log

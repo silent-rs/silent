@@ -1,0 +1,56 @@
+[package]
+name = "{{ name }}"
+version = "0.1.0"
+edition = "2024"
+# SeaORM 2.0 要求的最低版本。
+rust-version = "1.94"
+publish = false
+
+[workspace]
+resolver = "3"
+members = ["migration", "entity"]
+
+[workspace.dependencies]
+silent-boot = {{ silent_boot }}
+sea-orm = { version = "{{ sea_orm }}", default-features = false, features = [
+    "macros",
+    "runtime-tokio",
+    "with-chrono",
+    "with-json",
+    "{{ sea_orm_db }}",
+] }
+# 和 silent-boot 用同一组版本。派生宏展开后会按 crate 名引用它们，所以要写成直接依赖。
+sea-orm-migration = { version = "{{ sea_orm }}", default-features = false, features = [
+    "runtime-tokio",
+    "{{ sea_orm_db }}",
+] }
+serde = { version = "1", features = ["derive"] }
+validator = { version = "{{ validator }}", features = ["derive"] }
+utoipa = { version = "{{ utoipa }}", features = ["chrono"] }
+
+[dependencies]
+silent-boot.workspace = true
+# 应用的迁移和实体是两个独立的小 crate。
+migration = { path = "migration" }
+entity = { path = "entity" }
+rust-embed = "8"
+serde.workspace = true
+validator.workspace = true
+utoipa.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+# TestClient 在 silent 的 test feature 里。
+silent = {{ silent_dev }}
+tempfile = "3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[features]
+# 生成代码的子命令：`cargo run --features codegen -- generate entity`
+codegen = ["silent-boot/codegen"]
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
