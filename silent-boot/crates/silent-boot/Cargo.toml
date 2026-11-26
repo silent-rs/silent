@@ -10,9 +10,13 @@ repository.workspace = true
 publish.workspace = true
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "cli"]
 sqlite = ["sea-orm/sqlx-sqlite", "sea-orm-migration/sqlx-sqlite"]
+# 命令行解析和 `migrate` 子命令。生产镜像里的迁移 Job 也要用它，所以默认开启。
 cli = ["dep:clap"]
+# `generate entity`：sea-orm-codegen 和库结构发现。只在开发时需要，默认不开。
+# 体积数据见 docs/m0-verification.md 的 V17。
+codegen = ["cli", "dep:sea-orm-codegen", "dep:sea-schema", "dep:sqlx"]
 
 [dependencies]
 silent.workspace = true
@@ -27,10 +31,18 @@ scru128.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 clap = { workspace = true, optional = true }
+sea-orm-codegen = { workspace = true, optional = true }
+sea-schema = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
 
 [dev-dependencies]
 silent = { workspace = true, features = ["static", "test"] }
 tempfile = "3"
 
+# 验证用的小应用：演示子命令命中后不启动服务。M1 会换成脚手架模板里的 main.rs。
+[[bin]]
+name = "sb-sample"
+path = "src/bin/sb_sample.rs"
+required-features = ["cli"]
 [lints.rust]
 unsafe_code = "forbid"

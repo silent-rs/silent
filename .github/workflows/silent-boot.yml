@@ -1,0 +1,64 @@
+name: silent-boot
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "silent-boot/**"
+      - "silent/**"
+      - ".github/workflows/silent-boot.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "silent-boot/**"
+      - "silent/**"
+      - ".github/workflows/silent-boot.yml"
+
+jobs:
+  check:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest ]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: silent-boot
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup toolchain install stable
+      - uses: Swatinem/rust-cache@v1
+        with:
+          workspaces: silent-boot
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Check code format
+        run: cargo fmt --all -- --check
+      - name: Lint rust sources with all features
+        run: cargo clippy -p silent-boot --all-targets --all-features -- -D warnings
+      - name: Lint rust sources with the core feature set
+        run: cargo clippy -p silent-boot --all-targets --no-default-features --features sqlite -- -D warnings
+      - name: Execute rust tests
+        run: cargo nextest run -p silent-boot --all-features
+
+  msrv:
+    strategy:
+      matrix:
+        platform: [ ubuntu-latest ]
+    runs-on: ${{ matrix.platform }}
+    defaults:
+      run:
+        working-directory: silent-boot
+    steps:
+      - uses: actions/checkout@v4
+      # SeaORM 2.0 要求的最低版本，见 silent-boot/PLAN.md 的"技术选型"。
+      - name: Install Rust 1.94
+        run: rustup toolchain install 1.94 --profile minimal
+      - uses: Swatinem/rust-cache@v1
+        with:
+          workspaces: silent-boot
+      - name: Check with the minimum supported Rust version
+        run: cargo +1.94 check -p silent-boot --all-features --all-targets

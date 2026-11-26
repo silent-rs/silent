@@ -145,7 +145,7 @@
 | R11 | SQLite 的 ALTER 能力有限，MySQL 的 DDL 不能回滚 | 同一条迁移在三种库上行为不一致，失败可能留下半成品 | 三库 CI 矩阵；统一在事务中执行；一条迁移只做一件事；破坏性操作必须标记；`status` 与 `repair` 兜底 |
 | R12 | SeaORM 迁移器不加锁，迁移记录没有校验和 | 多副本会重复执行；改动历史迁移无法发现 | 框架加执行锁与审计表；`migrate status` 提示已执行迁移被修改 |
 | R13 | 包入 sea-orm-cli 的能力后，生成的实体依赖 `sea-orm-codegen` 与 SeaORM 版本一致 | 版本错开时生成的实体可能编不过 | 命令在应用的依赖图里执行；M0 对比两者结果（design.md §16 V14） |
-| R14 | `cli` feature 默认开启会让生产二进制多带代码生成的依赖 | 体积和编译时间增加 | M0 实测（design.md §16 V17）；影响明显就改成独立的开发用 bin target |
+| R14 | 命令行和代码生成的依赖会进生产二进制 | 体积和编译时间增加 | M0 已量化：开启 LTO 和 strip 后，`cli` 约 1.4 MiB，代码生成约 2 MiB。代码生成已拆到默认不开的 `codegen` feature；release profile 要配置 LTO 和 strip |
 
 ## 8. 决策记录
 

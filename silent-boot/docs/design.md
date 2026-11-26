@@ -375,11 +375,11 @@ silent-boot dev                                 # 另开一个终端：构建、
 
 **实现方式**
 
-- 能力写成 `silent-boot` crate 里的库函数，应用二进制在入口处分派（§3）。迁移命令属于核心，始终可用；`generate entity`、`generate module`、`check` 放在 `cli` feature 里。
+- 能力写成 `silent-boot` crate 里的库函数，应用二进制在入口处分派（§3）。`migrate` 子命令放在 `cli` feature 里，默认开启；`generate entity`、`generate module`、`check` 放在 `codegen` feature 里，默认不开，开发和 CI 用 `--features codegen` 打开。
 - 需要读写应用代码的命令都在应用的依赖图里执行，也就是 `cargo run -- <子命令>`。原因有两个：迁移列表只存在于应用代码里；实体和模块的生成器必须与该应用使用的 SeaORM、框架版本一致。sea-orm-cli 自己也把 `sea-orm-codegen` 锁在同一版本（已核对其依赖声明），版本错开时生成的实体可能编不过。
 - 全局工具 `silent-boot` 很薄，只做两件事：`new`（脚手架模板随工具内嵌，工具与框架同步发版）；在应用目录里把其余子命令转发为 `cargo run --quiet -- <子命令>`。
 - `dev` 的运行循环放在全局工具里，不能是应用的子命令：它要反复重建并重启应用，不能和被重启的服务是同一个可执行文件（Windows 上无法覆盖正在运行的 exe）。
-- `cli` feature 默认开启，生产二进制因此多带代码生成的依赖。体积和编译时间的影响在 M0 实测（§16 V17），影响明显就改成独立的开发用 bin target。
+- M0 实测了 feature 的代价（`m0-verification.md` 的 F10）：开启 LTO 和 strip 后，`cli`（clap 一族）让示例二进制增加约 1.4 MiB，代码生成再增加约 2 MiB。所以把两者拆开：`cli` 默认开启，发布流程里的迁移 Job 要用它；`codegen` 默认不开，只有开发时生成实体才需要。
 - 与 sea-orm-cli 的关系是"日常取代，保留后门"。应用的 `migration/` 仍是标准的 SeaORM 迁移 crate，sea-orm-cli 照样能操作；对照表没有覆盖到的选项（seaography、ER 图、前端格式实体等）继续用 sea-orm-cli。区别是 sea-orm-cli 不会执行框架迁移，也不带执行锁。
 
 **`generate entity` 的固定约定**
@@ -431,7 +431,7 @@ silent-boot dev                                 # 另开一个终端：构建、
 | 操作 | SQLite | MySQL 8 | PostgreSQL |
 |---|---|---|---|
 | 加列 | 支持 | 支持，多数可即时完成 | 支持 |
-| 改列类型或约束 | 受限，多数情况要重建表 | 支持，可能重建表 | 支持 |
+| 改列类型或约束 | 受限：要重建表。sea-query 生成这类语句时直接 panic，不是返回错误（M0 实测） | 支持，可能重建表 | 支持 |
 | 删列 | 3.35.0 起支持 | 支持 | 支持 |
 | 重命名表或列 | 支持 | 支持 | 支持 |
 | DDL 能否放进事务 | 能 | 不能，隐式提交 | 能 |
@@ -717,7 +717,7 @@ L3 的前置条件：Silent 的路由树在启动时冻结（v2.15 起预构建�
 
 | 入口 | 前提 | 命令 |
 |---|---|---|
-| 应用内子命令 | 无，随应用编译 | `cargo run -- migrate up`、`cargo run -- generate entity`、`cargo run -- generate module`、`cargo run -- check` |
+| 应用内子命令 | 无，随应用编译；生成代码的子命令还要 `--features codegen` | `cargo run -- migrate up`、`cargo run --features codegen -- generate entity`、`cargo run --features codegen -- generate module`、`cargo run -- check` |
 | 全局工具 | `cargo install silent-boot-cli` | `silent-boot new`、`silent-boot dev`；在应用目录里，其余子命令被转发为 `cargo run --quiet -- <子命令>` |
 | Makefile | 模板自带 | `make dev`、`make migrate`、`make entity`、`make check` |
 

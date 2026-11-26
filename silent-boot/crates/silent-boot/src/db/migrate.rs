@@ -54,7 +54,7 @@ pub enum MigrateError {
 }
 
 /// 一组迁移（框架或应用）的执行结果。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct GroupReport {
     /// 执行前待执行的迁移。
     pub pending_before: Vec<String>,
@@ -69,7 +69,7 @@ impl GroupReport {
 }
 
 /// 一次 `migrate up` 的结果。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct RunReport {
     /// 框架迁移这一组。
     pub framework: GroupReport,
@@ -90,7 +90,7 @@ impl RunReport {
 }
 
 /// 一组迁移的状态，供 `migrate status` 使用。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct GroupStatus {
     /// `framework` 或 `app`。
     pub scope: &'static str,

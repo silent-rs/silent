@@ -1,6 +1,7 @@
 //! 集成测试共用的夹具：临时 SQLite 库和样例应用的迁移。
 #![allow(dead_code)]
 
+pub mod alter;
 pub mod app;
 #[path = "entity/lib.rs"]
 #[allow(unused_imports)]
@@ -22,8 +23,12 @@ pub async fn temp_db() -> (tempfile::TempDir, DatabaseConnection) {
 
 /// 再连一次同一个目录下的库，用来模拟另一个进程。
 pub async fn connect_again(dir: &tempfile::TempDir) -> DatabaseConnection {
-    let url = format!("sqlite://{}?mode=rw", dir.path().join("test.db").display());
-    connect(&url).await
+    connect(&url(dir)).await
+}
+
+/// 临时库的地址。给需要自己建连接的代码用，比如 `generate entity`。
+pub fn url(dir: &tempfile::TempDir) -> String {
+    format!("sqlite://{}?mode=rw", dir.path().join("test.db").display())
 }
 
 async fn connect(url: &str) -> DatabaseConnection {
