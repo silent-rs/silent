@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use silent_boot_cli::dev::{CargoBuild, DevLoop};
+use silent_boot_cli::dev::{CargoBuild, DevLoop, Startup};
 use silent_boot_cli::events::Events;
 use silent_boot_cli::new::{self, Database, DependencySource};
 use silent_boot_cli::watch::SourceWatcher;
@@ -53,6 +53,9 @@ enum Command {
         /// 额外监听的目录或文件，逗号分隔。
         #[arg(long = "watch", value_delimiter = ',')]
         watch: Vec<PathBuf>,
+        /// 启动前先执行一次 `migrate up`。默认不执行，有待执行的迁移时只提示。
+        #[arg(long)]
+        migrate: bool,
     },
 }
 
@@ -67,7 +70,12 @@ async fn main() -> anyhow::Result<()> {
             path_framework,
             path_silent,
         } => new_app(name, db, git, force, path_framework, path_silent),
-        Command::Dev { bin, port, watch } => dev(bin, port, watch).await,
+        Command::Dev {
+            bin,
+            port,
+            watch,
+            migrate,
+        } => dev(bin, port, watch, migrate).await,
     }
 }
 
@@ -116,7 +124,12 @@ fn new_app(
     Ok(())
 }
 
-async fn dev(bin: Option<String>, port: u16, watch: Vec<PathBuf>) -> anyhow::Result<()> {
+async fn dev(
+    bin: Option<String>,
+    port: u16,
+    watch: Vec<PathBuf>,
+    migrate: bool,
+) -> anyhow::Result<()> {
     let app_dir = std::env::current_dir()?;
     let build = CargoBuild::new(app_dir.clone(), bin)
         .await
@@ -139,11 +152,23 @@ async fn dev(bin: Option<String>, port: u16, watch: Vec<PathBuf>) -> anyhow::Res
     files.retain(|file| file.exists());
     let mut watcher = SourceWatcher::start(&dirs, &files)?;
     let events = Arc::new(Events::bind(([127, 0, 0, 1], port).into()).await?);
+    let script_url = events.script_url();
     println!(
-        "[dev] 页面里引入这个脚本，后端重启后就会自动刷新：{}",
+        "[dev] 开发构建的应用会自动把这个脚本注入 HTML，后端重启后页面自己刷新：{}",
         events.script_url()
     );
+    // 迁移相关的子命令是应用自己的，只对 silent-boot 应用（目录里有 silent-boot.toml）使用。
+    let startup = if app_dir.join("silent-boot.toml").is_file() {
+        Startup {
+            migrate,
+            hint_pending: !migrate,
+        }
+    } else {
+        Startup::NONE
+    };
     DevLoop::new(build, app_dir, events)
+        .envs(vec![("SB_DEV_RELOAD_URL".to_owned(), script_url)])
+        .startup(startup)
         .run(watcher.changes(), async {
             let _ = tokio::signal::ctrl_c().await;
         })

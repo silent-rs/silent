@@ -21,6 +21,8 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// 构建步骤：返回要运行的可执行文件，失败时返回要给人看的错误。
 pub trait Builder: Send + Sync {
     fn build(&self) -> BoxFuture<'_, Result<PathBuf, String>>;
+    /// 构建出来的可执行文件会在哪里。启动前的子命令直接运行它，不再经过 cargo。
+    fn bin_path(&self) -> PathBuf;
 }
 
 /// `cargo build --bin <bin>`。
@@ -58,17 +60,40 @@ impl CargoBuild {
                         .as_array()
                         .is_some_and(|kinds| kinds.iter().any(|kind| kind == "bin"))
                 };
-                metadata["packages"][0]["targets"]
-                    .as_array()
-                    .and_then(|targets| targets.iter().find(|target| is_bin(target)))
-                    .and_then(|target| target["name"].as_str())
+                let bins = |package: &serde_json::Value| -> Vec<String> {
+                    package["targets"]
+                        .as_array()
+                        .map(|targets| {
+                            targets
+                                .iter()
+                                .filter(|target| is_bin(target))
+                                .filter_map(|target| target["name"].as_str())
+                                .map(str::to_owned)
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                };
+                // 应用的 workspace 里还有 migration、entity 这些只有库的包：先看清单就在当前目录里的那个包，
+                // 再退到任何有可执行目标的包。
+                let packages = metadata["packages"].as_array().cloned().unwrap_or_default();
+                let root = std::fs::canonicalize(&app_dir).unwrap_or_else(|_| app_dir.clone());
+                let mut packages = packages;
+                packages.sort_by_key(|package| {
+                    PathBuf::from(package["manifest_path"].as_str().unwrap_or_default())
+                        .parent()
+                        .map(|dir| dir != root)
+                        .unwrap_or(true)
+                });
+                packages
+                    .iter()
+                    .filter_map(|package| bins(package).into_iter().next())
+                    .next()
                     .ok_or_else(|| {
                         format!(
                             "`{}` 里没有可执行目标，用 --bin 指定一个",
                             app_dir.display()
                         )
                     })?
-                    .to_owned()
             }
         };
         Ok(Self {
@@ -92,6 +117,10 @@ impl CargoBuild {
 }
 
 impl Builder for CargoBuild {
+    fn bin_path(&self) -> PathBuf {
+        CargoBuild::bin_path(self)
+    }
+
     fn build(&self) -> BoxFuture<'_, Result<PathBuf, String>> {
         Box::pin(async move {
             let output = Command::new("cargo")
@@ -108,6 +137,33 @@ impl Builder for CargoBuild {
     }
 }
 
+/// 启动应用之前要做的事，由应用的子命令完成（应用得是 silent-boot 应用，目录里有 `silent-boot.toml`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Startup {
+    /// 启动前执行一次 `migrate up`。
+    pub migrate: bool,
+    /// 启动前查一次有没有待执行的迁移，有就提示对应的命令。
+    pub hint_pending: bool,
+}
+
+impl Startup {
+    /// 都不做。
+    pub const NONE: Self = Self {
+        migrate: false,
+        hint_pending: false,
+    };
+    /// 只提示，不代劳。
+    pub const HINT: Self = Self {
+        migrate: false,
+        hint_pending: true,
+    };
+    /// 启动前执行一次迁移。
+    pub const MIGRATE: Self = Self {
+        migrate: true,
+        hint_pending: true,
+    };
+}
+
 /// 运行循环。
 pub struct DevLoop<B: Builder> {
     builder: B,
@@ -115,6 +171,8 @@ pub struct DevLoop<B: Builder> {
     events: Arc<Events>,
     grace: Duration,
     debounce: Duration,
+    envs: Vec<(String, String)>,
+    startup: Startup,
 }
 
 impl<B: Builder> DevLoop<B> {
@@ -125,7 +183,21 @@ impl<B: Builder> DevLoop<B> {
             events,
             grace: Duration::from_secs(5),
             debounce: Duration::from_millis(150),
+            envs: Vec::new(),
+            startup: Startup::NONE,
         }
+    }
+
+    /// 传给应用进程的环境变量。
+    pub fn envs(mut self, envs: Vec<(String, String)>) -> Self {
+        self.envs = envs;
+        self
+    }
+
+    /// 第一次构建成功之后、启动应用之前要做的事。
+    pub fn startup(mut self, startup: Startup) -> Self {
+        self.startup = startup;
+        self
     }
 
     /// 停掉旧进程时，先发 SIGTERM，过了这段时间还没退出就强杀。
@@ -178,14 +250,41 @@ impl<B: Builder> DevLoop<B> {
     }
 
     async fn start(&self) -> Option<Child> {
-        match self.builder.build().await {
-            Ok(bin) => spawn(&bin, &self.cwd),
+        let bin = match self.builder.build().await {
+            Ok(bin) => bin,
             Err(err) => {
                 eprintln!("[dev] 构建失败：\n{err}");
                 self.events.publish("build-error", &err);
-                None
+                return None;
+            }
+        };
+        if !self.before_start().await {
+            return None;
+        }
+        spawn(&bin, &self.cwd, &self.envs)
+    }
+
+    /// 第一次启动应用之前：按需执行迁移，提示还没执行的迁移。返回 `false` 表示不要启动应用。
+    async fn before_start(&self) -> bool {
+        let bin = self.builder.bin_path();
+        if self.startup.migrate {
+            let ok = run_subcommand(&bin, &self.cwd, &self.envs, &["migrate", "up"]).await;
+            if !ok {
+                eprintln!("[dev] 迁移没有执行成功，应用没有启动；修好迁移之后再保存一次文件");
+                self.events
+                    .publish("build-error", "migrate up failed, see the terminal");
+                return false;
             }
         }
+        if self.startup.hint_pending
+            && let Some(pending) = pending_migrations(&bin, &self.cwd, &self.envs).await
+        {
+            println!(
+                "[dev] 有 {pending} 条迁移还没执行。在另一个终端里运行 `cargo run -- migrate up`，\
+                 或者改用 `silent-boot dev --migrate`，让 dev 在启动前执行"
+            );
+        }
+        true
     }
 
     async fn restart(&self, child: &mut Option<Child>) {
@@ -195,7 +294,7 @@ impl<B: Builder> DevLoop<B> {
             stop(&mut old, self.grace).await;
         }
         match self.builder.build().await {
-            Ok(bin) => match spawn(&bin, &self.cwd) {
+            Ok(bin) => match spawn(&bin, &self.cwd, &self.envs) {
                 Some(new) => {
                     *child = Some(new);
                     let elapsed = started.elapsed().as_millis();
@@ -214,10 +313,54 @@ impl<B: Builder> DevLoop<B> {
     }
 }
 
+/// 用应用自己的子命令做一件事，输出直接打到终端。返回它是否成功。
+async fn run_subcommand(bin: &Path, cwd: &Path, envs: &[(String, String)], args: &[&str]) -> bool {
+    let mut command = Command::new(bin);
+    command
+        .current_dir(cwd)
+        .args(args)
+        .envs(envs.iter().map(|(k, v)| (k, v)));
+    // 输出直接接到终端，迁移执行了什么一眼能看到。
+    command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+    match command.status().await {
+        Ok(status) if status.success() => true,
+        Ok(status) => {
+            eprintln!("[dev] `{}` 以 {status} 退出", args.join(" "));
+            false
+        }
+        Err(e) => {
+            eprintln!("[dev] 运行 {} 失败：{e}", args.join(" "));
+            false
+        }
+    }
+}
+
+/// 用 `migrate status --json` 数一数还有多少条迁移没执行。查不出来时返回 `None`，不打扰。
+async fn pending_migrations(bin: &Path, cwd: &Path, envs: &[(String, String)]) -> Option<usize> {
+    let output = Command::new(bin)
+        .current_dir(cwd)
+        .args(["migrate", "status", "--json"])
+        .envs(envs.iter().map(|(k, v)| (k, v)))
+        .stderr(Stdio::null())
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let groups: Vec<serde_json::Value> = serde_json::from_slice(&output.stdout).ok()?;
+    let pending = groups
+        .iter()
+        .map(|group| group["pending"].as_array().map(Vec::len).unwrap_or(0))
+        .sum::<usize>();
+    (pending > 0).then_some(pending)
+}
+
 /// 启动应用。标准输出和错误输出直接接到当前终端。
-fn spawn(bin: &Path, cwd: &Path) -> Option<Child> {
+fn spawn(bin: &Path, cwd: &Path, envs: &[(String, String)]) -> Option<Child> {
     match Command::new(bin)
         .current_dir(cwd)
+        .envs(envs.iter().map(|(k, v)| (k, v)))
         // 循环自己被中断时，别把应用留在后台。
         .kill_on_drop(true)
         .spawn()

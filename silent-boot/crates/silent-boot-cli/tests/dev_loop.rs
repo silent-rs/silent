@@ -25,6 +25,10 @@ impl Builder for JustRun {
     fn build(&self) -> BoxFuture<'_, Result<PathBuf, String>> {
         Box::pin(async move { Ok(self.0.clone()) })
     }
+
+    fn bin_path(&self) -> PathBuf {
+        self.0.clone()
+    }
 }
 
 /// 一个只会发请求、按标记读响应的小客户端，记得已经读到哪里。
