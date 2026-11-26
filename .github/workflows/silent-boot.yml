@@ -41,6 +41,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - name: Lint rust sources with the core feature set
         run: cargo clippy -p silent-boot --all-targets --no-default-features --features sqlite -- -D warnings
+      # MySQL 与 PostgreSQL 只保证能编译，不在 CI 里连真实的数据库（PLAN.md 的 D14）。
+      - name: Lint rust sources with the MySQL and PostgreSQL features
+        run: cargo clippy -p silent-boot --all-targets --no-default-features --features mysql,postgres,cli -- -D warnings
       - name: Execute rust tests
         run: cargo nextest run --workspace --all-features
 

@@ -43,7 +43,7 @@ async fn v15_framework_and_app_migrators_share_one_database() {
     let runner = MigrationRunner::new("v15");
 
     // 执行前：两组都是待执行，只读查询不会建表。
-    let before = MigrationRunner::status::<FrameworkMigrator, AppMigrator>(&db)
+    let before = MigrationRunner::status(&db, &FrameworkMigrator, &AppMigrator)
         .await
         .expect("status");
     assert_eq!(before[0].scope, "framework");
@@ -54,7 +54,7 @@ async fn v15_framework_and_app_migrators_share_one_database() {
     assert!(!table_exists(&db, "seaql_migrations").await);
 
     let report = runner
-        .up::<FrameworkMigrator, AppMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
         .await
         .expect("migrate up");
     assert_eq!(report.framework.applied.len(), 1);
@@ -82,14 +82,14 @@ async fn v15_framework_and_app_migrators_share_one_database() {
 
     // 再执行一次：没有待执行的迁移，数据不会重复。
     let again = runner
-        .up::<FrameworkMigrator, AppMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
         .await
         .expect("migrate up again");
     assert!(again.is_empty());
     assert_eq!(article_rows(&db).await, 2);
 
     // 框架迁移先于应用迁移执行：两张跟踪表各自的记录如下。
-    let after = MigrationRunner::status::<FrameworkMigrator, AppMigrator>(&db)
+    let after = MigrationRunner::status(&db, &FrameworkMigrator, &AppMigrator)
         .await
         .expect("status after");
     assert!(after.iter().all(|group| group.pending.is_empty()));
@@ -113,7 +113,7 @@ async fn v13_failed_migration_rolls_back_on_sqlite_only_inside_transaction() {
     // 用 migration! 声明的迁移在事务里执行：失败后表结构不变，跟踪表里也没有这条记录。
     let (_dir, db) = common::temp_db().await;
     let err = runner
-        .up::<FrameworkMigrator, TxMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &TxMigrator, None)
         .await
         .expect_err("should fail");
     assert!(matches!(err, MigrateError::Db(_)), "{err:?}");
@@ -134,7 +134,7 @@ async fn v13_failed_migration_rolls_back_on_sqlite_only_inside_transaction() {
     // 对照：不包事务时，同一条迁移失败后列已经加上，跟踪表里却没有记录。
     let (_dir, db) = common::temp_db().await;
     let err = runner
-        .up::<FrameworkMigrator, NoTxMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &NoTxMigrator, None)
         .await
         .expect_err("should fail");
     assert!(matches!(err, MigrateError::Db(_)), "{err:?}");
@@ -154,8 +154,8 @@ async fn v6_lock_lets_only_one_runner_apply_migrations() {
     let runner_b = MigrationRunner::new("v6-b").lock_timeout(Duration::from_secs(10));
 
     let (report_a, report_b) = tokio::join!(
-        runner_a.up::<FrameworkMigrator, AppMigrator>(&db_a, None),
-        runner_b.up::<FrameworkMigrator, AppMigrator>(&db_b, None),
+        runner_a.up(&db_a, &FrameworkMigrator, &AppMigrator, None),
+        runner_b.up(&db_b, &FrameworkMigrator, &AppMigrator, None),
     );
     SEED_DELAY_MS.store(0, Ordering::Relaxed);
 

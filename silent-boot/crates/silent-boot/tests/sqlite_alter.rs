@@ -35,7 +35,7 @@ async fn v13_sqlite_can_add_rename_and_drop_columns() {
 
     let (_dir, db) = common::temp_db().await;
     runner
-        .up::<FrameworkMigrator, AddColumnMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AddColumnMigrator, None)
         .await
         .expect("add column");
     assert!(
@@ -46,7 +46,7 @@ async fn v13_sqlite_can_add_rename_and_drop_columns() {
 
     let (_dir, db) = common::temp_db().await;
     runner
-        .up::<FrameworkMigrator, RenameColumnMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &RenameColumnMigrator, None)
         .await
         .expect("rename column");
     let columns = column_names(&db, "article").await;
@@ -55,7 +55,7 @@ async fn v13_sqlite_can_add_rename_and_drop_columns() {
 
     let (_dir, db) = common::temp_db().await;
     runner
-        .up::<FrameworkMigrator, DropColumnMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &DropColumnMigrator, None)
         .await
         .expect("drop column");
     assert!(

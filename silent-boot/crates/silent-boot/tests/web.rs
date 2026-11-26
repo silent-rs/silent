@@ -162,7 +162,7 @@ fn spa_fallback(
 async fn setup() -> (tempfile::TempDir, DbRegistry) {
     let (dir, db) = common::temp_db().await;
     MigrationRunner::new("web")
-        .up::<FrameworkMigrator, AppMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
         .await
         .expect("migrate");
     (dir, DbRegistry::new(db))

@@ -30,7 +30,7 @@ fn names(files: &[std::path::PathBuf]) -> Vec<String> {
 async fn v14_generate_entity_matches_the_baseline_command() {
     let (dir, db) = common::temp_db().await;
     MigrationRunner::new("v14")
-        .up::<FrameworkMigrator, AppMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
         .await
         .expect("migrate");
     let out = tempfile::tempdir().expect("temp dir");

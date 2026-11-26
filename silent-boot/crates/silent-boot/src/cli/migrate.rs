@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::db::migrate::{GroupStatus, MigrateError, MigrationRunner, MigratorTrait};
+use crate::db::migrate::{GroupStatus, MigrateError, MigrationRunner, Migrator};
 use sea_orm::DatabaseConnection;
 
 /// 迁移器 `src/lib.rs` 里登记 `mod` 声明的受管区块起点。
@@ -156,21 +156,21 @@ fn line_index(lines: &[String], marker: &str) -> Option<usize> {
 }
 
 /// `migrate up`：加锁后先执行框架迁移，再执行应用迁移。
-pub async fn up<F, A>(
+pub async fn up(
     db: &DatabaseConnection,
+    framework: &dyn Migrator,
+    app: &dyn Migrator,
     steps: Option<u32>,
     dry_run: bool,
-) -> Result<(), MigrateError>
-where
-    F: MigratorTrait,
-    A: MigratorTrait,
-{
+) -> Result<(), MigrateError> {
     if dry_run {
-        let groups = MigrationRunner::status::<F, A>(db).await?;
+        let groups = MigrationRunner::status(db, framework, app).await?;
         print_groups(&groups, false);
         return Ok(());
     }
-    let report = MigrationRunner::default().up::<F, A>(db, steps).await?;
+    let report = MigrationRunner::default()
+        .up(db, framework, app, steps)
+        .await?;
     for (scope, applied) in [
         ("framework", &report.framework.applied),
         ("app", &report.app.applied),
@@ -184,12 +184,13 @@ where
 }
 
 /// `migrate status`：只读查询，不建表、不加锁。
-pub async fn status<F, A>(db: &DatabaseConnection, json: bool) -> Result<(), MigrateError>
-where
-    F: MigratorTrait,
-    A: MigratorTrait,
-{
-    let groups = MigrationRunner::status::<F, A>(db).await?;
+pub async fn status(
+    db: &DatabaseConnection,
+    framework: &dyn Migrator,
+    app: &dyn Migrator,
+    json: bool,
+) -> Result<(), MigrateError> {
+    let groups = MigrationRunner::status(db, framework, app).await?;
     if json {
         // `GroupStatus` 只有字符串和字符串数组，序列化不会失败。
         println!(

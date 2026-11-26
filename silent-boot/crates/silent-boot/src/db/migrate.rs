@@ -10,6 +10,7 @@
 
 pub mod framework;
 
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use async_trait::async_trait;
@@ -35,6 +36,122 @@ impl MigratorTrait for FrameworkMigrator {
 
     fn migration_table_name() -> DynIden {
         Alias::new("sb_migrations").into_iden()
+    }
+}
+
+/// 没有任何迁移的迁移器：应用自己没有迁移，或者只需要框架迁移时用它。
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NoMigrations;
+
+impl MigratorTrait for NoMigrations {
+    fn migrations() -> Vec<Box<dyn MigrationTrait>> {
+        Vec::new()
+    }
+}
+
+/// [`MigratorTrait`] 的对象安全视图。
+///
+/// [`MigratorTrait`] 的方法都是带泛型的关联函数，没法做成 `dyn`。启动器和命令行需要在编译期
+/// 不知道应用迁移器类型的地方执行迁移，所以统一走这里。任何实现了 [`MigratorTrait`] 的类型都自动实现它。
+#[async_trait]
+pub trait Migrator: Send + Sync {
+    /// 执行待执行的迁移，`steps` 限制最多执行几条。会建跟踪表。
+    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr>;
+    /// 待执行的迁移名，会建跟踪表。
+    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+    /// 已执行的迁移名，不建表、不加锁。
+    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+    /// 待执行的迁移名，不建表、不加锁。跟踪表还不存在时，全部迁移都算待执行。
+    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr>;
+}
+
+#[async_trait]
+impl<T: MigratorTrait + Sync + 'static> Migrator for T {
+    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
+        T::up(db, steps).await
+    }
+
+    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        Ok(migration_names(T::get_pending_migrations(db).await?))
+    }
+
+    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        Ok(migration_names(
+            T::get_applied_migrations_read_only(db).await?,
+        ))
+    }
+
+    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        Ok(migration_names(
+            T::get_pending_migrations_read_only(db).await?,
+        ))
+    }
+}
+
+#[async_trait]
+impl Migrator for AnyMigrator {
+    async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
+        self.0.up(db, steps).await
+    }
+
+    async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.pending(db).await
+    }
+
+    async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.applied(db).await
+    }
+
+    async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.pending_read_only(db).await
+    }
+}
+
+/// 持有任意一个迁移器：启动器和命令行用它保存框架迁移器与应用迁移器。
+#[derive(Clone)]
+pub struct AnyMigrator(Arc<dyn Migrator>);
+
+impl std::fmt::Debug for AnyMigrator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AnyMigrator")
+    }
+}
+
+impl AnyMigrator {
+    /// 包一个迁移器。实现了 [`MigratorTrait`] 的类型都可以直接传进来。
+    pub fn new<M: Migrator + 'static>(migrator: M) -> Self {
+        Self(Arc::new(migrator))
+    }
+
+    /// 框架自己的迁移器。
+    pub fn framework() -> Self {
+        Self::new(FrameworkMigrator)
+    }
+
+    /// 见 [`Migrator::up`]。
+    pub async fn up(&self, db: &DatabaseConnection, steps: Option<u32>) -> Result<(), DbErr> {
+        self.0.up(db, steps).await
+    }
+
+    /// 见 [`Migrator::pending`]。
+    pub async fn pending(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.pending(db).await
+    }
+
+    /// 见 [`Migrator::applied`]。
+    pub async fn applied(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.applied(db).await
+    }
+
+    /// 见 [`Migrator::pending_read_only`]。
+    pub async fn pending_read_only(&self, db: &DatabaseConnection) -> Result<Vec<String>, DbErr> {
+        self.0.pending_read_only(db).await
+    }
+}
+
+impl<T: MigratorTrait + Sync + 'static> From<T> for AnyMigrator {
+    fn from(migrator: T) -> Self {
+        Self::new(migrator)
     }
 }
 
@@ -129,48 +246,49 @@ impl MigrationRunner {
     /// 先执行框架迁移，再执行应用迁移，全程持有执行锁。
     ///
     /// `steps` 对两组分别生效。任何一组失败都会立刻返回，已经执行的迁移不会回滚。
-    pub async fn up<F, A>(
+    pub async fn up(
         &self,
         db: &DatabaseConnection,
+        framework: &dyn Migrator,
+        app: &dyn Migrator,
         steps: Option<u32>,
-    ) -> Result<RunReport, MigrateError>
-    where
-        F: MigratorTrait,
-        A: MigratorTrait,
-    {
+    ) -> Result<RunReport, MigrateError> {
         let options = LockOptions {
             timeout: self.lock_timeout,
             ..LockOptions::default()
         };
         let guard = lock::acquire(db, LOCK_NAME, &self.instance, &options).await?;
-        let framework = self.run_group::<F>(db, "framework", steps).await?;
-        let app = self.run_group::<A>(db, "app", steps).await?;
+        let framework = self.run_group(db, "framework", framework, steps).await?;
+        let app = self.run_group(db, "app", app, steps).await?;
         drop(guard);
         Ok(RunReport { framework, app })
     }
 
     /// 只读查询两组迁移的状态：不建表、不加锁。
-    pub async fn status<F, A>(db: &DatabaseConnection) -> Result<Vec<GroupStatus>, MigrateError>
-    where
-        F: MigratorTrait,
-        A: MigratorTrait,
-    {
+    pub async fn status(
+        db: &DatabaseConnection,
+        framework: &dyn Migrator,
+        app: &dyn Migrator,
+    ) -> Result<Vec<GroupStatus>, MigrateError> {
         Ok(vec![
-            Self::group_status::<F>(db, "framework").await?,
-            Self::group_status::<A>(db, "app").await?,
+            Self::group_status(db, "framework", framework).await?,
+            Self::group_status(db, "app", app).await?,
         ])
     }
 
-    async fn run_group<M: MigratorTrait>(
+    async fn run_group(
         &self,
         db: &DatabaseConnection,
         scope: &str,
+        migrator: &dyn Migrator,
         steps: Option<u32>,
     ) -> Result<GroupReport, MigrateError> {
-        let pending_before = migration_names(M::get_pending_migrations(db).await?);
-        let result = M::up(db, steps).await;
+        let pending_before = migrator.pending(db).await?;
+        let result = migrator.up(db, steps).await;
         // 失败时也记录已经写入跟踪表的迁移，方便定位。
-        let applied = migration_names(M::get_applied_migrations(db).await?)
+        let applied = migrator
+            .applied(db)
+            .await?
             .into_iter()
             .filter(|name| pending_before.contains(name))
             .collect();
@@ -183,12 +301,13 @@ impl MigrationRunner {
         Ok(report)
     }
 
-    async fn group_status<M: MigratorTrait>(
+    async fn group_status(
         db: &DatabaseConnection,
         scope: &'static str,
+        migrator: &dyn Migrator,
     ) -> Result<GroupStatus, MigrateError> {
-        let applied = migration_names(M::get_applied_migrations_read_only(db).await?);
-        let pending = migration_names(M::get_pending_migrations_read_only(db).await?);
+        let applied = migrator.applied(db).await?;
+        let pending = migrator.pending_read_only(db).await?;
         Ok(GroupStatus {
             scope,
             applied,

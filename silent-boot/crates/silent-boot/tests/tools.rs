@@ -21,7 +21,7 @@ async fn write_sample_db() {
     let url = format!("sqlite://{path}?mode=rwc");
     let db = sea_orm::Database::connect(&url).await.expect("connect");
     let report = MigrationRunner::new("sample")
-        .up::<FrameworkMigrator, AppMigrator>(&db, None)
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
         .await
         .expect("migrate");
     println!("applied {} migrations to {path}", report.applied_total());

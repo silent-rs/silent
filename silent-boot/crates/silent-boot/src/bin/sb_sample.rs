@@ -42,15 +42,19 @@ async fn main() {
             }
             Migrate::Up { steps, dry_run } => {
                 let db = connect().await;
-                silent_boot::cli::migrate::up::<FrameworkMigrator, SampleMigrator>(
-                    &db, steps, dry_run,
+                silent_boot::cli::migrate::up(
+                    &db,
+                    &FrameworkMigrator,
+                    &SampleMigrator,
+                    steps,
+                    dry_run,
                 )
                 .await
                 .map_err(|e| e.to_string())
             }
             Migrate::Status { json } => {
                 let db = connect().await;
-                silent_boot::cli::migrate::status::<FrameworkMigrator, SampleMigrator>(&db, json)
+                silent_boot::cli::migrate::status(&db, &FrameworkMigrator, &SampleMigrator, json)
                     .await
                     .map_err(|e| e.to_string())
             }

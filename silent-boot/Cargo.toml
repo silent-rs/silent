@@ -45,3 +45,11 @@ sqlx = { version = "0.9.1", default-features = false, features = [
     "runtime-tokio",
     "sqlite",
 ] }
+toml = "0.9"
+futures = "0.3"
+mime_guess = "2"
+rust-embed = "8"
+validator = { version = "0.21", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "chrono"] }
+silent-openapi = { path = "../silent-openapi" }
+utoipa = { version = "6", features = ["chrono"] }
