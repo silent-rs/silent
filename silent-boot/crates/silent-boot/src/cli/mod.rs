@@ -14,6 +14,8 @@ pub mod repair;
 
 #[cfg(feature = "codegen")]
 pub mod generate;
+#[cfg(feature = "codegen")]
+pub mod module;
 
 use std::ffi::OsString;
 use std::io;
@@ -176,6 +178,22 @@ pub enum Generate {
         #[arg(long = "ignore-tables", value_delimiter = ',')]
         ignore_tables: Vec<String>,
         /// 只列出会变化的文件，不写入。
+        #[arg(long)]
+        dry_run: bool,
+        /// 覆盖配置里的数据库地址。
+        #[arg(long, value_name = "URL")]
+        database_url: Option<String>,
+    },
+    /// 按一张表生成 dto、service、api 三个文件，并登记到 `src/api/mod.rs` 等文件里。
+    /// 前提：迁移已经执行，实体已经生成。
+    Module {
+        /// 按哪张表生成，也是模块名。
+        #[arg(long = "table", value_name = "TABLE")]
+        table: String,
+        /// 已有的文件照样覆盖。默认不覆盖：生成出来的代码归应用所有。
+        #[arg(long)]
+        force: bool,
+        /// 只列出会写出、会变化的文件，不写入。
         #[arg(long)]
         dry_run: bool,
         /// 覆盖配置里的数据库地址。
@@ -475,6 +493,49 @@ pub async fn dispatch<W: io::Write>(
                 )?;
             }
         }
+        #[cfg(feature = "codegen")]
+        Command::Generate {
+            action:
+                Generate::Module {
+                    table,
+                    force,
+                    dry_run,
+                    database_url,
+                },
+        } => {
+            let url = match database_url {
+                Some(url) => url,
+                None => ctx.config()?.database.url,
+            };
+            let options = module::ModuleOptions {
+                table,
+                force,
+                dry_run,
+            };
+            let generated = module::generate_module(&url, &ctx.root, &options).await?;
+            writeln!(
+                out,
+                "module {}: {} file(s) {}",
+                generated.module,
+                generated.files.len(),
+                if dry_run { "to write" } else { "written" },
+            )?;
+            for file in &generated.files {
+                writeln!(
+                    out,
+                    "  {} {}",
+                    if dry_run { "would write" } else { "wrote" },
+                    file.display()
+                )?;
+            }
+            for file in &generated.skipped {
+                writeln!(
+                    out,
+                    "  kept      {} (already exists; use --force to overwrite)",
+                    file.display()
+                )?;
+            }
+        }
     }
     Ok(())
 }
@@ -493,6 +554,16 @@ impl From<migrate::GenerateError> for CommandError {
     fn from(err: migrate::GenerateError) -> Self {
         match err {
             migrate::GenerateError::Io(e) => CommandError::Io(e),
+            other => CommandError::Failed(other.to_string()),
+        }
+    }
+}
+
+#[cfg(feature = "codegen")]
+impl From<module::ModuleError> for CommandError {
+    fn from(err: module::ModuleError) -> Self {
+        match err {
+            module::ModuleError::Io(e) => CommandError::Io(e),
             other => CommandError::Failed(other.to_string()),
         }
     }

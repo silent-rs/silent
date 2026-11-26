@@ -35,6 +35,7 @@ silent-boot dev --migrate
 
 1. `cargo run -- migrate generate "create order"`，在生成的文件里写建表语句，然后 `cargo run -- migrate up`；
 2. `cargo run --features codegen -- generate entity`；
-3. 照着 `article` 写 dto、service、api，在 `src/api/mod.rs` 的 `routes()` 里挂上。
+3. `cargo run --features codegen -- generate module --table <表>`：按表生成 dto、service、api 并自动登记，
+   之后照着 `article` 按需修改；生成的代码归你所有，再生成不会覆盖（要覆盖加 `--force`）。
 
 规则见 `AGENTS.md`。

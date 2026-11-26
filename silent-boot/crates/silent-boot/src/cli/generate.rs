@@ -16,7 +16,7 @@ use sea_orm_codegen::{
     BannerVersion, BigIntegerType, DateTimeCrate, EntityFormat, EntityTransformer,
     EntityWriterContext, OutputFile, WithPrelude, WithSerde,
 };
-use sea_schema::sqlite::def::ColumnVisibility;
+use sea_schema::sqlite::def::{ColumnVisibility, TableDef};
 use sea_schema::sqlite::discovery::SchemaDiscovery;
 
 /// 默认跳过的表：两张迁移跟踪表，以及框架自己的执行记录表和锁表。
@@ -80,20 +80,8 @@ pub async fn generate_entity(
     output_dir: &Path,
     options: &EntityOptions,
 ) -> Result<Generated, GenerateError> {
-    if !database_url.starts_with("sqlite:") {
-        return Err(GenerateError::UnsupportedUrl(database_url.to_owned()));
-    }
-    let pool = sqlx::SqlitePool::connect(database_url)
-        .await
-        .map_err(|e| GenerateError::Discovery(e.to_string()))?;
-    let schema = SchemaDiscovery::new(pool)
-        .discover()
-        .await
-        .map_err(|e| GenerateError::Discovery(e.to_string()))?
-        .merge_indexes_into_table();
-
-    let table_stmts = schema
-        .tables
+    let tables = discover(database_url).await?;
+    let table_stmts = tables
         .into_iter()
         .filter(|table| options.tables.is_empty() || options.tables.contains(&table.name))
         .filter(|table| !DEFAULT_IGNORED_TABLES.contains(&table.name.as_str()))
@@ -163,9 +151,28 @@ pub async fn generate_entity(
     Ok(generated)
 }
 
+/// 读出库里的表结构，索引已经并进各表。`generate entity` 和 `generate module` 共用。
+pub(crate) async fn discover(database_url: &str) -> Result<Vec<TableDef>, GenerateError> {
+    if !database_url.starts_with("sqlite:") {
+        return Err(GenerateError::UnsupportedUrl(database_url.to_owned()));
+    }
+    let pool = sqlx::SqlitePool::connect(database_url)
+        .await
+        .map_err(|e| GenerateError::Discovery(e.to_string()))?;
+    let schema = SchemaDiscovery::new(pool)
+        .discover()
+        .await
+        .map_err(|e| GenerateError::Discovery(e.to_string()))?
+        .merge_indexes_into_table();
+    Ok(schema.tables)
+}
+
 /// 用 rustfmt 的默认配置格式化，等价于 sea-orm-cli 写完文件后对它执行 `rustfmt`。
-fn rustfmt(source: &str) -> Result<String, GenerateError> {
+pub(crate) fn rustfmt(source: &str) -> Result<String, GenerateError> {
     let mut child = Command::new("rustfmt")
+        // 从标准输入读源码时 rustfmt 默认按 2015 版解析，`async fn` 要 2018 及以后。
+        .arg("--edition")
+        .arg("2024")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
