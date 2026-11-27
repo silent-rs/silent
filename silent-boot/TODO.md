@@ -29,15 +29,15 @@
 - [x] 迁移对账容得下更新的数据库；执行锁显式释放；"旧版本建库后升级"和"两个进程同时迁移"的测试
 - [x] `generate module` 的第一步：按表生成 dto、service、api 并登记
 - [x] MSRV 1.94 下整个嵌套 workspace 和示例应用都能 `cargo check`
+- [x] 草稿 PR #236 在 GitHub 上跑过 CI：`check`、`msrv`、`example`，加上仓库原有的 `build-rust` 和 CodeQL，全部通过
 
 ### 待办
 
-- [ ] 等 GitHub 上的 CI 跑完（`check`、`msrv`、`example` 三个作业），处理失败的作业。这三个作业的步骤都在本机按
-      `.github/workflows/silent-boot.yml` 逐条跑过（F26、F27 就是这么发现的）；MSRV 那一步只在 21edcb9 上验证过
-- [ ] CI 通过、你看过一遍之后把草稿 PR 转为正式（`gh pr ready`）
+- [ ] 你看过一遍之后把草稿 PR 转为正式（`gh pr ready 236`）
 
 ## 用户还没定的事
 
+- [ ] PLAN.md 的 D15："待执行迁移"按"这个版本里有、跟踪表里还没有"算，待你确认
 - [ ] `deny.toml` 是否忽略 RUSTSEC-2026-0543（chrono unmaintained）。现在提交时用 `SKIP=cargo-deny` 跳过这一个钩子，其余钩子照常
 - [ ] M1 之后是否把 silent-boot 拆成独立仓库（PLAN.md 的 D1）
 
