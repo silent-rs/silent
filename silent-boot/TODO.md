@@ -4,11 +4,11 @@
 
 验证项全部有结论，实测发现 F1–F15 在 `docs/m0-verification.md`。
 
-## M1 核心底座（本地完成，待 CI）
+## M1 核心底座（已开草稿 PR，等 CI）
 
-完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F25 在 `docs/m1-verification.md`。
+完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F27 在 `docs/m1-verification.md`。
 
-分支：`feature/fullstack-framework`，从 `main`（d7fadde）迁出。8 个本地提交，**没有推送**。
+分支：`feature/fullstack-framework`，从 `main`（d7fadde）迁出，已推送，评审在草稿 PR 里进行。
 
 ### 已完成
 
@@ -32,12 +32,13 @@
 
 ### 待办
 
-- [ ] 推送分支、开草稿 PR，让 CI（含示例应用的作业）在 GitHub 上实际跑一遍——需要你确认后再推送
+- [ ] 等 GitHub 上的 CI 跑完（`check`、`msrv`、`example` 三个作业），处理失败的作业。这三个作业的步骤都在本机按
+      `.github/workflows/silent-boot.yml` 逐条跑过（F26、F27 就是这么发现的）；MSRV 那一步只在 21edcb9 上验证过
+- [ ] CI 通过、你看过一遍之后把草稿 PR 转为正式（`gh pr ready`）
 
 ## 用户还没定的事
 
 - [ ] `deny.toml` 是否忽略 RUSTSEC-2026-0543（chrono unmaintained）。现在提交时用 `SKIP=cargo-deny` 跳过这一个钩子，其余钩子照常
-- [ ] 是否推送并开 PR
 - [ ] M1 之后是否把 silent-boot 拆成独立仓库（PLAN.md 的 D1）
 
 ## M1 留到后面的小项
