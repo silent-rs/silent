@@ -700,8 +700,8 @@ silent-boot generate module --table article --package content
 | 层级 | 能力 | 实现 | 阶段 |
 |---|---|---|---|
 | L0 提示 | 待执行迁移的提醒 | `dev` 启动时只读查询待执行的迁移，提示 `silent-boot migrate up`；`--migrate` 可选在启动前执行一次 | M1 |
-| L1 进程级 | 改 Rust 后增量编译、重启、刷新浏览器 | 全局工具 `silent-boot dev`（M0 已实现，`crates/silent-boot-cli`）：`notify` 监听 `src/`、`entity/src/`、`migration/src/`、`templates/`、`Cargo.toml`（防抖 150 毫秒，系统的文件事件不可用时退回轮询）→ `cargo build` → 先 SIGTERM 再强杀旧进程 → 启动新进程。事件服务器在工具进程里（默认 `127.0.0.1:9230`），页面引入它给出的 `reload.js` 后收到 `reload` 自动刷新，构建失败时把错误盖在页面上 | M0 |
-| L1 进程级 | 编译错误可视化 | 编译输出留在终端，并通过 SSE 推到浏览器覆盖层 | M4 |
+| L1 进程级 | 改 Rust 后增量编译、重启、刷新浏览器 | 全局工具 `silent-boot dev`（M0 已实现，`crates/silent-boot-cli`）：`notify` 监听 `src/`、`entity/src/`、`migration/src/`、`templates/`、`Cargo.toml`（防抖 150 毫秒，系统的文件事件不可用时退回轮询）→ `cargo build`（旧进程接着运行）→ 构建成功才先 SIGTERM 再强杀旧进程 → 运行新产物的一份副本；构建没过就什么都不换，上一次的版本接着服务。事件服务器在工具进程里（默认 `127.0.0.1:9230`），页面引入它给出的 `reload.js` 后收到 `reload` 自动刷新，构建失败时把错误盖在页面上，并写明页面现在由上一次构建成功的版本提供服务 | M0 |
+| L1 进程级 | 编译错误可视化 | 编译输出留在终端，并通过 SSE 推到浏览器覆盖层 | M1 |
 | L1 进程级 | 前端热更新 | Vite HMR，代理 `/api` | M1 |
 | L2 运行时 | 配置热更新 | §8.3 | M4 |
 | L2 运行时 | 模板热更新 | 监听模板目录，调用 `Tera::full_reload()`（2.4.0 已核对存在，需 `glob_fs` feature）；Silent 的 `TemplateMiddleware` 只在启动时加载一次，重载由框架层处理 | M4 |
@@ -856,7 +856,9 @@ M1 的完成标准逐条对照见 `m1-verification.md`。这一节只记"实现�
 - `dev --migrate`：第一次构建成功之后先执行一次 `migrate up`，失败就不启动应用并告诉页面；默认只提示有几条迁移没执行。
   这两件事只对 silent-boot 应用做（目录里有 `silent-boot.toml`）。
 - 应用进程带着 `SB_DEV_RELOAD_URL` 启动，开发构建的应用自动把页面脚本注入 HTML，不用手改页面。
-- L1 的编译错误可视化、前端热更新（Vite）、配置和模板热更新还没做。
+- 重启的顺序是“先构建，成功才停旧进程”：构建没过时上一次的版本接着服务，终端和页面都写明了这一点（F29）。
+  运行的是构建产物的副本（`target/debug/.silent-boot-dev/<bin>`）：构建期间旧进程还在跑，Windows 上运行中的 exe 不能被覆盖。
+- 前端热更新（Vite）、配置和模板热更新还没做；编译错误的页面覆盖层已经有了。
 
 ### 17.7 代码生成（§10）
 

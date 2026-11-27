@@ -6,7 +6,7 @@
 
 ## M1 核心底座（已开草稿 PR，等 CI）
 
-完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F28 在 `docs/m1-verification.md`。
+完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F29 在 `docs/m1-verification.md`。
 
 分支：`feature/fullstack-framework`，从 `main`（d7fadde）迁出，已推送，评审在草稿 PR 里进行。
 
@@ -20,7 +20,7 @@
 - [x] 带校验的提取器 `ValidatedJson`、`ValidatedQuery`
 - [x] 前端静态资源与 SPA 兜底；`base_path`
 - [x] OpenAPI：`openapi` feature，挂载 Swagger UI，`Envelope`、`PageResult` 可以直接写进文档
-- [x] `dev` 和启动器打通：`--migrate`、待执行迁移的提示、页面脚本自动注入
+- [x] `dev` 和启动器打通：`--migrate`、待执行迁移的提示、页面脚本自动注入；构建没过时上一次的版本接着运行（F29）
 - [x] 脚手架 `new`：迁移 crate、实体 crate、分层的示例模块、接口测试、配置、Makefile、README、AGENTS.md；示例应用 `examples/demo`
 - [x] `migrate lint`、`baseline`、`repair`
 - [x] `healthcheck` 子命令

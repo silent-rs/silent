@@ -3,12 +3,14 @@
 //! - 事件服务器：页面能连上，能收到 `reload` 和 `build-error`，能取到页面脚本。
 //! - 监听器：源码变更会报信号，构建产物和文档不会。
 //! - 运行循环：变更后重启应用并通知页面；停止时把应用一起停掉。
+//! - 构建没过时不停旧进程，上一次的版本接着服务；构建成功之后才换进程（文末的测试）。
 //!
 //! macOS 的文件事件可能晚一秒左右才到，所以这里的时间上限放得比较宽。
 #![cfg(unix)]
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use silent_boot_cli::dev::{BoxFuture, Builder, DevLoop};
@@ -28,6 +30,36 @@ impl Builder for JustRun {
 
     fn bin_path(&self) -> PathBuf {
         self.0.clone()
+    }
+}
+
+/// 按开关决定这次构建成不成功，并记下“构建开始的时候，上一个应用还活着吗”。
+struct CheckThenBuild {
+    script: PathBuf,
+    pid_file: PathBuf,
+    fail: Arc<AtomicBool>,
+    previous_alive: Arc<Mutex<Vec<bool>>>,
+}
+
+impl Builder for CheckThenBuild {
+    fn bin_path(&self) -> PathBuf {
+        self.script.clone()
+    }
+
+    fn build(&self) -> BoxFuture<'_, Result<PathBuf, String>> {
+        Box::pin(async move {
+            // 第一次启动时还没有应用；之后每次重启构建都先于停旧进程，这里读到的应该是活着的上一个。
+            if let Ok(pid) = std::fs::read_to_string(&self.pid_file) {
+                self.previous_alive
+                    .lock()
+                    .expect("previous_alive")
+                    .push(process_alive(pid.trim()));
+            }
+            if self.fail.load(Ordering::SeqCst) {
+                return Err("error[E0425]: cannot find value `oops` in this scope".to_owned());
+            }
+            Ok(self.script.clone())
+        })
     }
 }
 
@@ -103,6 +135,15 @@ async fn wait_for_pid(file: &Path, previous: Option<&str>) -> String {
             "no new pid in {}",
             file.display()
         );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// 等到第 `n` 次重启的构建开始过。
+async fn wait_for_rebuilds(previous_alive: &Mutex<Vec<bool>>, n: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while previous_alive.lock().expect("previous_alive").len() < n {
+        assert!(Instant::now() < deadline, "the loop did not rebuild");
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
@@ -249,6 +290,116 @@ async fn v9_dev_loop_restarts_the_app_on_change_and_stops_it_on_shutdown() {
     assert!(!process_alive(&first), "the old app must have been stopped");
 
     // 停止循环：应用跟着停掉。
+    stop_tx.send(()).expect("stop the loop");
+    tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("the loop should finish")
+        .expect("loop task");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_alive(&second) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        !process_alive(&second),
+        "stopping the loop must stop the app"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_failed_build_keeps_the_previous_app_running_until_a_build_succeeds() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).expect("src");
+    std::fs::write(src.join("main.rs"), "fn main() {}\n").expect("main.rs");
+    let script = dir.path().join("app.sh");
+    std::fs::write(&script, "#!/bin/sh\necho $$ > pid.txt\nexec sleep 60\n").expect("script");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    let pid_file = dir.path().join("pid.txt");
+    let fail = Arc::new(AtomicBool::new(false));
+    let previous_alive = Arc::new(Mutex::new(Vec::new()));
+
+    let events = Arc::new(
+        Events::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind"),
+    );
+    let mut page = Client::get(events.addr(), "/__dev__/events").await;
+    page.expect("retry: 1000", Duration::from_secs(5)).await;
+
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    let task = tokio::spawn({
+        let events = events.clone();
+        let cwd = dir.path().to_path_buf();
+        let builder = CheckThenBuild {
+            script,
+            pid_file: pid_file.clone(),
+            fail: fail.clone(),
+            previous_alive: previous_alive.clone(),
+        };
+        async move {
+            let mut watcher = SourceWatcher::start(&[cwd.join("src")], &[]).expect("watcher");
+            DevLoop::new(builder, cwd, events)
+                .debounce(Duration::from_millis(100))
+                .grace(Duration::from_secs(2))
+                .run(watcher.changes(), async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+        }
+    });
+    let first = wait_for_pid(&pid_file, None).await;
+    assert!(process_alive(&first), "the app should be running");
+
+    // 构建没过：旧应用继续跑，页面收到 build-error，里面是编译错误。
+    fail.store(true, Ordering::SeqCst);
+    std::fs::write(src.join("main.rs"), "fn main() { println!(\"v2\"); }\n").expect("edit");
+    wait_for_rebuilds(&previous_alive, 1).await;
+    let frame = page
+        .expect("cannot find value `oops`", Duration::from_secs(5))
+        .await;
+    assert!(frame.contains("event: build-error"), "{frame}");
+    assert!(frame.contains("上一次构建成功的版本"), "{frame}");
+    // 留出足够的时间：循环要是真的去停旧进程了，这里能看出来。
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        process_alive(&first),
+        "a failed build must leave the running app alone"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&pid_file).expect("pid").trim(),
+        first,
+        "no new app may have been started"
+    );
+
+    // 构建过了：构建期间旧应用还在跑，构建完才换进程，页面收到 reload。
+    fail.store(false, Ordering::SeqCst);
+    std::fs::write(src.join("main.rs"), "fn main() { println!(\"v3\"); }\n").expect("edit");
+    let second = wait_for_pid(&pid_file, Some(&first)).await;
+    wait_for_rebuilds(&previous_alive, 2).await;
+    assert_eq!(
+        *previous_alive.lock().expect("previous_alive"),
+        vec![true, true],
+        "the previous app must be alive while the new one is being built"
+    );
+    let frame = page
+        .expect("event: reload\ndata: ", Duration::from_secs(5))
+        .await;
+    assert!(frame.contains("event: reload\n"), "{frame}");
+    assert_ne!(first, second, "the app must have been restarted");
+    assert!(process_alive(&second), "the new app should be running");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_alive(&first) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        !process_alive(&first),
+        "the old app must be stopped once the new one is built"
+    );
+
     stop_tx.send(()).expect("stop the loop");
     tokio::time::timeout(Duration::from_secs(10), task)
         .await

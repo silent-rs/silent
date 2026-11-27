@@ -1,8 +1,13 @@
 //! `dev` 运行循环：构建、运行应用，监听变更，重新构建并重启，再通知页面刷新。
 //!
 //! 这个循环放在全局工具里，不能做成应用的子命令：它要反复重启应用，
-//! 不能和被重启的进程是同一个可执行文件（Windows 上没法覆盖正在运行的 exe）。
+//! 不能和被重启的进程是同一个可执行文件。
 //! 它和应用是两个进程，所以重启应用时，页面连着的事件服务器不会断。
+//!
+//! 变更之后的顺序是“先构建，构建成功才停掉旧进程”：构建没过的时候，上一次构建成功的版本
+//! 接着服务，错误打到终端并盖在页面上，修好再保存一次才换上新版本。
+//! 运行的是构建产物的一份副本（见 [`DevLoop::install`]）：构建期间旧进程还在跑，
+//! 而 Windows 上运行中的 exe 不能被覆盖，cargo 没法把新产物写回去。
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -261,6 +266,7 @@ impl<B: Builder> DevLoop<B> {
         if !self.before_start().await {
             return None;
         }
+        let bin = Self::install(&bin);
         spawn(&bin, &self.cwd, &self.envs)
     }
 
@@ -290,24 +296,71 @@ impl<B: Builder> DevLoop<B> {
     async fn restart(&self, child: &mut Option<Child>) {
         println!("[dev] 检测到变更，重新构建…");
         let started = Instant::now();
+        // 先构建，成功之后才停旧进程：构建没过的时候，上一次的版本接着服务。
+        let built = match self.builder.build().await {
+            Ok(built) => built,
+            Err(err) => {
+                eprintln!("[dev] 构建失败：\n{err}");
+                let kept = child.is_some();
+                if kept {
+                    println!("[dev] 上一次构建成功的版本还在运行，修好之后再保存一次");
+                }
+                self.events
+                    .publish("build-error", &Self::build_error(&err, kept));
+                return;
+            }
+        };
         if let Some(mut old) = child.take() {
             stop(&mut old, self.grace).await;
         }
-        match self.builder.build().await {
-            Ok(bin) => match spawn(&bin, &self.cwd, &self.envs) {
-                Some(new) => {
-                    *child = Some(new);
-                    let elapsed = started.elapsed().as_millis();
-                    println!("[dev] 已重启，从变更到重启用了 {elapsed} 毫秒");
-                    self.events.publish("reload", &elapsed.to_string());
-                }
-                None => self
-                    .events
-                    .publish("build-error", &format!("启动 {} 失败", bin.display())),
-            },
+        let bin = Self::install(&built);
+        match spawn(&bin, &self.cwd, &self.envs) {
+            Some(new) => {
+                *child = Some(new);
+                let elapsed = started.elapsed().as_millis();
+                println!("[dev] 已重启，从变更到重启用了 {elapsed} 毫秒");
+                self.events.publish("reload", &elapsed.to_string());
+            }
+            None => self
+                .events
+                .publish("build-error", &format!("启动 {} 失败", bin.display())),
+        }
+    }
+
+    /// 盖在页面上的构建错误。上一次的版本还在服务时先说一句，免得以为页面已经不能用了。
+    fn build_error(err: &str, kept_running: bool) -> String {
+        if kept_running {
+            format!("构建没通过，页面现在由上一次构建成功的版本提供服务。\n\n{err}")
+        } else {
+            err.to_owned()
+        }
+    }
+
+    /// 把构建产物复制一份，返回要运行的副本。
+    ///
+    /// 不直接运行 `cargo build` 的产物：构建期间旧进程还在跑，而 Windows 上运行中的 exe
+    /// 不能被覆盖，cargo 写不回去。macOS 和 Linux 上 cargo 是先删掉旧文件再放新的，旧进程
+    /// 不受影响（实测见 `docs/m1-verification.md` 的 F29），副本是为了各个平台走同一条路。
+    /// 副本放在产物旁边的 `.silent-boot-dev/` 里，先写到临时名字再改名，不会留下复制了一半的文件。
+    /// 复制不了（比如副本还被上一次没退干净的进程占着）就退回运行产物本身。
+    fn install(built: &Path) -> PathBuf {
+        let (Some(dir), Some(name)) = (built.parent(), built.file_name()) else {
+            return built.to_path_buf();
+        };
+        let dir = dir.join(".silent-boot-dev");
+        let copy = dir.join(name);
+        let staging = dir.join(format!(".{}.new", name.to_string_lossy()));
+        let installed = std::fs::create_dir_all(&dir)
+            .and_then(|()| std::fs::copy(built, &staging))
+            .and_then(|_| std::fs::rename(&staging, &copy));
+        match installed {
+            Ok(()) => copy,
             Err(err) => {
-                eprintln!("[dev] 构建失败：\n{err}");
-                self.events.publish("build-error", &err);
+                eprintln!(
+                    "[dev] 复制构建产物失败（{err}），直接运行 {}",
+                    built.display()
+                );
+                built.to_path_buf()
             }
         }
     }

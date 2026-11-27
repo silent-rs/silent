@@ -19,7 +19,7 @@
 | 迁移：`migration!` 声明、`MigrationRunner` 加锁执行、对账容得下更新的数据库 | `silent_boot::db::migrate` |
 | 具名执行锁（迁移和之后的定时任务共用） | `silent_boot::db::lock` |
 | 子命令：`migrate generate / up / status / lint / baseline / repair`、`generate entity`、`generate module`、`healthcheck` | `silent_boot::cli` |
-| 全局工具：`silent-boot new` 生成应用骨架，`silent-boot dev` 构建并运行应用、监听变更、重启、刷新页面 | `silent-boot-cli` |
+| 全局工具：`silent-boot new` 生成应用骨架，`silent-boot dev` 构建并运行应用、监听变更、重启、刷新页面，编译没过时上一次的版本接着跑 | `silent-boot-cli` |
 | 示例应用：由 `new` 生成后提交，带着一个"文章"示例模块和接口测试 | `examples/demo` |
 
 ## 跑一遍
