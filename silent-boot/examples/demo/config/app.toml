@@ -1,0 +1,26 @@
+# 应用的约定配置。取值的说明见 silent-boot 的文档；环境变量可以覆盖任意一项：
+# 前缀 APP__，双下划线分层，例如 APP__DATABASE__URL、APP__SERVER__LISTEN=0.0.0.0:8080。
+
+[app]
+name = "demo"
+env = "development"            # development | test | production
+
+[server]
+listen = "127.0.0.1:8080"      # 容器里用 APP__SERVER__LISTEN 改成 0.0.0.0:8080
+
+[database]
+url = "sqlite://data/app.db"
+# max_connections = 16
+# connect_timeout = "8s"
+
+[database.migrate]
+# 应用启动时不执行迁移，结构只由 `cargo run -- migrate up` 改变。
+# 单实例的小工具可以改成 "always"。
+auto_apply = "never"
+
+# 前端开发服务器跑在别的端口时打开 CORS。
+# [cors]
+# allowed_origins = ["http://localhost:5173"]
+
+# [log]
+# level = "info"               # 也接受过滤规则，例如 "debug,sea_orm=warn"

@@ -1,0 +1,3 @@
+# 仓库根的 .gitignore 忽略所有 AGENTS.md（那是开发者本地的代理规则）。这个子树里的 AGENTS.md 是脚手架
+# 发给应用的产物，必须入库：模板用 include_str! 嵌进 silent-boot-cli，缺了会编译失败。
+!AGENTS.md

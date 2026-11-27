@@ -1,0 +1,69 @@
+[package]
+name = "silent-boot"
+description = "基于 Silent 的全栈快速开发框架"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = ["sqlite", "cli", "openapi", "compression"]
+sqlite = ["sea-orm/sqlx-sqlite", "sea-orm-migration/sqlx-sqlite"]
+# MySQL 与 PostgreSQL 交给 SeaORM 负责：框架只保证带这两个 feature 时能编译（D14）。
+mysql = ["sea-orm/sqlx-mysql", "sea-orm-migration/sqlx-mysql"]
+postgres = ["sea-orm/sqlx-postgres", "sea-orm-migration/sqlx-postgres"]
+# 响应压缩（gzip、brotli）。
+compression = ["silent/compression"]
+# Swagger UI 和 openapi.json，基于 silent-openapi。
+openapi = ["dep:silent-openapi", "dep:utoipa"]
+# 命令行解析和 `migrate` 子命令。生产镜像里的迁移 Job 也要用它，所以默认开启。
+cli = ["dep:clap"]
+# `generate entity`：sea-orm-codegen 和库结构发现。只在开发时需要，默认不开。
+# 体积数据见 docs/m0-verification.md 的 V17。
+codegen = ["cli", "dep:sea-orm-codegen", "dep:sea-schema", "dep:sqlx"]
+
+[dependencies]
+silent.workspace = true
+sea-orm.workspace = true
+futures.workspace = true
+rust-embed.workspace = true
+validator.workspace = true
+tracing-subscriber.workspace = true
+mime_guess.workspace = true
+silent-openapi = { workspace = true, optional = true }
+utoipa = { workspace = true, optional = true }
+sea-orm-migration.workspace = true
+tokio = { workspace = true, features = ["net", "sync"] }
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+log.workspace = true
+scru128.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+toml.workspace = true
+clap = { workspace = true, optional = true }
+sea-orm-codegen = { workspace = true, optional = true }
+sea-schema = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
+
+[dev-dependencies]
+silent = { workspace = true, features = ["static", "test"] }
+# 集成测试要启动真实的二进制并读它的输出。
+tokio = { workspace = true, features = ["io-util", "process"] }
+tempfile = "3"
+rust-embed = "8"
+tera = { version = "2.4", features = ["glob_fs"] }
+
+# 验证用的小应用：演示子命令命中后不启动服务。M1 会换成脚手架模板里的 main.rs。
+[[bin]]
+name = "sb-sample"
+path = "src/bin/sb_sample.rs"
+required-features = ["cli"]
+[lints.rust]
+unsafe_code = "forbid"
