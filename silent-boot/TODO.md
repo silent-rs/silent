@@ -6,7 +6,7 @@
 
 ## M1 核心底座（已开草稿 PR，等 CI）
 
-完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F27 在 `docs/m1-verification.md`。
+完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F28 在 `docs/m1-verification.md`。
 
 分支：`feature/fullstack-framework`，从 `main`（d7fadde）迁出，已推送，评审在草稿 PR 里进行。
 
@@ -34,6 +34,8 @@
 ### 待办
 
 - [ ] 你看过一遍之后把草稿 PR 转为正式（`gh pr ready 236`）
+- [ ] CI 偶发卡住（F28）：`check` 作业里的一个转发测试有一次挂了 15 分钟以上，取消后重跑通过，根因没有定位。
+      要不要按 F28 里的三个可选处理加固，等你定
 
 ## 用户还没定的事
 

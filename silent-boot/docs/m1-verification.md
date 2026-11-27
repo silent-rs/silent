@@ -111,6 +111,17 @@ Silent 的路由树里，路径为空的节点是"匹配一切"的动态子节�
 三个文件都报 `would change`，这一步必然失败。处理：这两步改在 `examples/demo` 里执行，和 README 写给用户的命令一致。
 `generate entity --dry-run` 对"文件不存在"和"内容不同"都报 `would change`，作为核对信号两者都算不一致。
 
+### F28 CI 的 `check` 作业偶发卡住：`generate_is_forwarded_with_the_codegen_feature_and_exit_codes_are_kept`
+
+PR #236 的第二次运行里，`cargo nextest run --workspace --all-features` 这一步其余 100 个测试通过，这一个测试一直没有结束
+（nextest 每 60 秒报一次 `SLOW`，到 900 秒时手动取消）。第一次运行和取消后的重跑都在 130 到 180 秒内通过；
+本机把这两个转发测试放在一起并行跑也是 46 秒通过，没有复现。取消后的日志里只有 `SLOW` 行：转发时子进程的输出被测试
+捕获，看不到卡在哪一步（等构建目录的锁、编译，还是应用子命令本身）。已知的相关事实：这个测试和
+`migrate_is_forwarded_from_a_nested_directory_with_its_arguments` 并行执行，都在 `examples/demo` 里 `cargo run`，
+共用同一个构建目录的锁，一个在编译时另一个只能等；三次运行里这两个测试和 V36 的耗时在 128 到 181 秒之间，
+随 runner 快慢浮动很大。根因还没有定位。可选的处理（都没做，等你定）：把这两个测试放进 nextest 的同一个测试组串行执行；
+给 CI 的测试步骤加 `timeout-minutes`，免得挂到作业的 6 小时上限；给转发测试加超时，超时的时候把子进程树打进失败信息里。
+
 ## 复现命令
 
 ```bash
