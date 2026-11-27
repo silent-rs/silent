@@ -1,6 +1,6 @@
 # silent-boot · 总体规划
 
-> 状态：**已确认，M0 验证完成，M1 本地完成（待 CI）** ｜ 编写日期：2026-11-25
+> 状态：**已确认，M0 验证完成，M1 完成（草稿 PR #236，CI 通过）** ｜ 编写日期：2026-11-25
 > 技术方案：[design.md](docs/design.md) ｜ 验证记录：[m0-verification.md](docs/m0-verification.md) ｜ 任务清单：[TODO.md](TODO.md)
 >
 > silent-boot 是基于 Silent 的全栈快速开发框架。它先放在 Silent 仓库里，以嵌套 workspace 的形式开发：目录 `silent-boot/`，有自己的 `Cargo.toml` 和锁文件，不进外层 workspace。是否拆成独立仓库，M1 之后再决定。
@@ -13,6 +13,7 @@
 > v0.7 变更：立项开发。按"先在 Silent 仓库内以嵌套 workspace 开发"调整 D1 与 §6 第 1 条；任务清单移到 `TODO.md`，验证结论记在 `docs/m0-verification.md`。
 > v0.8 变更：数据库能力全部交给 SeaORM（D14），框架只用 SQLite 做自动化测试；M0 的验证项全部有结论，转入 M1。
 > v0.9 变更：M1 完成。启动器、配置、统一响应与错误、迁移子命令、`new`、`dev`、`generate module` 的第一步都落地，逐条对照在 `docs/m1-verification.md`；D15 记下滚动发布时对待执行迁移的定义。
+> v0.10 变更：`dev` 在终端里是分栏面板（左边重启、执行迁移、回退迁移、看迁移状态，右边日志），`--plain` 换回直接打印；`migrate down --steps N` 落地（只回退应用迁移，只在开发环境可用）。M4 的“`dev` 增强”里浏览器刷新、错误覆盖层、面板已在 M1 之后做掉，剩下 OpenAPI 到 TS 类型同步。
 
 ## 1. 背景与定位
 
@@ -108,10 +109,10 @@
 | 里程碑 | 内容 | 优先级 | 完成标准 |
 |---|---|---|---|
 | **M0 验证与定稿** | 最小 spike：Silent + SeaORM 2.0 + 迁移 + SQLite 跑通；定稿 §8 决策；建仓库与 CI | P0 | design.md §16 每项验证有结论；D1–D13 定稿；spike 的 `cargo check` 与 `nextest` 通过 |
-| **M1 核心底座** | 启动器、脚手架 `new`、分层模板、统一响应与错误、OpenAPI、SeaORM 接入；**迁移核心**：`migrate generate / up / status / lint` 与 `generate entity`（包入 sea-orm-cli 的能力，作为应用子命令执行）、框架迁移与应用迁移分表、执行锁、SQLite 事务化；`dev` 运行循环（构建、启动、监听、重启、刷新）、`/healthz` 与 `/readyz`、优雅关停 | P0 | `new` 出的项目 5 分钟内可运行；内置示例模块的 CRUD 有 TestClient 集成测试（成功、参数错误、404）；`/swagger` 可访问；SQLite 上从零建库通过，带 `mysql`、`postgres` feature 时能编译，两进程并发执行迁移只跑一次，"旧版本建库后升级"测试通过，`generate entity` 对同样的表输出与基准命令一致；`fmt`、`clippy -D warnings`、`nextest` 全部通过；生成项目 `cargo check` 零警告 |
+| **M1 核心底座** | 启动器、脚手架 `new`、分层模板、统一响应与错误、OpenAPI、SeaORM 接入；**迁移核心**：`migrate generate / up / down / status / lint` 与 `generate entity`（包入 sea-orm-cli 的能力，作为应用子命令执行）、框架迁移与应用迁移分表、执行锁、SQLite 事务化；`dev` 运行循环（构建、启动、监听、重启、刷新）和在终端里的分栏面板、`/healthz` 与 `/readyz`、优雅关停 | P0 | `new` 出的项目 5 分钟内可运行；内置示例模块的 CRUD 有 TestClient 集成测试（成功、参数错误、404）；`/swagger` 可访问；SQLite 上从零建库通过，带 `mysql`、`postgres` feature 时能编译，两进程并发执行迁移只跑一次，"旧版本建库后升级"测试通过，`generate entity` 对同样的表输出与基准命令一致；`fmt`、`clippy -D warnings`、`nextest` 全部通过；生成项目 `cargo check` 零警告 |
 | **M2 认证与 RBAC** | 登录、刷新、登出；用户、角色、菜单、部门、字典、参数、日志（系统表由框架迁移创建）；认证与权限中间件；管理前端基座（登录、布局、动态菜单） | P0 | 集成测试覆盖错误密码、锁定、过期、撤销、401 与 403；双节点下角色变更 5 秒内生效；前端可登录并按菜单渲染；全新数据库首次启动完成框架迁移并引导默认管理员（随机密码只打印一次） |
 | **M3 代码生成（CLI）** | 从表生成 dto、service、api、路由注册、菜单 SQL、前端页面（实体由 `generate entity` 负责）；新表的迁移骨架（`migrate generate --table`）；模板可覆盖 | P0 | 对示例库 10 张表生成后 `cargo check` 通过；重复生成不破坏手改内容；分层规范机检通过；"文章管理"从建表到联调端到端通过 |
-| **M4 配置中心与开发体验** | 分层配置、内置 Provider、热更新、变更订阅、管理页；`dev` 增强（浏览器刷新、错误覆盖层、OpenAPI 到 TS 类型同步） | P1 | 合并优先级有单测；远端变更 5 秒内生效，非法配置被拒绝并告警；远端不可达时用本地缓存启动；改 Rust 自动重启并刷新浏览器；改配置和模板不重启 |
+| **M4 配置中心与开发体验** | 分层配置、内置 Provider、热更新、变更订阅、管理页；`dev` 增强（浏览器刷新、错误覆盖层、分栏面板已在 M1 之后做掉；剩 OpenAPI 到 TS 类型同步） | P1 | 合并优先级有单测；远端变更 5 秒内生效，非法配置被拒绝并告警；远端不可达时用本地缓存启动；改 Rust 自动重启并刷新浏览器；改配置和模板不重启 |
 | **M5 分布式部署与可观测性** | 多副本验证、任务互斥、缓存版本失效、迁移 Job 与滚动发布联动、部署产物与发布流程、监控页 | P1 | 3 副本下令牌互通、定时任务只执行一次（计数验证）、滚动重启 0 个 5xx；先迁移后滚动发布的流程演练通过；K8s 清单在 kind 或 k3s 部署成功；镜像非 root 并记录体积 |
 | **M6 在线生成与稳定化** | 管理界面内代码生成、代码热补丁实验、文档与示例、安全检查、发布 | P2 | 在线生成可用；热补丁实验报告；文档覆盖快速开始、指南、API；安全清单通过；发布流程演练 |
 
@@ -127,7 +128,7 @@
 6. **最小 crate 数起步**：先 `silent-boot`（核心）、`silent-boot-cli`（全局工具）、`web/`、`templates/`；配置中心、RBAC 以 feature 提供，编译时间或解耦确有需要时再拆 crate。
 7. **生成的代码零警告**：`clippy -D warnings` 是脚手架与生成器的验收线。
 8. **迁移优先**：数据库结构只通过迁移变更；实体和业务模块都由迁移执行后的库派生。SeaORM 的迁移器不带执行锁、迁移记录不含校验和，这两点由框架补齐（执行锁、审计、事务化），不 fork。
-9. **命令行是唯一入口**：迁移和代码生成都是显式命令，在应用的依赖图里执行以保证版本一致；`dev` 只做运行循环，不代劳。sea-orm-cli 保留为后门。
+9. **命令行是唯一入口**：迁移和代码生成都是显式命令，在应用的依赖图里执行以保证版本一致；`dev` 只做运行循环，不自动代劳（面板里的迁移操作是使用者按了键才执行）。sea-orm-cli 保留为后门。
 10. **约定即契约**：实体固定生成到应用根目录的 `entity/src/`，索引为 `lib.rs`；`generate entity` 以 `sea-orm-cli generate entity --with-serde both -v -o entity/src/ -l` 为基准命令，默认行为与它一致。框架依赖的生成项不提供参数，需要不同布局时直接用 sea-orm-cli。
 
 ## 7. 风险与应对

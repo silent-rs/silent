@@ -135,6 +135,25 @@ macOS 上实测：cargo 是先删掉旧文件再放新的（产物的 inode 从 
 编译失败时产物不会被碰。Windows 上运行中的 exe 不能被覆盖或删除，cargo 写不回去。所以各个平台统一运行副本：
 停掉旧进程之后，把产物复制到副本（先写临时名字再改名，不会留下复制了一半的文件），再启动；复制不了时退回运行产物本身。
 
+### F30 `dev` 的分栏面板和 `migrate down` 在示例应用上的实测
+
+在 `examples/demo` 里跑 `silent-boot dev`（沙箱里的终端是 80×24：左栏 46 列，右栏只剩 32 列，日志按右栏的宽度折行）。
+左栏显示“应用：运行中 · pid 61067”“待执行迁移：0 条”（启动前查了一次），操作是 `r` 重启、`m` 执行迁移、`d` 回退一步、
+`s` 迁移状态、`c` 清空日志、`q` 退出；右栏是 dev 自己的消息和应用的日志，`INFO` 一类不上色，`WARN` 和标准错误是黄色，`ERROR` 是红色。
+按键逐个试过：`s` 把两组迁移的状态打进日志；`d` 先出“再按一次 d 确认回退一步迁移，按别的键取消”，再按一次才执行；
+`m` 之后提示“migrate up：完成”，并提醒“表结构变了的话按 r 重启”；`r` 走一遍“手动重启，重新构建…”，旧进程收到 SIGTERM，
+222 毫秒后新进程起来，状态里是“上次重启 222 毫秒”；`q` 退出，应用跟着停，终端恢复，退出码 0。
+
+第一次按 `d` 时回退失败：示例应用那条迁移原来没写 `down`，应用报 `down is not implemented for this migration`，
+面板提示“migrate down --steps 1：失败”，记录和表都没变，这正是没写 `down` 时应有的结果。之后给示例迁移补上 `down`（删表），
+`migrate generate` 生成的骨架里也加了一句提示：要回退就补 `async fn down`。命令行上再试：`cargo run -- migrate down`
+回退 `m20261126_000001_create_article`（`article` 表没了、`seaql_migrations` 清空），`migrate up` 重新建回来。
+
+渲染和按键不依赖终端：`tests/dev_tui.rs` 用 ratatui 的 TestBackend 画到内存里，断言左栏在左、日志在右、汉字后面那一列
+不重复拼进文本、长行按右栏的宽度折行、翻上去之后不再跟新行、`End` 回到最新、40×8 的终端也不崩。运行循环那边
+`tests/dev_loop.rs` 新增两个测试：命令通道上的重启和三个迁移子命令真的跑了应用的子命令（看它写下的记录），
+不在 silent-boot 应用里时只解释、什么都不跑。
+
 ## 复现命令
 
 ```bash
@@ -171,4 +190,7 @@ cargo +1.94 check --manifest-path examples/demo/Cargo.toml --all-targets
 # F25：dev 循环。在应用的目录里运行全局工具（装了 silent-boot-cli 之后就是 `silent-boot dev --migrate`）。
 # 另开一个终端改 src/ 下的文件，或者访问 http://127.0.0.1:9230/__dev__/events
 cd examples/demo && cargo run -q --manifest-path ../../Cargo.toml -p silent-boot-cli -- dev --migrate
+
+# F30：dev 的分栏面板，需要一个终端。按键：r 重启、m 执行迁移、d 两次回退、s 迁移状态、q 退出；--plain 不用面板。
+cargo run -q --manifest-path ../../Cargo.toml -p silent-boot-cli -- dev
 ```

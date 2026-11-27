@@ -702,6 +702,7 @@ silent-boot generate module --table article --package content
 | L0 提示 | 待执行迁移的提醒 | `dev` 启动时只读查询待执行的迁移，提示 `silent-boot migrate up`；`--migrate` 可选在启动前执行一次 | M1 |
 | L1 进程级 | 改 Rust 后增量编译、重启、刷新浏览器 | 全局工具 `silent-boot dev`（M0 已实现，`crates/silent-boot-cli`）：`notify` 监听 `src/`、`entity/src/`、`migration/src/`、`templates/`、`Cargo.toml`（防抖 150 毫秒，系统的文件事件不可用时退回轮询）→ `cargo build`（旧进程接着运行）→ 构建成功才先 SIGTERM 再强杀旧进程 → 运行新产物的一份副本；构建没过就什么都不换，上一次的版本接着服务。事件服务器在工具进程里（默认 `127.0.0.1:9230`），页面引入它给出的 `reload.js` 后收到 `reload` 自动刷新，构建失败时把错误盖在页面上，并写明页面现在由上一次构建成功的版本提供服务 | M0 |
 | L1 进程级 | 编译错误可视化 | 编译输出留在终端，并通过 SSE 推到浏览器覆盖层 | M1 |
+| L1 进程级 | `dev` 面板 | 终端里分栏：左边是状态和操作（重启、`migrate up`、`migrate down`、`migrate status`），右边是日志；回退要按两次确认。不是终端或带 `--plain` 时原样打印 | M1 |
 | L1 进程级 | 前端热更新 | Vite HMR，代理 `/api` | M1 |
 | L2 运行时 | 配置热更新 | §8.3 | M4 |
 | L2 运行时 | 模板热更新 | 监听模板目录，调用 `Tera::full_reload()`（2.4.0 已核对存在，需 `glob_fs` feature）；Silent 的 `TemplateMiddleware` 只在启动时加载一次，重载由框架层处理 | M4 |
@@ -841,11 +842,14 @@ M1 的完成标准逐条对照见 `m1-verification.md`。这一节只记"实现�
   `--since <Git 引用>` 只看新增的文件（包括还没提交的）。
 - `migrate baseline` 只处理应用的迁移：把待执行的迁移标记成已执行，不建表；框架的迁移照常由 `migrate up` 执行。
 - `migrate repair --applied|--pending <版本> [--scope app|framework]` 把一条迁移标记成已执行或未执行。
+- `migrate down [--steps N]`（默认 1）只回退应用的迁移，从最后执行的那条往回，全程拿锁；框架迁移不动。
+  每条迁移的 `down` 成功才删跟踪记录，`down` 没写或失败时立刻停下，前面回退过的不重做；数据库里有这个版本不认识的迁移时
+  不拒绝，只在输出里列成 `newer`。只在 `APP_ENV=development` 可用，别的环境在连库之前就拒绝。回退不写执行记录。
 
 ### 17.5 命令行（§13）
 
 已经有的：`migrate generate / up / status / lint / baseline / repair`、`generate entity`、`generate module --table`、`healthcheck`、
-全局工具的 `new`、`dev`，以及把 `migrate`、`generate`、`healthcheck` 转发给应用（从当前目录往上找 `silent-boot.toml` 定位应用；应用的输出和退出码原样返回）。还没有的：`migrate down / fresh / refresh / reset`、`generate module` 之外的平台选项、`generate openapi-types`、`check`。
+全局工具的 `new`、`dev`（在终端里是分栏面板，见 §17.6），以及把 `migrate`、`generate`、`healthcheck` 转发给应用（从当前目录往上找 `silent-boot.toml` 定位应用；应用的输出和退出码原样返回）。还没有的：`migrate fresh / refresh / reset`、`generate module` 之外的平台选项、`generate openapi-types`、`check`。
 子命令的输出可以写到调用方给的缓冲区，`--json` 目前只有 `migrate status` 有。
 
 数据库地址的优先级：`--database-url`、环境变量 `SB_DATABASE_URL`、配置文件里的 `[database].url`。
@@ -858,6 +862,13 @@ M1 的完成标准逐条对照见 `m1-verification.md`。这一节只记"实现�
 - 应用进程带着 `SB_DEV_RELOAD_URL` 启动，开发构建的应用自动把页面脚本注入 HTML，不用手改页面。
 - 重启的顺序是“先构建，成功才停旧进程”：构建没过时上一次的版本接着服务，终端和页面都写明了这一点（F29）。
   运行的是构建产物的副本（`target/debug/.silent-boot-dev/<bin>`）：构建期间旧进程还在跑，Windows 上运行中的 exe 不能被覆盖。
+- 在终端里 `dev` 是分栏面板（`crates/silent-boot-cli/src/tui.rs`，ratatui + crossterm）：左边是状态（进程、正在做的事、
+  上次重启用时、待执行的迁移数）和操作（`r` 重启、`m` 执行迁移、`d` 回退一步迁移、`s` 迁移状态、`c` 清空日志、`q` 退出），
+  右边是日志：贴着最新的一行，翻上去之后不再跟着跑，`End` 回到最新。回退要按两次 `d`。面板里的迁移操作是跑应用自己的
+  `migrate` 子命令，应用不停，所以执行完会提醒“表结构变了的话按 r 重启”。标准输入输出不是终端、或者带 `--plain` 时，
+  换成原样打印。
+- 运行循环不碰终端：消息、应用和子命令的输出、状态变化都交给一个 `Reporter`（面板、原样打印各是一种）；
+  文件变更之外还接收命令（重启、迁移），见 `crates/silent-boot-cli/src/dev.rs`。
 - 前端热更新（Vite）、配置和模板热更新还没做；编译错误的页面覆盖层已经有了。
 
 ### 17.7 代码生成（§10）

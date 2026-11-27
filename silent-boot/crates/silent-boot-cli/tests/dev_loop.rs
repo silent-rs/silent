@@ -13,12 +13,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use silent_boot_cli::dev::{BoxFuture, Builder, DevLoop};
+use silent_boot_cli::dev::{BoxFuture, Builder, DevCommand, DevLoop, DevStatus, Reporter};
 use silent_boot_cli::events::Events;
 use silent_boot_cli::watch::SourceWatcher;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 /// 不构建，直接返回给定的可执行文件。
 struct JustRun(PathBuf);
@@ -413,4 +413,249 @@ async fn a_failed_build_keeps_the_previous_app_running_until_a_build_succeeds() 
         !process_alive(&second),
         "stopping the loop must stop the app"
     );
+}
+
+/// 记下循环说过的话和应用输出过的东西，测试好断言。
+#[derive(Clone, Default)]
+struct Notes(Arc<Mutex<Vec<String>>>);
+
+impl Reporter for Notes {
+    fn note(&self, line: String) {
+        self.0.lock().expect("notes").push(line);
+    }
+
+    fn output(&self, _stderr: bool, line: String) {
+        self.0.lock().expect("notes").push(line);
+    }
+
+    fn status(&self, _status: DevStatus) {}
+}
+
+/// 等到循环说过含 `needle` 的话。
+async fn wait_for_said(notes: &Mutex<Vec<String>>, needle: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !notes
+        .lock()
+        .expect("notes")
+        .iter()
+        .any(|line| line.contains(needle))
+    {
+        assert!(
+            Instant::now() < deadline,
+            "{needle:?} never showed up in {:?}",
+            notes.lock().expect("notes")
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// 等到 `log` 里至少有 `lines` 行。
+async fn wait_for_log(log: &Path, lines: usize) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while std::fs::read_to_string(log)
+        .map(|text| text.lines().count())
+        .unwrap_or(0)
+        < lines
+    {
+        assert!(
+            Instant::now() < deadline,
+            "{} never reached {lines} lines",
+            log.display()
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+const SCRIPT_URL: &str = "http://127.0.0.1:9230/__dev__/reload.js";
+
+/// “应用”：认 `migrate` 的三个子命令，其余情况当作启动。子命令的输出同时写进文件和标准输出。
+fn app_with_migrate(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
+    let script = dir.join("app.sh");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+case "$1 $2" in
+  "migrate up") echo "up" | tee -a log.txt; exit 0 ;;
+  "migrate down") echo "down $4" | tee -a log.txt; exit 0 ;;
+  "migrate status") echo status >> log.txt; echo '[]'; exit 0 ;;
+esac
+echo "run $SB_DEV_RELOAD_URL" >> log.txt
+echo $$ > pid.txt
+exec sleep 60
+"#,
+    )
+    .expect("script");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    }
+    (script, dir.join("log.txt"), dir.join("pid.txt"))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn commands_restart_the_app_and_run_the_migrate_subcommands_of_the_app() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).expect("src");
+    std::fs::write(src.join("main.rs"), "fn main() {}\n").expect("main.rs");
+    let (script, log, pid_file) = app_with_migrate(dir.path());
+    let notes = Notes::default();
+
+    let events = Arc::new(
+        Events::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind"),
+    );
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    let (commands_tx, commands_rx) = mpsc::channel::<DevCommand>(16);
+    let task = tokio::spawn({
+        let events = events.clone();
+        let cwd = dir.path().to_path_buf();
+        let reporter: Arc<dyn Reporter> = Arc::new(notes.clone());
+        async move {
+            let mut watcher = SourceWatcher::start(&[cwd.join("src")], &[]).expect("watcher");
+            DevLoop::with_reporter(JustRun(script), cwd, events, reporter)
+                .envs(vec![(
+                    "SB_DEV_RELOAD_URL".to_owned(),
+                    SCRIPT_URL.to_owned(),
+                )])
+                .debounce(Duration::from_millis(100))
+                .grace(Duration::from_secs(2))
+                .migrate_commands(true)
+                .run_with_commands(watcher.changes(), commands_rx, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+        }
+    });
+    let first = wait_for_pid(&pid_file, None).await;
+    assert!(process_alive(&first), "the app should be running");
+    // 启动之前数过一次待执行的迁移。
+    wait_for_log(&log, 2).await;
+
+    commands_tx
+        .send(DevCommand::MigrateUp)
+        .await
+        .expect("send MigrateUp");
+    wait_for_said(&notes.0, "`migrate up` 执行完").await;
+    commands_tx
+        .send(DevCommand::MigrateDown { steps: 1 })
+        .await
+        .expect("send MigrateDown");
+    wait_for_said(&notes.0, "down 1").await;
+    commands_tx
+        .send(DevCommand::MigrateStatus)
+        .await
+        .expect("send MigrateStatus");
+    wait_for_said(&notes.0, "`migrate status` 执行完").await;
+    // 应用没有因为迁移被停掉。
+    assert!(process_alive(&first));
+    // 启动之前数一次待执行的迁移；每条迁移命令之后（包括看状态）再数一次。
+    assert_eq!(
+        std::fs::read_to_string(&log)
+            .expect("log")
+            .lines()
+            .collect::<Vec<_>>(),
+        vec![
+            "status",
+            "run http://127.0.0.1:9230/__dev__/reload.js",
+            "up",
+            "status",
+            "down 1",
+            "status",
+            "status",
+            "status",
+        ]
+    );
+
+    commands_tx
+        .send(DevCommand::Restart)
+        .await
+        .expect("send Restart");
+    wait_for_said(&notes.0, "手动重启").await;
+    let second = wait_for_pid(&pid_file, Some(&first)).await;
+    assert_ne!(first, second, "the app must have been restarted");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_alive(&first) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!process_alive(&first), "the old app must have been stopped");
+
+    stop_tx.send(()).expect("stop the loop");
+    tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("the loop should finish")
+        .expect("loop task");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while process_alive(&second) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        !process_alive(&second),
+        "stopping the loop must stop the app"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outside_a_silent_boot_app_migration_commands_explain_and_do_nothing() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).expect("src");
+    std::fs::write(src.join("main.rs"), "fn main() {}\n").expect("main.rs");
+    let (script, log, pid_file) = app_with_migrate(dir.path());
+    let notes = Notes::default();
+
+    let events = Arc::new(
+        Events::bind("127.0.0.1:0".parse().unwrap())
+            .await
+            .expect("bind"),
+    );
+    let (stop_tx, stop_rx) = oneshot::channel::<()>();
+    let (commands_tx, commands_rx) = mpsc::channel::<DevCommand>(16);
+    let task = tokio::spawn({
+        let events = events.clone();
+        let cwd = dir.path().to_path_buf();
+        let reporter: Arc<dyn Reporter> = Arc::new(notes.clone());
+        async move {
+            std::fs::create_dir_all(cwd.join("idle")).expect("idle dir");
+            let mut watcher = SourceWatcher::start(&[cwd.join("idle")], &[]).expect("watcher");
+            DevLoop::with_reporter(JustRun(script), cwd, events, reporter)
+                .envs(vec![(
+                    "SB_DEV_RELOAD_URL".to_owned(),
+                    SCRIPT_URL.to_owned(),
+                )])
+                .migrate_commands(false)
+                .run_with_commands(watcher.changes(), commands_rx, async {
+                    let _ = stop_rx.await;
+                })
+                .await;
+        }
+    });
+    let first = wait_for_pid(&pid_file, None).await;
+    wait_for_log(&log, 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // 这里不是 silent-boot 应用：启动时不去数待执行的迁移。
+    assert_eq!(
+        std::fs::read_to_string(&log).expect("log").lines().count(),
+        1
+    );
+
+    commands_tx
+        .send(DevCommand::MigrateUp)
+        .await
+        .expect("send MigrateUp");
+    wait_for_said(&notes.0, "没有 `migrate up` 子命令").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        std::fs::read_to_string(&log).expect("log").lines().count(),
+        1
+    );
+    assert!(process_alive(&first));
+
+    stop_tx.send(()).expect("stop the loop");
+    tokio::time::timeout(Duration::from_secs(10), task)
+        .await
+        .expect("the loop should finish")
+        .expect("loop task");
 }

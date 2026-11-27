@@ -4,7 +4,7 @@
 
 ## 命令
 
-- 新增迁移：`cargo run -- migrate generate "<名称>"`，然后在生成的文件里写 `up`。
+- 新增迁移：`cargo run -- migrate generate "<名称>"`，然后在生成的文件里写 `up`；要能用 `migrate down`（或 `silent-boot dev` 面板里的 `d`）回退的，再写 `down`，没写的回退时会报错、记录不变。
 - 执行迁移：`cargo run -- migrate up`。状态：`cargo run -- migrate status`。
 - 重新生成实体：`cargo run --features codegen -- generate entity`。
 - 检查：`cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo nextest run`。

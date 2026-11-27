@@ -18,6 +18,8 @@ cargo run                    # 启动，http://127.0.0.1:8080
 cargo install silent-boot-cli    # 全局工具，只需要装一次
 silent-boot dev --migrate
 ```
+在终端里它是分栏面板：左边重启（`r`）、执行迁移（`m`）、回退一步迁移（`d`，按两次确认）、迁移状态（`s`），右边是日志；编译没过时上一次的版本接着跑。
+加 `--plain` 换成直接打印日志。
 
 装了全局工具之后，下面的命令都可以把 `cargo run --features codegen --` 换成 `silent-boot`：
 `silent-boot migrate up`、`silent-boot migrate generate "create order"`、`silent-boot generate entity`。

@@ -55,3 +55,7 @@ validator = { version = "0.21", features = ["derive"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "chrono"] }
 silent-openapi = { path = "../silent-openapi" }
 utoipa = { version = "6", features = ["chrono"] }
+# dev 的分栏面板：只用得到 crossterm 后端，别的后端和日历控件都不要
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = { version = "0.29", default-features = false, features = ["events"] }
+unicode-width = "0.2"

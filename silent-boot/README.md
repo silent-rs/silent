@@ -18,8 +18,8 @@
 | 统一响应与错误：`{ code, message, data, traceId }`；`AppError`；提取器的拒绝响应和 panic 都是包络 | `silent_boot::web` |
 | 迁移：`migration!` 声明、`MigrationRunner` 加锁执行、对账容得下更新的数据库 | `silent_boot::db::migrate` |
 | 具名执行锁（迁移和之后的定时任务共用） | `silent_boot::db::lock` |
-| 子命令：`migrate generate / up / status / lint / baseline / repair`、`generate entity`、`generate module`、`healthcheck` | `silent_boot::cli` |
-| 全局工具：`silent-boot new` 生成应用骨架，`silent-boot dev` 构建并运行应用、监听变更、重启、刷新页面，编译没过时上一次的版本接着跑 | `silent-boot-cli` |
+| 子命令：`migrate generate / up / down / status / lint / baseline / repair`、`generate entity`、`generate module`、`healthcheck` | `silent_boot::cli` |
+| 全局工具：`silent-boot new` 生成应用骨架，`silent-boot dev` 构建并运行应用、监听变更、重启、刷新页面；在终端里是分栏面板（左边重启、迁移、回退，右边日志），编译没过时上一次的版本接着跑 | `silent-boot-cli` |
 | 示例应用：由 `new` 生成后提交，带着一个"文章"示例模块和接口测试 | `examples/demo` |
 
 ## 跑一遍
@@ -34,9 +34,10 @@ cargo run                                        # 启动：http://127.0.0.1:808
 cargo test                                       # 示例模块的接口测试
 
 silent-boot migrate generate "create order"      # 新增一条迁移：生成文件并登记
+silent-boot migrate down --steps 1               # 回退最后执行的那条迁移（只在开发环境可用）
 silent-boot generate entity                      # 按库结构重新生成实体（自动带上 --features codegen）
 silent-boot generate module --table order        # 按表生成 dto、service、api 并登记
-silent-boot dev --migrate                        # 改代码自动重启，页面自动刷新
+silent-boot dev --migrate                        # 分栏面板：r 重启、m 迁移、d 回退、s 状态，右边日志；--plain 不用面板
 ```
 
 和数据库打交道的子命令（`migrate …`、`generate …`）只有一个实现，在应用里（`silent_boot::cli`）：

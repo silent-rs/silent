@@ -11,28 +11,40 @@ use tokio::sync::mpsc;
 pub struct SourceWatcher {
     _watcher: Box<dyn notify::Watcher + Send>,
     changes: mpsc::Receiver<()>,
+    polling: bool,
 }
 
 impl SourceWatcher {
     /// 递归监听 `dirs`，非递归监听 `files`。
     ///
-    /// 优先用系统的文件事件；用不了（个别沙箱和挂载的文件系统会这样）就退回每 500 毫秒轮询一次。
+    /// 优先用系统的文件事件；用不了（个别沙箱和挂载的文件系统会这样）就退回每 500 毫秒轮询一次，
+    /// 这时 [`SourceWatcher::is_polling`] 返回 `true`。
     pub fn start(dirs: &[PathBuf], files: &[PathBuf]) -> notify::Result<Self> {
         let (tx, changes) = mpsc::channel(16);
         let signal = Signal(tx);
-        let created = match watch_all(notify::recommended_watcher(signal.clone()), dirs, files) {
-            Ok(watcher) => watcher,
-            Err(err) => {
-                eprintln!("[dev] 系统的文件事件监听不可用（{err}），改为每 500 毫秒轮询");
-                let config =
-                    notify::Config::default().with_poll_interval(Duration::from_millis(500));
-                watch_all(notify::PollWatcher::new(signal, config), dirs, files)?
-            }
-        };
+        let (created, polling) =
+            match watch_all(notify::recommended_watcher(signal.clone()), dirs, files) {
+                Ok(watcher) => (watcher, false),
+                Err(err) => {
+                    eprintln!("[dev] 系统的文件事件监听不可用（{err}），改为每 500 毫秒轮询");
+                    let config =
+                        notify::Config::default().with_poll_interval(Duration::from_millis(500));
+                    (
+                        watch_all(notify::PollWatcher::new(signal, config), dirs, files)?,
+                        true,
+                    )
+                }
+            };
         Ok(Self {
             _watcher: created,
             changes,
+            polling,
         })
+    }
+
+    /// 是不是退回了轮询：这时的变更最多晚 500 毫秒才被发现。
+    pub fn is_polling(&self) -> bool {
+        self.polling
     }
 
     /// 变更信号。连续的变更会各发一个，合并和防抖由运行循环负责。

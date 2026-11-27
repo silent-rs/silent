@@ -6,7 +6,7 @@
 
 ## M1 核心底座（已开草稿 PR，等 CI）
 
-完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F29 在 `docs/m1-verification.md`。
+完成标准见 `PLAN.md` §5，逐条对照和实测发现 F16–F30 在 `docs/m1-verification.md`。
 
 分支：`feature/fullstack-framework`，从 `main`（d7fadde）迁出，已推送，评审在草稿 PR 里进行。
 
@@ -25,6 +25,8 @@
 - [x] `migrate lint`、`baseline`、`repair`
 - [x] `healthcheck` 子命令
 - [x] 全局工具把 `migrate`、`generate`、`healthcheck` 转发给应用：`silent-boot migrate up`、`silent-boot generate entity` 都能在应用目录里直接用
+- [x] `migrate down --steps N`：只回退应用迁移、只在开发环境可用；没写 `down` 的迁移回退时报错，记录不变
+- [x] `dev` 的分栏面板：左边重启、执行迁移、回退迁移、迁移状态，右边日志；`--plain` 换回直接打印
 - [x] `mysql`、`postgres` feature：能编译
 - [x] 迁移对账容得下更新的数据库；执行锁显式释放；"旧版本建库后升级"和"两个进程同时迁移"的测试
 - [x] `generate module` 的第一步：按表生成 dto、service、api 并登记
@@ -45,7 +47,7 @@
 
 ## M1 留到后面的小项
 
-- [ ] `migrate down / fresh / refresh / reset`（只在开发环境可用）
+- [ ] `migrate fresh / refresh / reset`（只在开发环境可用；`down` 已经做了）
 - [ ] 所有子命令的 `--json` 输出（现在只有 `migrate status`）
 - [ ] 命名连接的迁移目录和 `--db <name>`
 - [ ] Silent 的 `Logger` 中间件的 `peer` 只读 `x-real-ip`，没有就是 `-`；框架自己的访问日志里补上 TCP 对端和可信代理解析（配合 M2 的 `trusted_proxies`）
