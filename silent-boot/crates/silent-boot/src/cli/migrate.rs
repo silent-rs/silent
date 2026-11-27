@@ -86,6 +86,9 @@ fn skeleton(description: &str) -> String {
          \n\
          silent_boot::migration! {{\n\
          \x20   /// {description}\n\
+         \x20   ///\n\
+         \x20   /// 要能用 `migrate down` 回退的话，在 `up` 后面补一个\n\
+         \x20   /// `async fn down(manager: &SchemaManager) -> Result<(), DbErr>`；没写的迁移回退时会报错。\n\
          \x20   pub struct Migration;\n\
          \n\
          \x20   async fn up(_manager: &SchemaManager) -> Result<(), DbErr> {{\n\

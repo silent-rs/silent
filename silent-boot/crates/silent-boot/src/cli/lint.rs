@@ -3,7 +3,8 @@
 //! 检查两件事：
 //!
 //! - 迁移文件里有删表、删列、改名、清空、改列这类破坏性操作时，文件里必须有一行
-//!   `// silent-boot: destructive`，说明是有意为之；
+//!   `// silent-boot: destructive`，说明是有意为之。只看 `up`：`down` 本来就是往回删，
+//!   而且只在开发环境跑，不用标记；
 //! - `migration/src/` 下的迁移文件都登记进了迁移器的受管区块，登记的文件也都存在。
 //!
 //! 检查的是源码文本，不编译：所以字符串里的原生 SQL 也能查到，注释里的写法会被忽略。
@@ -193,7 +194,9 @@ pub fn lint(migration_dir: &Path, added: Option<&[PathBuf]>) -> Result<LintRepor
         if source.contains(DESTRUCTIVE_MARKER) {
             continue;
         }
-        for (index, line) in source.lines().enumerate() {
+        // 只看 `up`：`down` 本来就是往回删，而且只在开发环境跑，不用标记。
+        let up_only = source.split("async fn down").next().unwrap_or(&source);
+        for (index, line) in up_only.lines().enumerate() {
             let code = strip_comment(line).to_ascii_lowercase();
             if let Some((_, code)) = RULES.iter().find(|(pattern, _)| code.contains(pattern)) {
                 report.findings.push(Finding {
@@ -419,6 +422,28 @@ Box::new(m20261126_000002_drop_note::Migration),
         );
         assert!(report.findings[0].advice.contains(DESTRUCTIVE_MARKER));
         assert_eq!(report.checked, 1);
+    }
+
+    #[test]
+    fn down_is_not_checked_for_destructive_operations() {
+        let (_dir, migration) = workspace();
+        write(&migration.join("src"), "lib.rs", LIB);
+        write(
+            &migration.join("src"),
+            "m20261126_000001_create_article.rs",
+            "async fn up(_manager: &SchemaManager) -> Result<(), DbErr> { Ok(()) }\n",
+        );
+        write(
+            &migration.join("src"),
+            "m20261126_000002_drop_note.rs",
+            "async fn up(_manager: &SchemaManager) -> Result<(), DbErr> { Ok(()) }\n\
+             async fn down(manager: &SchemaManager) -> Result<(), DbErr> {\n\
+             manager.drop_table(Table::drop().table(A::Note).to_owned()).await\n\
+             }\n",
+        );
+        let report = lint(&migration, None).unwrap();
+        assert!(report.findings.is_empty(), "{report:#?}");
+        assert_eq!(report.checked, 2);
     }
 
     #[test]

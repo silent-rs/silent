@@ -46,4 +46,11 @@ silent_boot::migration! {
             )
             .await
     }
+
+    // 回退：删表。开发时用 `migrate down`，或者 `silent-boot dev` 面板里的 `d`。
+    async fn down(manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(Table::drop().table(Article::Table).to_owned())
+            .await
+    }
 }
