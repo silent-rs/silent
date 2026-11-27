@@ -92,9 +92,11 @@ jobs:
         run: cargo clippy --manifest-path examples/demo/Cargo.toml --all-targets -- -D warnings
       - name: Test the example
         run: cargo nextest run --manifest-path examples/demo/Cargo.toml
+      # 应用子命令从当前目录向上找 silent-boot.toml 来定位应用根目录，所以要在应用目录里执行。
       - name: The entity files are what `generate entity` produces for the example schema
+        working-directory: silent-boot/examples/demo
         run: |
-          cargo run -q --manifest-path examples/demo/Cargo.toml -- migrate up
-          cargo run -q --manifest-path examples/demo/Cargo.toml --features codegen -- generate entity --dry-run > entity.log
+          cargo run -q -- migrate up
+          cargo run -q --features codegen -- generate entity --dry-run > entity.log
           cat entity.log
           ! grep -q "would change" entity.log

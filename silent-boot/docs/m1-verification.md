@@ -96,6 +96,21 @@ Silent 的路由树里，路径为空的节点是"匹配一切"的动态子节�
 页面里出现 `<script src="http://127.0.0.1:9230/__dev__/reload.js" async></script>`；
 改一行源码之后 2.8 秒页面收到 `event: reload`（其中约 0.5 秒是沙箱里轮询的间隔）；Ctrl-C 之后应用一起停掉；给应用发 SIGTERM 时它走 Silent 的优雅关停（`shutdown signal received`），dev 循环随之结束。
 
+### F26 根 `.gitignore` 把脚手架模板里的 `AGENTS.md` 一起忽略了
+
+仓库根的 `.gitignore` 有一行 `AGENTS.md`（开发者本地的代理规则，不入库），它对子目录同样生效：
+`crates/silent-boot-cli/templates/app/AGENTS.md` 和 `examples/demo/AGENTS.md` 都没有被跟踪（模板目录 26 个文件只进去了 25 个）。
+本机有这两个文件，所以一切正常；CI 检出后 `include_str!` 找不到模板，`silent-boot-cli` 根本编译不过。
+处理：加 `silent-boot/.gitignore`（一行 `!AGENTS.md`）把这个子树里的 `AGENTS.md` 重新包含进来，模板和示例里的那份都已入库。
+
+### F27 应用子命令要在应用目录里执行，`--manifest-path` 不改变应用根目录
+
+`app_root()` 从当前目录向上找 `silent-boot.toml`，找不到就用当前目录。CI 的示例作业原来在 `silent-boot/` 下用
+`--manifest-path examples/demo/Cargo.toml` 跑 `migrate up` 和 `generate entity --dry-run`：cargo 知道要构建哪个包，
+但应用根目录落到了 `silent-boot/`——库建在 `silent-boot/data/app.db`，实体核对的是不存在的 `silent-boot/entity/src`，
+三个文件都报 `would change`，这一步必然失败。处理：这两步改在 `examples/demo` 里执行，和 README 写给用户的命令一致。
+`generate entity --dry-run` 对"文件不存在"和"内容不同"都报 `would change`，作为核对信号两者都算不一致。
+
 ## 复现命令
 
 ```bash
@@ -114,9 +129,11 @@ cargo run -q -p silent-boot-cli -- new demo --path-framework ../crates/silent-bo
 git diff --exit-code -- demo
 cargo clippy --manifest-path demo/Cargo.toml --all-targets -- -D warnings
 cargo nextest run --manifest-path demo/Cargo.toml
-cargo run -q --manifest-path demo/Cargo.toml -- migrate up
-cargo run -q --manifest-path demo/Cargo.toml --features codegen -- generate entity --dry-run
-cd ..
+# 应用子命令从当前目录向上找 silent-boot.toml 来定位应用根目录，所以要进到应用里执行
+cd demo
+cargo run -q -- migrate up
+cargo run -q --features codegen -- generate entity --dry-run
+cd ../..
 
 # V36：generate module（会拷一份示例应用、删掉手写模块、再用生成器补回来）
 cargo nextest run -p silent-boot --all-features -E 'test(v36)'
