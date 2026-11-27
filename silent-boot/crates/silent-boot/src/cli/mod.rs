@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 use sea_orm::DatabaseConnection;
 
-use crate::config::{AppConfig, ConfigError};
+use crate::config::{AppConfig, ConfigError, Env};
 use crate::db::connect::{self, ConnectError, ConnectOptions};
 use crate::db::migrate::{AnyMigrator, MigrateError};
 
@@ -122,6 +122,15 @@ pub enum Migrate {
         /// 以 JSON 输出。
         #[arg(long)]
         json: bool,
+        /// 覆盖配置里的数据库地址。
+        #[arg(long, value_name = "URL")]
+        database_url: Option<String>,
+    },
+    /// 回退最后执行的几条应用迁移。框架迁移不动。只能在开发环境用。
+    Down {
+        /// 最多回退几条，从最后执行的那条开始往回数。
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..))]
+        steps: u32,
         /// 覆盖配置里的数据库地址。
         #[arg(long, value_name = "URL")]
         database_url: Option<String>,
@@ -360,6 +369,20 @@ pub async fn dispatch<W: io::Write>(
                     out,
                 )
                 .await?;
+            }
+            Migrate::Down {
+                steps,
+                database_url,
+            } => {
+                // 回滚会丢数据，只在开发环境开放；先看环境再连库。
+                let env = ctx.config()?.app.env;
+                if env != Env::Development {
+                    return Err(CommandError::Failed(format!(
+                        "migrate down 只能在开发环境使用，当前的 APP_ENV 是 {env}"
+                    )));
+                }
+                let db = ctx.connect(database_url.as_deref()).await?;
+                migrate::down(&db, ctx.framework.as_dyn(), ctx.app.as_dyn(), steps, out).await?;
             }
             Migrate::Status { json, database_url } => {
                 let db = ctx.connect(database_url.as_deref()).await?;

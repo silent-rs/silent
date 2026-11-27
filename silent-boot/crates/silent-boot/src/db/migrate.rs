@@ -109,6 +109,16 @@ pub trait Migrator: Send + Sync {
     ) -> Result<(), DbErr>;
     /// 建跟踪表，已经存在时什么都不做。
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr>;
+    /// 回退给定的迁移并删掉跟踪记录，从最后执行的那条开始，最多 `steps` 条。返回回退了哪些。
+    ///
+    /// `applied` 是 [`Migrator::migration_names`] 里已经执行的那些，按执行顺序。
+    /// 某一条的 `down` 失败（包括没实现）时立刻返回，前面已经回退的不会重新执行。
+    async fn revert(
+        &self,
+        db: &DatabaseConnection,
+        applied: &[String],
+        steps: u32,
+    ) -> Result<Vec<String>, DbErr>;
 
     /// 和跟踪表对账。不建表、不加锁。
     async fn diff(&self, db: &DatabaseConnection) -> Result<MigrationDiff, DbErr> {
@@ -175,6 +185,41 @@ impl<T: MigratorTrait + Sync + 'static> Migrator for T {
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
         T::install(db).await
     }
+
+    async fn revert(
+        &self,
+        db: &DatabaseConnection,
+        applied: &[String],
+        steps: u32,
+    ) -> Result<Vec<String>, DbErr> {
+        let table = T::migration_table_name();
+        let backend = db.get_database_backend();
+        let mut reverted = Vec::new();
+        // 从最后执行的那条往回走；和执行时一样决定要不要放进事务。
+        for migration in T::migrations().into_iter().rev() {
+            if reverted.len() >= steps as usize {
+                break;
+            }
+            let name = migration.name().to_owned();
+            if !applied.contains(&name) {
+                continue;
+            }
+            let use_txn = migration
+                .use_transaction()
+                .unwrap_or(backend == sea_orm::DatabaseBackend::Postgres);
+            if use_txn {
+                let txn = db.begin().await?;
+                migration.down(&SchemaManager::new(&txn)).await?;
+                delete_record(&txn, &table, &name).await?;
+                txn.commit().await?;
+            } else {
+                migration.down(&SchemaManager::new(db)).await?;
+                delete_record(db, &table, &name).await?;
+            }
+            reverted.push(name);
+        }
+        Ok(reverted)
+    }
 }
 
 #[async_trait]
@@ -202,6 +247,15 @@ impl Migrator for AnyMigrator {
 
     async fn install(&self, db: &DatabaseConnection) -> Result<(), DbErr> {
         self.0.install(db).await
+    }
+
+    async fn revert(
+        &self,
+        db: &DatabaseConnection,
+        applied: &[String],
+        steps: u32,
+    ) -> Result<Vec<String>, DbErr> {
+        self.0.revert(db, applied, steps).await
     }
 }
 
@@ -423,6 +477,32 @@ impl MigrationRunner {
         ])
     }
 
+    /// 回退应用迁移：从最后执行的那条开始，最多 `steps` 条，全程持有执行锁。
+    ///
+    /// 只回退应用迁移，框架迁移不动：它们的表是框架自己用的，回退之后迁移记录和执行锁都没处放。
+    /// 某一条的 `down` 失败（包括没实现）时立刻返回，前面已经回退的不会重新执行。
+    /// 数据库里没有能回退的迁移时返回空的列表。跟踪表里有这个版本不认识的迁移时不拒绝：
+    /// 回退的始终是“这个版本认识的、已经执行的”里面最后的那几条。
+    pub async fn down(
+        &self,
+        db: &DatabaseConnection,
+        app: &dyn Migrator,
+        steps: u32,
+    ) -> Result<Vec<String>, MigrateError> {
+        let options = LockOptions {
+            timeout: self.lock_timeout,
+            ..LockOptions::default()
+        };
+        let guard = lock::acquire(db, LOCK_NAME, &self.instance, &options).await?;
+        let result = async {
+            let diff = app.diff(db).await?;
+            app.revert(db, &diff.applied, steps).await
+        }
+        .await;
+        guard.release().await;
+        Ok(result?)
+    }
+
     async fn run_group(
         &self,
         db: &DatabaseConnection,
@@ -549,6 +629,20 @@ async fn insert_record<C: ConnectionTrait>(
             version.to_owned().into(),
             chrono::Utc::now().timestamp().into(),
         ])
+        .to_owned();
+    db.execute(&stmt).await?;
+    Ok(())
+}
+
+/// 删掉一行跟踪记录：迁移回退之后，`migrate up` 才会重新执行它。
+async fn delete_record<C: ConnectionTrait>(
+    db: &C,
+    table: &DynIden,
+    version: &str,
+) -> Result<(), DbErr> {
+    let stmt = Query::delete()
+        .from_table(table.clone())
+        .and_where(Expr::col(Alias::new("version")).eq(version))
         .to_owned();
     db.execute(&stmt).await?;
     Ok(())

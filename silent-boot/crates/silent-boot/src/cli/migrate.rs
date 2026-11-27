@@ -206,6 +206,36 @@ pub async fn status<W: io::Write>(
     Ok(())
 }
 
+/// `migrate down`：回退最后执行的几条应用迁移，框架迁移不动。结果写到 `out`。
+///
+/// 只能在开发环境用，这一条由调用方检查。跟踪表里有这个版本不认识的迁移时不拒绝：
+/// 先把它们列出来，回退的始终是这个版本认识的、已经执行的里面最后的那几条。
+pub async fn down<W: io::Write>(
+    db: &DatabaseConnection,
+    framework: &dyn Migrator,
+    app: &dyn Migrator,
+    steps: u32,
+    out: &mut W,
+) -> Result<(), MigrateError> {
+    let groups = MigrationRunner::status(db, framework, app).await?;
+    for name in &groups[1].unknown {
+        writeln!(
+            out,
+            "newer    {name}（这个版本不认识它，回退的是本版本认识的最后几条）"
+        )?;
+    }
+    let reverted = MigrationRunner::default().down(db, app, steps).await?;
+    if reverted.is_empty() {
+        writeln!(out, "app: 没有可以回退的迁移")?;
+    } else {
+        writeln!(out, "app: {} reverted", reverted.len())?;
+        for name in reverted {
+            writeln!(out, "  {name}")?;
+        }
+    }
+    Ok(())
+}
+
 fn print_groups<W: io::Write>(
     groups: &[GroupStatus],
     show_applied: bool,

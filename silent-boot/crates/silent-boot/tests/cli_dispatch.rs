@@ -648,3 +648,46 @@ async fn v35_two_processes_migrate_at_once_and_only_one_applies() {
     // 锁已经释放：表里没有还占着的行。
     assert_eq!(count(&url, "SELECT COUNT(*) AS c FROM sb_locks").await, 0);
 }
+
+#[tokio::test]
+async fn v37_migrate_down_reverts_in_development_and_is_refused_elsewhere() {
+    use common::reversible::ReversibleMigrator;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let url = format!("sqlite://{}?mode=rwc", dir.path().join("t.db").display());
+    let vars = [(cli::DATABASE_URL_ENV.to_owned(), url.clone())];
+    let dev = CommandContext::with_env(
+        dir.path(),
+        AnyMigrator::new(ReversibleMigrator),
+        vars.clone(),
+    );
+    let (result, _) = run(&["migrate", "up"], &dev).await;
+    result.expect("migrate up");
+    assert_eq!(tracked(&url, "seaql_migrations").await.len(), 2);
+
+    // 默认回退一条：最后执行的那条。
+    let (result, out) = run(&["migrate", "down"], &dev).await;
+    result.expect("migrate down");
+    assert!(out.contains("app: 1 reverted"), "{out}");
+    assert!(out.contains("m20261127_000002_create_note"), "{out}");
+    assert_eq!(tracked(&url, "seaql_migrations").await.len(), 1);
+
+    // 不是开发环境：拒绝，连库之前就拒绝，记录不变。
+    let production = vars
+        .clone()
+        .into_iter()
+        .chain([("APP_ENV".to_owned(), "production".to_owned())]);
+    let prod =
+        CommandContext::with_env(dir.path(), AnyMigrator::new(ReversibleMigrator), production);
+    let (result, _) = run(&["migrate", "down", "--steps", "5"], &prod).await;
+    let err = result.expect_err("down is refused outside development");
+    assert!(err.to_string().contains("只能在开发环境"), "{err}");
+    assert!(err.to_string().contains("production"), "{err}");
+    assert_eq!(tracked(&url, "seaql_migrations").await.len(), 1);
+
+    // `--steps` 至少是 1。
+    assert!(
+        cli::parse_from(["app", "migrate", "down", "--steps", "0"]).is_err(),
+        "--steps 0 must be rejected"
+    );
+}

@@ -7,6 +7,7 @@ pub mod app;
 #[allow(unused_imports)]
 pub mod entity;
 pub mod fail;
+pub mod reversible;
 pub mod skeleton;
 
 use std::time::Duration;

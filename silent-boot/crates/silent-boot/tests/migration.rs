@@ -347,3 +347,110 @@ async fn a_release_that_diverged_from_the_database_refuses_to_migrate() {
     assert!(!column_exists(&db, "article", "extra_renamed").await);
     assert!(column_exists(&db, "article", "extra").await);
 }
+
+#[tokio::test]
+async fn down_reverts_the_last_applied_app_migrations_and_never_touches_the_framework() {
+    use common::reversible::{OnlyTagMigrator, ReversibleMigrator};
+
+    const CREATE_TAG: &str = "m20261127_000001_create_tag";
+    const CREATE_NOTE: &str = "m20261127_000002_create_note";
+    let (_dir, db) = common::temp_db().await;
+    let runner = MigrationRunner::new("down");
+
+    // 库里还没有迁移：没有可以回退的，也不报错。
+    let reverted = runner
+        .down(&db, &ReversibleMigrator, 1)
+        .await
+        .expect("nothing to revert");
+    assert!(reverted.is_empty());
+
+    runner
+        .up(&db, &FrameworkMigrator, &ReversibleMigrator, None)
+        .await
+        .expect("up");
+    assert!(table_exists(&db, "tag").await && table_exists(&db, "note").await);
+
+    // 回退两条：从最后执行的那条往回。框架迁移不动，它的跟踪表原样。
+    let reverted = runner
+        .down(&db, &ReversibleMigrator, 2)
+        .await
+        .expect("down two");
+    assert_eq!(reverted, vec![CREATE_NOTE, CREATE_TAG]);
+    assert!(!table_exists(&db, "tag").await);
+    assert!(!table_exists(&db, "note").await);
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS c FROM seaql_migrations").await,
+        0
+    );
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS c FROM sb_migrations").await,
+        1
+    );
+
+    // 回退之后 `migrate up` 会重新执行；只回退一条时另一条留着。
+    runner
+        .up(&db, &FrameworkMigrator, &ReversibleMigrator, None)
+        .await
+        .expect("up again");
+    let reverted = runner
+        .down(&db, &ReversibleMigrator, 1)
+        .await
+        .expect("down one");
+    assert_eq!(reverted, vec![CREATE_NOTE]);
+    assert!(table_exists(&db, "tag").await);
+    assert!(!table_exists(&db, "note").await);
+    let status = MigrationRunner::status(&db, &FrameworkMigrator, &ReversibleMigrator)
+        .await
+        .expect("status");
+    assert_eq!(status[1].applied, vec![CREATE_TAG.to_owned()]);
+    assert_eq!(status[1].pending, vec![CREATE_NOTE.to_owned()]);
+
+    // 数据库里有这个版本不认识的迁移：不拒绝，回退的是这个版本认识的最后一条，不认识的不碰。
+    runner
+        .up(&db, &FrameworkMigrator, &ReversibleMigrator, None)
+        .await
+        .expect("up before the old release");
+    let reverted = runner
+        .down(&db, &OnlyTagMigrator, 5)
+        .await
+        .expect("down with newer rows in the database");
+    assert_eq!(reverted, vec![CREATE_TAG]);
+    assert!(!table_exists(&db, "tag").await);
+    assert!(
+        table_exists(&db, "note").await,
+        "the newer migration is left alone"
+    );
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS c FROM seaql_migrations").await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn down_stops_at_a_migration_without_down_and_keeps_its_record() {
+    use common::app::AppMigrator;
+
+    let (_dir, db) = common::temp_db().await;
+    let runner = MigrationRunner::new("down-without-down");
+    runner
+        .up(&db, &FrameworkMigrator, &AppMigrator, None)
+        .await
+        .expect("up");
+
+    // 最后执行的那条没写 `down`：报错，记录和表都原样，`migrate up` 也不会重跑它。
+    let err = runner
+        .down(&db, &AppMigrator, 1)
+        .await
+        .expect_err("the seed migration has no down");
+    assert!(err.to_string().contains("down is not implemented"), "{err}");
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS c FROM seaql_migrations").await,
+        2
+    );
+    assert!(table_exists(&db, "article").await);
+    assert_eq!(article_rows(&db).await, 2);
+    let status = MigrationRunner::status(&db, &FrameworkMigrator, &AppMigrator)
+        .await
+        .expect("status");
+    assert!(status[1].pending.is_empty());
+}
